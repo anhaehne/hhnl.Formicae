@@ -103,7 +103,6 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
     {
         UpsertPullRequestCommentCalls.Add(new UpsertPullRequestCommentCall(workflow.Id, workflow.PullRequestUrl, body));
-        pullRequestComments.RemoveAll(comment => PullRequestCommentMarkers.IsAutomationComment(comment.Body));
         pullRequestComments.Add(new PullRequestComment(
             $"formicae:{workflow.Id:N}:address-comments",
             "formicae",

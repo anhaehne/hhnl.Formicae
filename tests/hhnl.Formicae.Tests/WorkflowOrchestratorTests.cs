@@ -608,7 +608,7 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
-    public async Task GitHubSourceControlProvider_Creates_marked_pull_request_comment_when_missing()
+    public async Task GitHubSourceControlProvider_Posts_marked_pull_request_comment()
     {
         var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
         Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
@@ -629,10 +629,7 @@ public sealed class WorkflowOrchestratorTests
 
             await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
 
-            Assert.Equal([
-                "GET https://api.github.com/repos/acme/widgets/issues/123/comments",
-                "POST https://api.github.com/repos/acme/widgets/issues/123/comments"
-            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/123/comments"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
             Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
             Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Addressed the requested changes."));
         }
@@ -681,8 +678,9 @@ public sealed class WorkflowOrchestratorTests
             Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
         }
     }
+
     [Fact]
-    public async Task GitHubSourceControlProvider_Updates_marked_pull_request_comment_when_present()
+    public async Task GitHubSourceControlProvider_Posts_new_marked_pull_request_comment_when_present()
     {
         var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
         Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
@@ -703,10 +701,7 @@ public sealed class WorkflowOrchestratorTests
 
             await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
 
-            Assert.Equal([
-                "GET https://api.github.com/repos/acme/widgets/issues/123/comments",
-                "PATCH https://api.github.com/repos/acme/widgets/issues/comments/77"
-            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/123/comments"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
             Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
             Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Updated summary."));
         }
