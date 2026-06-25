@@ -10,11 +10,7 @@ resources:
   - postgres.yaml
   - api-deployment.yaml
   - api-service.yaml
-  - worker-cronjob.yaml
 images:
   - name: hhnl-formicae-api
     newName: docker.io/limeray/hhnl-formicae-api
-    newTag: latest
-  - name: hhnl-formicae-worker
-    newName: docker.io/limeray/hhnl-formicae-worker
     newTag: latest

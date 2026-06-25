@@ -66,6 +66,11 @@ public interface IWorkflowStore
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
 }
 
+public interface IWorkflowOrchestrationLock
+{
+    ValueTask<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken);
+}
+
 public interface IPromptRenderer
 {
     Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken);

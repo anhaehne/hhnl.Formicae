@@ -3,7 +3,6 @@
 The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 - `formicae-api` ASP.NET Core API Deployment and ClusterIP Service
-- `formicae-worker` CronJob for one-shot workflow advancement
 - PostgreSQL Deployment, Service, and PVC for MVP persistence
 - ConfigMap and Secret placeholders for runtime configuration
 - ServiceAccount, Role, and RoleBinding for namespace-scoped Job/Pod/Log access
@@ -14,9 +13,7 @@ Build and push images with your registry tag:
 
 ```powershell
 podman build -f src/hhnl.Formicae.Api/Dockerfile -t docker.io/limeray/hhnl-formicae-api:latest .
-podman build -f src/hhnl.Formicae.Worker/Dockerfile -t docker.io/limeray/hhnl-formicae-worker:latest .
 podman push docker.io/limeray/hhnl-formicae-api:latest
-podman push docker.io/limeray/hhnl-formicae-worker:latest
 ```
 
 If you use a different registry or tag, update `deploy/kubernetes/base/kustomization.yaml` or run:
@@ -46,7 +43,6 @@ The API always applies EF Core migrations on startup when PostgreSQL persistence
 kubectl apply -k deploy/kubernetes/base
 kubectl rollout status deployment/formicae-postgres -n formicae
 kubectl rollout status deployment/formicae-api -n formicae
-kubectl get cronjob formicae-worker -n formicae
 ```
 
 Port-forward the API for a smoke test:
@@ -68,8 +64,6 @@ $body = @{
 
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-issue -ContentType application/json -Body $body
 ```
-
-
 
 ## Helm Chart
 
@@ -97,7 +91,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.14
+  --set image.tag=0.1.15
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -142,7 +136,6 @@ stringData:
   GITHUB_TOKEN: "<replace-me>"
 ```
 
-
 ### GitHub Webhooks
 
 Formicae accepts GitHub webhooks at:
@@ -174,7 +167,7 @@ helm upgrade --install formicae formicae/formicae `
   --set secrets.githubWebhookSecret='<replace-me>'
 ```
 
-When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the workflow loop immediately; unsupported events are acknowledged but ignored. Pull request comment and review deliveries can requeue completed workflows when new feedback is added after a previous comment-addressing pass.
+When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the distributed-lock-protected API workflow loop immediately; unsupported events are acknowledged but ignored. Pull request comment and review deliveries can requeue completed workflows when new feedback is added after a previous comment-addressing pass.
 
 Apply the runtime Secret:
 
@@ -218,35 +211,32 @@ kubectl create secret generic formicae-codex-auth `
   --from-file=auth.json="$HOME/.codex/auth.json"
 ```
 
-3. Enable Codex auth for worker-triggered agent Jobs:
+3. Enable Codex auth for API-triggered agent Jobs:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set config.openHandsAuthMethod=CodexSubscription `
-  --set worker.codexAuth.enabled=true
+  --set agentJobs.codexAuth.enabled=true
 ```
 
-With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The chart mounts the Secret as `/root/.codex/auth.json` in the worker container and in agent Jobs created by Formicae. If your agent image runs as a different user, override the `.codex` directory path:
+With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The chart configures agent Jobs created by Formicae to mount the Secret as `/root/.codex/auth.json`. If your agent image runs as a different user, override the `.codex` directory path:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --set config.openHandsAuthMethod=CodexSubscription `
-  --set worker.codexAuth.enabled=true `
-  --set worker.codexAuth.mountPath=/home/app/.codex
+  --set agentJobs.codexAuth.enabled=true `
+  --set agentJobs.codexAuth.mountPath=/home/app/.codex
 ```
 
 Treat `LLM_API_KEY`, `formicae-codex-auth`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners.
 
-Codex auth is used by worker-triggered agent Jobs, not the API. You do not need to restart the API after changing `formicae-codex-auth`. New Jobs read the updated Secret when they start; either wait for the next CronJob run or start one immediately:
-
-```powershell
-kubectl create job --from=cronjob/formicae-worker "formicae-worker-manual-$(Get-Random)" -n formicae
-```
+Codex auth is used by API-triggered agent Jobs. The API does not mount the auth file itself; new agent Jobs read the updated Secret when they start.
 
 The chart defaults `image.tag` to the current chart app version. The GitHub Actions image workflow tags images with the .NET project version from `Directory.Build.props`, so chart `appVersion`, chart defaults, and pushed image tags should be kept aligned when releasing.
+
 ## Kubernetes E2E Tests
 
 Kubernetes E2E tests live in a separate project and are not part of the normal solution test path.

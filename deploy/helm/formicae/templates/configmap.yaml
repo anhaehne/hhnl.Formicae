@@ -32,6 +32,6 @@ data:
   KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
   KubernetesJobs__RuntimeSecretName: {{ .Values.secrets.runtimeSecretName | quote }}
   KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
-  KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.worker.codexAuth.secretName "" .Values.worker.codexAuth.enabled | quote }}
-  KubernetesJobs__CodexAuthSecretKey: {{ .Values.worker.codexAuth.secretKey | quote }}
-  KubernetesJobs__CodexAuthMountPath: {{ .Values.worker.codexAuth.mountPath | quote }}
+  KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.agentJobs.codexAuth.secretName "" .Values.agentJobs.codexAuth.enabled | quote }}
+  KubernetesJobs__CodexAuthSecretKey: {{ .Values.agentJobs.codexAuth.secretKey | quote }}
+  KubernetesJobs__CodexAuthMountPath: {{ .Values.agentJobs.codexAuth.mountPath | quote }}

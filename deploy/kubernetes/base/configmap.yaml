@@ -7,6 +7,10 @@ metadata:
 data:
   ASPNETCORE_HTTP_PORTS: "8080"
   UseFakeAdapters: "false"
+  PersistenceMode: "Postgres"
+  WorkItemMode: "GitHub"
+  SourceControlMode: "GitHub"
+  AgentMode: "OpenHands"
   OpenHands__AuthMethod: "ApiKey"
   OpenHands__DefaultModel: ""
   WorkflowDiscovery__Enabled: "true"

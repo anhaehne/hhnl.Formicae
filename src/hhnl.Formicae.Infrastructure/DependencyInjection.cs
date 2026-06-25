@@ -26,6 +26,7 @@ public static class DependencyInjection
         if (configuration.GetValue("UseFakeAdapters", true))
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
+            services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
             services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
             services.AddSingleton<IAgentRunner, FakeAgentRunner>();
@@ -35,11 +36,13 @@ public static class DependencyInjection
         if (IsMode(configuration, "PersistenceMode", "InMemory"))
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
+            services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
         else
         {
             services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
+            services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
 
         if (IsMode(configuration, "WorkItemMode", "Fake"))

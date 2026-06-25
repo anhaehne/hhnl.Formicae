@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.1.14"
+  tag: "0.1.15"
   pullPolicy: IfNotPresent
 
 api:
@@ -21,24 +21,12 @@ api:
       cpu: 500m
       memory: 512Mi
 
-worker:
-  image:
-    repository: hhnl-formicae-worker
-  schedule: "*/1 * * * *"
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
+agentJobs:
   codexAuth:
     enabled: false
     secretName: formicae-codex-auth
     secretKey: auth.json
     mountPath: /root/.codex
-  resources:
-    requests:
-      cpu: 50m
-      memory: 96Mi
-    limits:
-      cpu: 250m
-      memory: 256Mi
 
 config:
   aspnetcoreHttpPorts: "8080"
