@@ -6,6 +6,15 @@
 - Keep changes scoped to the user's current request.
 - Do not revert user changes unless explicitly asked.
 
+## Merging Policy
+
+- Update from the target base branch before merging branches.
+- Review incoming changes for conflicts with current work and repository instructions.
+- Do not overwrite or revert user changes unless explicitly asked.
+- Prefer small, focused merges and resolve conflicts intentionally.
+- Run relevant validation after resolving conflicts.
+- Check version files when the merge includes source or documentation changes, following the existing `## Versioning` section.
+
 ## Agent OS Overview
 
 This repository uses Agent OS project-local documentation and skills:
