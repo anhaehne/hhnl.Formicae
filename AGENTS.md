@@ -98,6 +98,12 @@ When invoking a skill, follow its `SKILL.md` instructions exactly.
 - DevOps integrations: GitHub and Azure DevOps.
 - Agent harness: existing CLI with plan mode and goal mode.
 
+
+## Versioning
+
+- Increase the project version for every source change using Semantic Versioning.
+- Keep `Directory.Build.props`, `deploy/helm/formicae/Chart.yaml`, `deploy/helm/formicae/values.yaml`, and release/deployment docs aligned to the same version.
+- Use a patch bump for bug fixes and documentation-only release changes, a minor bump for backward-compatible features, and a major bump for breaking changes.
 ## Implementation Guidance
 
 - Prefer Kubernetes-native designs for orchestration and agent execution.
