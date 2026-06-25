@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: publish-helm-chart
+  cancel-in-progress: false
+
 env:
   CHART_DIR: deploy/helm/formicae
 
@@ -74,10 +78,12 @@ jobs:
           repo_url="https://${owner}.github.io/${repo}"
 
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git worktree add .chart-repo origin/gh-pages
+            git fetch origin gh-pages:gh-pages
+            git worktree add .chart-repo gh-pages
           else
             git worktree add --detach .chart-repo
-            find .chart-repo -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            git -C .chart-repo checkout --orphan gh-pages
+            git -C .chart-repo rm -rf .
           fi
 
           cp .chart-packages/*.tgz .chart-repo/
@@ -96,5 +102,5 @@ jobs:
           fi
 
           git commit -m "Publish Helm chart ${{ steps.version.outputs.value }}"
-          git push origin HEAD:gh-pages
+          git push origin gh-pages:refs/heads/gh-pages
           popd
