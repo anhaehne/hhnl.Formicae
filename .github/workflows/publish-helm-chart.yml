@@ -1,0 +1,100 @@
+name: Publish Helm chart
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CHART_DIR: deploy/helm/formicae
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Read project version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content ./Directory.Build.props
+          $version = $props.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Directory.Build.props must contain Project/PropertyGroup/Version."
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Align chart version with project version
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+
+          $chartPath = Join-Path "${{ env.CHART_DIR }}" "Chart.yaml"
+          $chart = Get-Content $chartPath -Raw
+          $chart = $chart -replace '(?m)^version:\s*.+$', "version: $version"
+          $chart = $chart -replace '(?m)^appVersion:\s*.+$', "appVersion: `"$version`""
+          Set-Content -Path $chartPath -Value $chart -NoNewline
+
+          $valuesPath = Join-Path "${{ env.CHART_DIR }}" "values.yaml"
+          $values = Get-Content $valuesPath -Raw
+          $values = $values -replace '(?m)^  tag:\s*.+$', "  tag: `"$version`""
+          Set-Content -Path $valuesPath -Value $values -NoNewline
+
+      - name: Package chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .chart-packages
+          helm lint "$CHART_DIR"
+          helm package "$CHART_DIR" --destination .chart-packages
+
+      - name: Publish chart repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo_url="https://${owner}.github.io/${repo}"
+
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git worktree add .chart-repo origin/gh-pages
+          else
+            git worktree add --detach .chart-repo
+            find .chart-repo -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          fi
+
+          cp .chart-packages/*.tgz .chart-repo/
+
+          pushd .chart-repo
+          if [ -f index.yaml ]; then
+            helm repo index . --url "$repo_url" --merge index.yaml
+          else
+            helm repo index . --url "$repo_url"
+          fi
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "No chart repository changes to publish."
+            exit 0
+          fi
+
+          git commit -m "Publish Helm chart ${{ steps.version.outputs.value }}"
+          git push origin HEAD:gh-pages
+          popd

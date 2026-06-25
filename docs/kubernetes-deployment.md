@@ -73,21 +73,25 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-i
 
 ## Helm Chart
 
-A Helm chart is available in this repository at `deploy/helm/formicae`. The chart deploys PostgreSQL by default through `postgres.enabled=true`.
+A Helm chart is published from this repository as an index-based Helm repository. The chart deploys PostgreSQL by default through `postgres.enabled=true`.
+
+Add the chart repository:
+
+```powershell
+helm repo add formicae https://anhaehne.github.io/hhnl.Formicae
+helm repo update
+```
 
 Render the chart locally:
 
 ```powershell
-helm template formicae deploy/helm/formicae --namespace formicae
+helm template formicae formicae/formicae --namespace formicae
 ```
 
-Install or upgrade from a checkout of the repository:
+Install or upgrade from the Helm repository:
 
 ```powershell
-git clone https://github.com/anhaehne/hhnl.Formicae.git
-cd hhnl.Formicae
-
-helm upgrade --install formicae deploy/helm/formicae `
+helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
