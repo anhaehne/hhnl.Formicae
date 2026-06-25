@@ -21,7 +21,7 @@ public sealed class FilePromptRenderer : IPromptRenderer
             .Replace("{{pull_request_comments}}", FormatPullRequestComments(pullRequestComments), StringComparison.Ordinal)
             .Replace("{{issue_title}}", workItem?.Title ?? string.Empty, StringComparison.Ordinal)
             .Replace("{{issue_body}}", workItem?.Body ?? string.Empty, StringComparison.Ordinal)
-            .Replace("{{issue_comments}}", string.Join(Environment.NewLine, workItem?.Comments ?? []), StringComparison.Ordinal);
+            .Replace("{{issue_comments}}", FormatIssueComments(workItem?.UserComments ?? []), StringComparison.Ordinal);
     }
 
     private static async Task<string> LoadTemplateAsync(TaskRunKind kind, CancellationToken cancellationToken)
@@ -46,6 +46,12 @@ public sealed class FilePromptRenderer : IPromptRenderer
             : DefaultTemplate(kind);
     }
 
+
+    private static string FormatIssueComments(IReadOnlyList<WorkItemComment> comments)
+        => string.Join(Environment.NewLine + Environment.NewLine, comments.Select(comment =>
+            $"[{comment.Author} at {comment.UpdatedAt:O}]" + Environment.NewLine +
+            $"URL: {comment.Url}" + Environment.NewLine +
+            comment.Body));
     private static string FormatPullRequestComments(IReadOnlyList<PullRequestComment> comments)
         => string.Join(Environment.NewLine + Environment.NewLine, comments.Select(comment =>
             $"[{comment.Kind}] {comment.Author} at {comment.UpdatedAt:O}" + Environment.NewLine +

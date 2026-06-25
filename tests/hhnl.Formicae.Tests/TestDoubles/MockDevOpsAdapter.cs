@@ -12,6 +12,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<ListIssuesWithLabelCall> ListIssuesWithLabelCalls { get; } = [];
     public List<UpsertIssueCommentCall> UpsertIssueCommentCalls { get; } = [];
     public List<ReactToIssueCall> ReactToIssueCalls { get; } = [];
+    public List<AddIssueCommentCall> AddIssueCommentCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreatePullRequestCall> CreatePullRequestCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
@@ -26,10 +27,40 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
 
     public MockDevOpsAdapter AddIssueWithLabels(string issueUrl, string title, string body, IReadOnlyList<string> labels, params string[] comments)
     {
-        workItems[issueUrl] = new WorkItem(issueUrl, title, body, comments, labels);
+        workItems[issueUrl] = new WorkItem(
+            issueUrl,
+            title,
+            body,
+            comments.Select((comment, index) => new WorkItemComment(
+                $"comment-{index + 1}",
+                "commenter",
+                comment,
+                $"{issueUrl}#issuecomment-{index + 1}",
+                DateTimeOffset.MinValue)).ToArray(),
+            labels);
         return this;
     }
 
+
+    public MockDevOpsAdapter AddIssueComment(
+        string issueUrl,
+        string id,
+        string author,
+        string body,
+        DateTimeOffset? updatedAt = null)
+    {
+        var existing = workItems.TryGetValue(issueUrl, out var workItem)
+            ? workItem
+            : new WorkItem(issueUrl, "Mock DevOps work item", "Default mock work item body.", [], [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]);
+
+        workItems[issueUrl] = existing with
+        {
+            Comments = existing.Comments.Concat([
+                new WorkItemComment(id, author, body, $"{issueUrl}#issuecomment-{id}", updatedAt ?? DateTimeOffset.UtcNow)
+            ]).ToArray()
+        };
+        return this;
+    }
     public MockDevOpsAdapter AddPullRequestComment(
         string id,
         string author,
@@ -76,6 +107,13 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.CompletedTask;
     }
 
+
+    public Task AddIssueCommentAsync(string issueUrl, string body, CancellationToken cancellationToken)
+    {
+        AddIssueCommentCalls.Add(new AddIssueCommentCall(issueUrl, body));
+        issueComments.Add(body);
+        return Task.CompletedTask;
+    }
     public Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
     {
         ReactToIssueCalls.Add(new ReactToIssueCall(issueUrl, reaction));
@@ -125,6 +163,8 @@ public sealed record GetIssueCall(string IssueUrl);
 public sealed record ListIssuesWithLabelCall(string RepositoryUrl, string Label);
 
 public sealed record UpsertIssueCommentCall(string IssueUrl, string Marker, string Body);
+
+public sealed record AddIssueCommentCall(string IssueUrl, string Body);
 
 public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
 

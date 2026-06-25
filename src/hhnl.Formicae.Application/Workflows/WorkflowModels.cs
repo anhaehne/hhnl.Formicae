@@ -122,6 +122,9 @@ public static class PullRequestCommentMarkers
     public static string AddressComments(Guid workflowId)
         => $"<!-- formicae:workflow:{workflowId:N}:address-comments -->";
 
+    public static string PlanRevisionSummary(Guid workflowId)
+        => $"<!-- formicae:workflow:{workflowId:N}:plan-revision-summary -->";
+
     public static bool IsAutomationComment(string body)
         => body.Contains(Prefix, StringComparison.OrdinalIgnoreCase);
 
@@ -151,6 +154,55 @@ public static class PullRequestCommentMarkers
             """;
     }
 
+    public static string BuildPlanRevisionSummaryBody(Workflow workflow, AgentRunResult result)
+    {
+        var marker = PlanRevisionSummary(workflow.Id);
+        var summary = FormatCommentOutput(ExtractRevisionSummary(result.Output));
+
+        return $"""
+            {marker}
+            Formicae updated the implementation plan for workflow `{workflow.Id:N}` after new issue feedback.
+
+            {summary}
+            """;
+    }
+
+    private static string ExtractRevisionSummary(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return "The plan comment was updated.";
+        }
+
+        var lines = output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var headingIndex = Array.FindIndex(lines, line => line.Trim().Equals("## Changes from previous plan", StringComparison.OrdinalIgnoreCase));
+        if (headingIndex >= 0)
+        {
+            var collected = new List<string>();
+            for (var index = headingIndex + 1; index < lines.Length; index++)
+            {
+                var line = lines[index];
+                if (line.StartsWith("## ", StringComparison.Ordinal) && collected.Count > 0)
+                {
+                    break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(line) || collected.Count > 0)
+                {
+                    collected.Add(line);
+                }
+            }
+
+            var section = string.Join(Environment.NewLine, collected).Trim();
+            if (!string.IsNullOrWhiteSpace(section))
+            {
+                return section;
+            }
+        }
+
+        return "The plan comment was updated to account for the latest issue feedback.";
+    }
+
     private static string FormatCommentOutput(string output)
     {
         if (string.IsNullOrWhiteSpace(output))
@@ -173,9 +225,12 @@ public sealed record WorkItem(
     string Url,
     string Title,
     string Body,
-    IReadOnlyList<string> Comments,
+    IReadOnlyList<WorkItemComment> Comments,
     IReadOnlyList<string> Labels)
 {
+    public IReadOnlyList<WorkItemComment> UserComments
+        => Comments.Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body)).ToArray();
+
     public bool HasLabel(string label)
         => Labels.Any(existing => string.Equals(existing, label, StringComparison.OrdinalIgnoreCase));
 }
@@ -214,3 +269,11 @@ public enum PullRequestCommentKind
     IssueComment,
     ReviewComment
 }
+
+
+public sealed record WorkItemComment(
+    string Id,
+    string Author,
+    string Body,
+    string Url,
+    DateTimeOffset UpdatedAt);

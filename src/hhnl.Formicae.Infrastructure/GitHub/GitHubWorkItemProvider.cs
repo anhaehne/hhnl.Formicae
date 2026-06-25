@@ -60,6 +60,12 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         await api.UpdateIssueCommentAsync(issue.Owner, issue.Repository, existing.Id, body);
     }
 
+    public async Task AddIssueCommentAsync(string issueUrl, string body, CancellationToken cancellationToken)
+    {
+        var issue = GitHubIssueReference.Parse(issueUrl);
+        await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
+    }
+
     public async Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
@@ -71,7 +77,15 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
             issueUrl,
             issue.Title,
             issue.Body ?? string.Empty,
-            comments.Select(comment => comment.Body ?? string.Empty).ToArray(),
+            comments
+                .Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body ?? string.Empty))
+                .Select(comment => new WorkItemComment(
+                    comment.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    comment.User?.Login ?? "unknown",
+                    comment.Body ?? string.Empty,
+                    comment.HtmlUrl ?? issueUrl,
+                    comment.UpdatedAt ?? DateTimeOffset.MinValue))
+                .ToArray(),
             (issue.Labels ?? []).Select(label => label.Name).ToArray());
 }
 

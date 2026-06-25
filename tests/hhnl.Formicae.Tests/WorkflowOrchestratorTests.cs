@@ -275,6 +275,70 @@ public sealed class WorkflowOrchestratorTests
         });
     }
 
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Revises_plan_when_issue_comment_is_newer_than_plan()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var previousPlanUpdatedAt = DateTimeOffset.Parse("2026-06-25T10:00:00Z");
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(
+                issueUrl,
+                "Scripted issue",
+                "Scripted issue body",
+                [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement])
+            .AddIssueComment(issueUrl, "new-feedback", "maintainer", "Please add the webhook retry behavior to the plan.", previousPlanUpdatedAt.AddMinutes(5))
+            .AddIssueComment(issueUrl, "automation", "formicae", PullRequestCommentMarkers.PlanRevisionSummary(Guid.NewGuid()) + " automated summary", previousPlanUpdatedAt.AddMinutes(10));
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement,
+            PlanArtifact = "Existing plan output"
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            ExternalId = "existing-plan",
+            Output = "Existing plan output",
+            UpdatedAt = previousPlanUpdatedAt
+        }, CancellationToken.None);
+        var agentRunner = new CapturingAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var planRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, CancellationToken.None);
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Implementing, updated.Status);
+        Assert.Equal(WorkflowStep.Implement, updated.CurrentStep);
+        Assert.NotNull(planRun);
+        Assert.Equal(TaskRunStatus.Succeeded, planRun.Status);
+        Assert.Contains("Captured Plan output", planRun.Output);
+        Assert.Empty(devOps.CreateBranchCalls);
+        Assert.NotNull(agentRunner.LastTask);
+        Assert.Contains("Existing plan output", agentRunner.LastTask.Prompt);
+        Assert.Contains("Please add the webhook retry behavior to the plan.", agentRunner.LastTask.Prompt);
+        Assert.DoesNotContain("automated summary", agentRunner.LastTask.Prompt);
+        Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Equal(PullRequestCommentMarkers.Plan(workflow.Id), call.Marker);
+            Assert.Contains("Captured Plan output", call.Body);
+        });
+        Assert.Collection(devOps.AddIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Contains(PullRequestCommentMarkers.PlanRevisionSummary(workflow.Id), call.Body);
+            Assert.Contains("updated the implementation plan", call.Body);
+        });
+    }
     [Fact]
     public async Task AdvanceRunnableWorkflows_Does_not_duplicate_completed_steps()
     {

@@ -15,6 +15,11 @@ public interface IWorkItemProvider
         string body,
         CancellationToken cancellationToken);
 
+    Task AddIssueCommentAsync(
+        string issueUrl,
+        string body,
+        CancellationToken cancellationToken);
+
     Task ReactToIssueAsync(
         string issueUrl,
         string reaction,

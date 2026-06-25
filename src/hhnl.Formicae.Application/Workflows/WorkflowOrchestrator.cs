@@ -77,10 +77,10 @@ public sealed class WorkflowOrchestrator(
         return await RunPlanningAsync(workflow, issue, cancellationToken);
     }
 
-    private async Task<bool> RunPlanningAsync(Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken)
+    private async Task<bool> RunPlanningAsync(Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken, bool forceRefresh = false)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
-        if (existing?.Status == TaskRunStatus.Succeeded)
+        if (existing?.Status == TaskRunStatus.Succeeded && !forceRefresh)
         {
             workflow.PlanArtifact = existing.Output;
             var existingResult = new AgentRunResult(true, existing.ExternalId ?? $"plan-{workflow.Id:N}", existing.Output ?? string.Empty, null);
@@ -98,6 +98,7 @@ public sealed class WorkflowOrchestrator(
 
         if (existing?.Status == TaskRunStatus.Running)
         {
+            var previousPlanOutput = existing.Output;
             var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
             if (result is null)
             {
@@ -115,16 +116,7 @@ public sealed class WorkflowOrchestrator(
                 return true;
             }
 
-            workflow.PlanArtifact = result.Output;
-            await workItems.UpsertIssueCommentAsync(
-                workflow.IssueUrl,
-                PullRequestCommentMarkers.Plan(workflow.Id),
-                PullRequestCommentMarkers.BuildPlanBody(workflow, result),
-                cancellationToken);
-            workflow.Status = WorkflowStatus.Implementing;
-            workflow.CurrentStep = WorkflowStep.Implement;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await CompleteSuccessfulPlanningAsync(workflow, result, IsPlanRevision(previousPlanOutput), cancellationToken);
             return true;
         }
 
@@ -134,11 +126,15 @@ public sealed class WorkflowOrchestrator(
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
 
         var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
+        var previousOutput = forceRefresh ? run.Output : null;
+        workflow.PlanArtifact = previousOutput ?? workflow.PlanArtifact;
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Plan, workflow, issue, cancellationToken);
         var branch = workflow.BranchName ?? $"formicae/{workflow.Id:N}";
 
-        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
         run.Status = TaskRunStatus.Running;
+        run.FailureReason = null;
+        run.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpsertTaskRunAsync(run, cancellationToken);
         await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
@@ -163,21 +159,17 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        workflow.PlanArtifact = start.CompletedResult.Output;
-        await workItems.UpsertIssueCommentAsync(
-            workflow.IssueUrl,
-            PullRequestCommentMarkers.Plan(workflow.Id),
-            PullRequestCommentMarkers.BuildPlanBody(workflow, start.CompletedResult),
-            cancellationToken);
-        workflow.Status = WorkflowStatus.Implementing;
-        workflow.CurrentStep = WorkflowStep.Implement;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await CompleteSuccessfulPlanningAsync(workflow, start.CompletedResult, IsPlanRevision(previousOutput), cancellationToken);
         return true;
     }
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        if (await HasNewIssueFeedbackForPlanAsync(workflow, issue, cancellationToken))
+        {
+            return await RunPlanningAsync(workflow, issue, cancellationToken, forceRefresh: true);
+        }
+
         if (!issue.HasLabel(WorkItemWorkflowLabels.ReadyToImplement))
         {
             return false;
@@ -185,7 +177,50 @@ public sealed class WorkflowOrchestrator(
 
         return await RunImplementationAsync(workflow, cancellationToken);
     }
+    private async Task<bool> HasNewIssueFeedbackForPlanAsync(Workflow workflow, WorkItem issue, CancellationToken cancellationToken)
+    {
+        var planRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
+        if (planRun?.Status == TaskRunStatus.Running)
+        {
+            workflow.Status = WorkflowStatus.Planning;
+            workflow.CurrentStep = WorkflowStep.Plan;
+            workflow.UpdatedAt = DateTimeOffset.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
 
+        if (planRun?.Status != TaskRunStatus.Succeeded)
+        {
+            return false;
+        }
+
+        return issue.UserComments.Any(comment => comment.UpdatedAt > planRun.UpdatedAt);
+    }
+
+    private async Task CompleteSuccessfulPlanningAsync(Workflow workflow, AgentRunResult result, bool isRevision, CancellationToken cancellationToken)
+    {
+        workflow.PlanArtifact = result.Output;
+        await workItems.UpsertIssueCommentAsync(
+            workflow.IssueUrl,
+            PullRequestCommentMarkers.Plan(workflow.Id),
+            PullRequestCommentMarkers.BuildPlanBody(workflow, result),
+            cancellationToken);
+        if (isRevision)
+        {
+            await workItems.AddIssueCommentAsync(
+                workflow.IssueUrl,
+                PullRequestCommentMarkers.BuildPlanRevisionSummaryBody(workflow, result),
+                cancellationToken);
+        }
+
+        workflow.Status = WorkflowStatus.Implementing;
+        workflow.CurrentStep = WorkflowStep.Implement;
+        workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+    }
+
+    private static bool IsPlanRevision(string? previousOutput)
+        => !string.IsNullOrWhiteSpace(previousOutput);
     private async Task<bool> RunImplementationAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, cancellationToken);

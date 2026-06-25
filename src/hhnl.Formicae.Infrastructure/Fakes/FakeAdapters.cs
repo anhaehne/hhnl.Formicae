@@ -7,7 +7,7 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
     public List<string> IssueComments { get; } = [];
 
     public Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken)
-        => Task.FromResult(new WorkItem(issueUrl, "Fake GitHub issue", "This fake issue drives local MVP workflow tests.", ["Use fake adapters for fast iteration."], [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]));
+        => Task.FromResult(new WorkItem(issueUrl, "Fake GitHub issue", "This fake issue drives local MVP workflow tests.", [new WorkItemComment("fake-comment", "fake-user", "Use fake adapters for fast iteration.", $"{issueUrl}#issuecomment-fake", DateTimeOffset.MinValue)], [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]));
 
     public Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(string repositoryUrl, string label, CancellationToken cancellationToken)
     {
@@ -29,6 +29,12 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
     public Task UpsertIssueCommentAsync(string issueUrl, string marker, string body, CancellationToken cancellationToken)
     {
         IssueComments.RemoveAll(comment => comment.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        IssueComments.Add(body);
+        return Task.CompletedTask;
+    }
+
+    public Task AddIssueCommentAsync(string issueUrl, string body, CancellationToken cancellationToken)
+    {
         IssueComments.Add(body);
         return Task.CompletedTask;
     }
