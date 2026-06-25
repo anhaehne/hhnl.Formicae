@@ -104,30 +104,12 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before writing pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
-        var marker = PullRequestCommentMarkers.AddressComments(workflow.Id);
         ConfigureClient();
 
-        var issueComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubIssueCommentDto>>(
+        var response = await httpClient.PostAsJsonAsync(
             $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
-            cancellationToken) ?? [];
-        var existing = issueComments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
-
-        HttpResponseMessage response;
-        if (existing is null)
-        {
-            response = await httpClient.PostAsJsonAsync(
-                $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
-                new UpsertIssueCommentRequest(body),
-                cancellationToken);
-        }
-        else
-        {
-            response = await httpClient.PatchAsJsonAsync(
-                $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/comments/{existing.Id}",
-                new UpsertIssueCommentRequest(body),
-                cancellationToken);
-        }
-
+            new UpsertIssueCommentRequest(body),
+            cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
