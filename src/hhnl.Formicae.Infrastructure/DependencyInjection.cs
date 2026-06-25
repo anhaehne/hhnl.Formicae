@@ -64,6 +64,7 @@ public static class DependencyInjection
         }
         else
         {
+            services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
             services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
             services.AddSingleton<IAgentRunner, OpenHandsAgentRunner>();
         }

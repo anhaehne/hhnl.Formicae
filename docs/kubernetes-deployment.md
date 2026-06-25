@@ -117,9 +117,17 @@ helm upgrade --install formicae formicae/formicae `
   --set secrets.connectionString='Host=<host>;Port=5432;Database=<database>;Username=<user>;Password=<password>'
 ```
 
-Create the runtime credentials Secret separately after the chart is installed. Pick one of the following options.
+Create runtime credentials separately after the chart is installed.
 
-Use an LLM API key:
+For the default OpenHands CLI runner, create an `openhands-llm-api-key` Secret:
+
+```powershell
+kubectl create secret generic openhands-llm-api-key `
+  --namespace formicae `
+  --from-literal=LLM_API_KEY='<replace-me>'
+```
+
+Create GitHub/runtime credentials in `formicae-runtime-secrets`:
 
 ```yaml
 apiVersion: v1
@@ -129,11 +137,22 @@ metadata:
   namespace: formicae
 type: Opaque
 stringData:
-  LLM_API_KEY: "<replace-me>"
   GITHUB_TOKEN: "<replace-me>"
 ```
 
-Use your Codex subscription:
+Apply the runtime Secret:
+
+```powershell
+kubectl apply -f formicae-runtime-secrets.yaml
+```
+
+By default, agent Jobs use `python:3.12-slim`, install the current OpenHands CLI with `uv`, and run `openhands --headless --json --override-with-envs`. OpenHands requires `LLM_API_KEY` and `LLM_MODEL` for this mode.
+
+### Codex Subscription Auth
+
+Codex subscription auth is different from an OpenAI API key. The default OpenHands CLI command does not use `~/.codex/auth.json` as an `LLM_API_KEY` replacement.
+
+Mount Codex auth only when you use an agent image or command that reads the Codex auth file directly:
 
 1. On a trusted machine, sign in with Codex:
 
@@ -149,7 +168,7 @@ kubectl create secret generic formicae-codex-auth `
   --from-file=auth.json="$HOME/.codex/auth.json"
 ```
 
-3. Enable the worker mount:
+3. Enable Codex auth for worker-triggered agent Jobs:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
@@ -158,7 +177,7 @@ helm upgrade --install formicae formicae/formicae `
   --set worker.codexAuth.enabled=true
 ```
 
-The chart mounts the Secret as `/root/.codex/auth.json` in the worker container. If your worker image runs as a different user, override the `.codex` directory path:
+The chart mounts the Secret as `/root/.codex/auth.json` in the worker container and in agent Jobs created by Formicae. If your agent image runs as a different user, override the `.codex` directory path:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
@@ -169,13 +188,7 @@ helm upgrade --install formicae formicae/formicae `
 
 Treat `LLM_API_KEY`, `formicae-codex-auth`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners.
 
-Apply the runtime Secret:
-
-```powershell
-kubectl apply -f formicae-runtime-secrets.yaml
-```
-
-Codex auth is used by worker pods, not the API. You do not need to restart the API after changing `formicae-codex-auth`. New worker Jobs read the updated Secret when they start; either wait for the next CronJob run or start one immediately:
+Codex auth is used by worker-triggered agent Jobs, not the API. You do not need to restart the API after changing `formicae-codex-auth`. New Jobs read the updated Secret when they start; either wait for the next CronJob run or start one immediately:
 
 ```powershell
 kubectl create job --from=cronjob/formicae-worker "formicae-worker-manual-$(Get-Random)" -n formicae
@@ -203,6 +216,6 @@ The test harness verifies `kind`, `kubectl`, and the selected container CLI befo
 Set `FORMICAE_E2E_KEEP_CLUSTER=true` or pass `-KeepCluster` to preserve the cluster for debugging.
 ## Notes
 
-The current Kubernetes runner seam renders Job manifests in-process. The included RBAC already grants the API/worker service account namespace-scoped access needed when the runner is upgraded to create and watch Jobs directly.
+The Kubernetes runner creates namespace-scoped `batch/v1` Jobs, waits for `Complete` or `Failed` status, and stores the rendered manifest plus pod logs in the task output. Finished Jobs are kept by default for diagnostics; set `config.kubernetesJobsDeleteFinishedJobs=true` to remove them after completion. To use a prebuilt CLI image, set `config.kubernetesJobsImage`, clear `config.openHandsBootstrapCommand`, and set `config.openHandsCommand` to the command your image exposes.
 
 

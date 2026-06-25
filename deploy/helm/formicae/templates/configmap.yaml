@@ -13,6 +13,17 @@ data:
   AgentMode: {{ .Values.config.agentMode | quote }}
   OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}
   OpenHands__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
+  OpenHands__Shell: {{ .Values.config.openHandsShell | quote }}
+  OpenHands__BootstrapCommand: {{ .Values.config.openHandsBootstrapCommand | quote }}
+  OpenHands__Command: {{ .Values.config.openHandsCommand | quote }}
   KubernetesJobs__Namespace: {{ default .Release.Namespace .Values.config.kubernetesJobsNamespace | quote }}
   KubernetesJobs__Image: {{ .Values.config.kubernetesJobsImage | quote }}
   KubernetesJobs__WorkspaceVolumeClaim: {{ .Values.config.kubernetesJobsWorkspaceVolumeClaim | quote }}
+  KubernetesJobs__TimeoutSeconds: {{ .Values.config.kubernetesJobsTimeoutSeconds | quote }}
+  KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
+  KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
+  KubernetesJobs__RuntimeSecretName: {{ .Values.secrets.runtimeSecretName | quote }}
+  KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
+  KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.worker.codexAuth.secretName "" .Values.worker.codexAuth.enabled | quote }}
+  KubernetesJobs__CodexAuthSecretKey: {{ .Values.worker.codexAuth.secretKey | quote }}
+  KubernetesJobs__CodexAuthMountPath: {{ .Values.worker.codexAuth.mountPath | quote }}

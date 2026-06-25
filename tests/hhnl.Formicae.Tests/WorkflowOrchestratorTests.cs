@@ -154,8 +154,113 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("openhands:test", jobRunner.LastSpec.Image);
-        Assert.Equal(["openhands", "--headless", "--json", "-t", "Plan this"], jobRunner.LastSpec.Command);
+        Assert.Equal(["/bin/sh", "-lc", "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\""], jobRunner.LastSpec.Command);
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
+        Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_creates_job_and_collects_pod_logs()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Statuses = new Queue<k8s.Models.V1Job>([
+                new k8s.Models.V1Job
+                {
+                    Status = new k8s.Models.V1JobStatus { Succeeded = 1 }
+                }
+            ]),
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta
+                    {
+                        Name = "formicae-plan-test-pod",
+                        CreationTimestamp = DateTime.UtcNow
+                    }
+                }
+            ],
+            PodLogs = "agent output"
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5,
+            RuntimeSecretName = "formicae-runtime-secrets",
+            LlmApiKeySecretName = "openhands-llm-api-key",
+            CodexAuthSecretName = "formicae-codex-auth"
+        }));
+
+        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+            "formicae-plan-test",
+            "openhands:test",
+            new Dictionary<string, string> { ["LLM_MODEL"] = "test-model" },
+            ["openhands", "--headless", "--json", "-t", "Plan this"]), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.FailureReason);
+        Assert.Contains("agent output", result.Logs);
+        Assert.NotNull(api.CreatedJob);
+        Assert.Equal("formicae-plan-test", api.CreatedJob.Metadata.Name);
+        var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
+        Assert.Equal("openhands:test", container.Image);
+        Assert.Contains(container.Env, env => env.Name == "LLM_MODEL" && env.Value == "test-model");
+        Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "formicae-runtime-secrets");
+        Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
+        Assert.Contains(container.VolumeMounts, mount => mount.Name == "codex-auth" && mount.MountPath == "/root/.codex");
+        Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_maps_failed_job_to_failed_result()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Statuses = new Queue<k8s.Models.V1Job>([
+                new k8s.Models.V1Job
+                {
+                    Status = new k8s.Models.V1JobStatus
+                    {
+                        Conditions =
+                        [
+                            new k8s.Models.V1JobCondition
+                            {
+                                Type = "Failed",
+                                Status = "True",
+                                Reason = "BackoffLimitExceeded",
+                                Message = "The agent container failed."
+                            }
+                        ]
+                    }
+                }
+            ]),
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta { Name = "formicae-plan-test-pod" }
+                }
+            ],
+            PodLogs = "agent error"
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5
+        }));
+
+        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+            "formicae-plan-test",
+            "openhands:test",
+            new Dictionary<string, string>(),
+            ["openhands", "--headless", "--json", "-t", "Plan this"]), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("The agent container failed.", result.FailureReason);
+        Assert.Contains("agent error", result.Logs);
     }
 
     private sealed class CapturingJobRunner : IKubernetesJobRunner
@@ -167,5 +272,33 @@ public sealed class AdapterContractTests
             LastSpec = spec;
             return Task.FromResult(new KubernetesJobResult(true, spec.Name, "ok", null));
         }
+    }
+
+    private sealed class CapturingKubernetesJobApi : IKubernetesJobApi
+    {
+        public k8s.Models.V1Job? CreatedJob { get; private set; }
+        public Queue<k8s.Models.V1Job> Statuses { get; init; } = new();
+        public IReadOnlyList<k8s.Models.V1Pod> Pods { get; init; } = [];
+        public string PodLogs { get; init; } = string.Empty;
+
+        public Task CreateJobAsync(k8s.Models.V1Job job, string namespaceName, CancellationToken cancellationToken)
+        {
+            CreatedJob = job;
+            return Task.CompletedTask;
+        }
+
+        public Task<k8s.Models.V1Job> ReadJobStatusAsync(string name, string namespaceName, CancellationToken cancellationToken)
+            => Task.FromResult(Statuses.Count == 0
+                ? new k8s.Models.V1Job { Status = new k8s.Models.V1JobStatus { Succeeded = 1 } }
+                : Statuses.Dequeue());
+
+        public Task<IReadOnlyList<k8s.Models.V1Pod>> ListPodsAsync(string namespaceName, string labelSelector, CancellationToken cancellationToken)
+            => Task.FromResult(Pods);
+
+        public Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken)
+            => Task.FromResult(PodLogs);
+
+        public Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken)
+            => Task.CompletedTask;
     }
 }
