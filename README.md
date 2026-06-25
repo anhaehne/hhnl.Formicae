@@ -10,28 +10,44 @@ hhnl.Formicae is a Kubernetes-native MVP for running agent workflows from DevOps
 - OpenHands headless runner wired through a Kubernetes Job boundary.
 - Fake work item, source control, agent, and store adapters enabled by default for local development.
 
-## Local Setup
+## Install
 
 Prerequisites:
 
 - .NET 10 SDK
-- PostgreSQL only when `UseFakeAdapters` is `false`
+- Git
+- PowerShell 7 or Windows PowerShell
+- PostgreSQL only when running with `UseFakeAdapters=false`
+- `kubectl`, `kind`, and either Docker or Podman for Kubernetes E2E tests
+- A container registry login only when pushing deployment images
 
-Build and test:
+Install common Windows tools with WinGet:
+
+```powershell
+winget install Microsoft.DotNet.SDK.10
+winget install Git.Git
+winget install Kubernetes.kubectl
+winget install Kubernetes.kind
+winget install RedHat.Podman
+```
+
+Clone and restore:
+
+```powershell
+git clone https://github.com/anhaehne/hhnl.Formicae.git
+cd hhnl.Formicae
+dotnet restore hhnl.Formicae.slnx
+```
+
+Verify the local development setup:
 
 ```powershell
 dotnet build hhnl.Formicae.slnx
 dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj
 ```
 
+## Local Development
 
-Run Kubernetes E2E tests separately:
-
-```powershell
-scripts/run-k8s-e2e.ps1 -ContainerCli docker
-```
-
-The E2E project creates a local kind cluster using a temp kubeconfig, deploys the Kubernetes overlay, and does not change the machine-wide kubectl context.
 Run the API with fake adapters:
 
 ```powershell
@@ -57,12 +73,30 @@ Run one orchestration tick from the worker:
 dotnet run --project src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj
 ```
 
+## Kubernetes E2E
+
+Kubernetes E2E tests run from a separate test project and are not part of the normal unit test path.
+
+Run with Docker-backed kind:
+
+```powershell
+scripts/run-k8s-e2e.ps1 -ContainerCli docker
+```
+
+Run with Podman-backed kind:
+
+```powershell
+scripts/run-k8s-e2e.ps1 -ContainerCli podman
+```
+
+The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before starting. It creates a local kind cluster using a temp kubeconfig, deploys the Kubernetes E2E overlay, and does not change the machine-wide kubectl context.
 
 ## Kubernetes Deployment
 
 Deployment assets live in `deploy/kubernetes/base` and include Dockerfiles, kustomize manifests, PostgreSQL, API/worker workloads, health probes, placeholder secrets, and RBAC.
 
 See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
+
 ## Configuration
 
 `UseFakeAdapters` defaults to `true`. Set it to `false` to use PostgreSQL and the real integration seams.
