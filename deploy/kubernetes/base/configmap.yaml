@@ -9,6 +9,10 @@ data:
   UseFakeAdapters: "false"
   OpenHands__AuthMethod: "ApiKey"
   OpenHands__DefaultModel: ""
+  WorkflowDiscovery__Enabled: "true"
+  WorkflowDiscovery__RepositoryUrl: "https://github.com/anhaehne/hhnl.Formicae"
+  WorkflowDiscovery__BaseBranch: "main"
+  WorkflowDiscovery__Model: ""
   OpenHands__LlmApiKeySecretName: "openhands-llm-api-key"
   OpenHands__Shell: "/bin/sh"
   OpenHands__BootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'

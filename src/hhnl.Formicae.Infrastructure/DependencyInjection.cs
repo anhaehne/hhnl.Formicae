@@ -17,6 +17,8 @@ public static class DependencyInjection
     {
         services.AddScoped<WorkflowService>();
         services.AddScoped<WorkflowOrchestrator>();
+        services.AddScoped<WorkflowDiscoveryService>();
+        services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
         services.Configure<OpenHandsOptions>(configuration.GetSection("OpenHands"));
         services.Configure<KubernetesJobOptions>(configuration.GetSection("KubernetesJobs"));
         services.AddSingleton<IPromptRenderer, FilePromptRenderer>();

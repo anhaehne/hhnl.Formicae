@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.1.2"
+  tag: "0.1.3"
   pullPolicy: IfNotPresent
 
 api:
@@ -49,6 +49,10 @@ config:
   agentMode: "OpenHands"
   openHandsAuthMethod: "ApiKey"
   openHandsDefaultModel: ""
+  workflowDiscoveryEnabled: "true"
+  workflowDiscoveryRepositoryUrl: "https://github.com/anhaehne/hhnl.Formicae"
+  workflowDiscoveryBaseBranch: "main"
+  workflowDiscoveryModel: ""
   openHandsLlmApiKeySecretName: "openhands-llm-api-key"
   openHandsShell: "/bin/sh"
   openHandsBootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'

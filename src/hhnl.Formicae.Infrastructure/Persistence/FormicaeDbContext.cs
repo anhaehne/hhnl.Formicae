@@ -15,6 +15,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
         {
             entity.ToTable("workflows");
             entity.HasKey(workflow => workflow.Id);
+            entity.HasIndex(workflow => workflow.IssueUrl).IsUnique();
             entity.Property(workflow => workflow.IssueUrl).IsRequired();
             entity.Property(workflow => workflow.RepositoryUrl).IsRequired();
             entity.Property(workflow => workflow.BaseBranch).IsRequired();

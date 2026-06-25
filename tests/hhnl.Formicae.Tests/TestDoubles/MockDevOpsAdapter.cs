@@ -8,6 +8,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     private readonly List<PullRequestComment> pullRequestComments = [];
 
     public List<GetIssueCall> GetIssueCalls { get; } = [];
+    public List<ListIssuesWithLabelCall> ListIssuesWithLabelCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreateDraftPullRequestCall> CreateDraftPullRequestCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
@@ -48,6 +49,16 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
             [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]));
     }
 
+    public Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(string repositoryUrl, string label, CancellationToken cancellationToken)
+    {
+        ListIssuesWithLabelCalls.Add(new ListIssuesWithLabelCall(repositoryUrl, label));
+        return Task.FromResult<IReadOnlyList<WorkItem>>(workItems.Values
+            .Where(workItem => workItem.Url.StartsWith(repositoryUrl.TrimEnd('/') + "/issues/", StringComparison.OrdinalIgnoreCase)
+                && workItem.HasLabel(label))
+            .OrderBy(workItem => workItem.Url, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
+
     public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)
     {
         CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, workflowId));
@@ -81,6 +92,8 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
 }
 
 public sealed record GetIssueCall(string IssueUrl);
+
+public sealed record ListIssuesWithLabelCall(string RepositoryUrl, string Label);
 
 public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, Guid WorkflowId);
 

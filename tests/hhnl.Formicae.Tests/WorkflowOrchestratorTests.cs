@@ -12,6 +12,62 @@ namespace hhnl.Formicae.Tests;
 public sealed class WorkflowOrchestratorTests
 {
     [Fact]
+    public async Task DiscoverReadyToPlanWorkflows_Queues_labeled_issues()
+    {
+        var store = new InMemoryWorkflowStore();
+        var repositoryUrl = "https://github.com/acme/widgets";
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var discovery = new WorkflowDiscoveryService(store, devOps, Options.Create(new WorkflowDiscoveryOptions
+        {
+            Enabled = true,
+            RepositoryUrl = repositoryUrl,
+            BaseBranch = "develop",
+            Model = "test-model"
+        }));
+
+        var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflows = await store.ListRunnableWorkflowsAsync(CancellationToken.None);
+        Assert.Equal(1, discovered);
+        var workflow = Assert.Single(workflows);
+        Assert.Equal(issueUrl, workflow.IssueUrl);
+        Assert.Equal(repositoryUrl, workflow.RepositoryUrl);
+        Assert.Equal("develop", workflow.BaseBranch);
+        Assert.Equal("test-model", workflow.Model);
+        Assert.Equal(WorkflowStatus.Queued, workflow.Status);
+        Assert.Equal(WorkflowStep.None, workflow.CurrentStep);
+        Assert.Collection(devOps.ListIssuesWithLabelCalls, call =>
+        {
+            Assert.Equal(repositoryUrl, call.RepositoryUrl);
+            Assert.Equal(WorkItemWorkflowLabels.ReadyToPlan, call.Label);
+        });
+    }
+
+    [Fact]
+    public async Task DiscoverReadyToPlanWorkflows_Does_not_duplicate_existing_issue_workflow()
+    {
+        var store = new InMemoryWorkflowStore();
+        var repositoryUrl = "https://github.com/acme/widgets";
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var discovery = new WorkflowDiscoveryService(store, devOps, Options.Create(new WorkflowDiscoveryOptions
+        {
+            Enabled = true,
+            RepositoryUrl = repositoryUrl
+        }));
+
+        var first = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+        var second = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflows = await store.ListRunnableWorkflowsAsync(CancellationToken.None);
+        Assert.Equal(1, first);
+        Assert.Equal(0, second);
+        Assert.Single(workflows);
+    }
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Completes_fake_vertical_slice()
     {
         var store = new InMemoryWorkflowStore();

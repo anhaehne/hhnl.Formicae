@@ -6,6 +6,23 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
 {
     public Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken)
         => Task.FromResult(new WorkItem(issueUrl, "Fake GitHub issue", "This fake issue drives local MVP workflow tests.", ["Use fake adapters for fast iteration."], [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]));
+
+    public Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(string repositoryUrl, string label, CancellationToken cancellationToken)
+    {
+        if (!string.Equals(label, WorkItemWorkflowLabels.ReadyToPlan, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult<IReadOnlyList<WorkItem>>([]);
+        }
+
+        return Task.FromResult<IReadOnlyList<WorkItem>>([
+            new WorkItem(
+                $"{repositoryUrl.TrimEnd('/')}/issues/1",
+                "Fake discovered issue",
+                "This fake issue was discovered from the ready-to-plan label.",
+                [],
+                [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement])
+        ]);
+    }
 }
 
 public sealed class FakeSourceControlProvider : ISourceControlProvider

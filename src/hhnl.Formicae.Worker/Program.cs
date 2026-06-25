@@ -9,6 +9,8 @@ builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 
 using var host = builder.Build();
 using var scope = host.Services.CreateScope();
+var discovery = scope.ServiceProvider.GetRequiredService<WorkflowDiscoveryService>();
 var orchestrator = scope.ServiceProvider.GetRequiredService<WorkflowOrchestrator>();
+var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
 var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
-Console.WriteLine($"Advanced {advanced} workflow(s).");
+Console.WriteLine($"Discovered {discovered} workflow(s). Advanced {advanced} workflow(s).");

@@ -13,6 +13,10 @@ data:
   AgentMode: {{ .Values.config.agentMode | quote }}
   OpenHands__AuthMethod: {{ .Values.config.openHandsAuthMethod | quote }}
   OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}
+  WorkflowDiscovery__Enabled: {{ .Values.config.workflowDiscoveryEnabled | quote }}
+  WorkflowDiscovery__RepositoryUrl: {{ .Values.config.workflowDiscoveryRepositoryUrl | quote }}
+  WorkflowDiscovery__BaseBranch: {{ .Values.config.workflowDiscoveryBaseBranch | quote }}
+  WorkflowDiscovery__Model: {{ .Values.config.workflowDiscoveryModel | quote }}
   OpenHands__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
   OpenHands__Shell: {{ .Values.config.openHandsShell | quote }}
   OpenHands__BootstrapCommand: {{ .Values.config.openHandsBootstrapCommand | quote }}

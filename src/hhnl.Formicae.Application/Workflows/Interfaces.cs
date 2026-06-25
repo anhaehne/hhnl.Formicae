@@ -3,6 +3,11 @@ namespace hhnl.Formicae.Application.Workflows;
 public interface IWorkItemProvider
 {
     Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(
+        string repositoryUrl,
+        string label,
+        CancellationToken cancellationToken);
 }
 
 public interface ISourceControlProvider
@@ -33,6 +38,7 @@ public interface IWorkflowStore
 {
     Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task<Workflow?> GetWorkflowByIssueUrlAsync(string issueUrl, CancellationToken cancellationToken);
     Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken);
     Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<TaskRun> UpsertTaskRunAsync(TaskRun taskRun, CancellationToken cancellationToken);

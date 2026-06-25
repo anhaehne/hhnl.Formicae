@@ -16,12 +16,24 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
             ?? throw new InvalidOperationException("GitHub issue response was empty.");
         var comments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubCommentDto>>($"repos/{issue.Owner}/{issue.Repository}/issues/{issue.Number}/comments", cancellationToken) ?? [];
 
-        return new WorkItem(
-            issueUrl,
-            issueResponse.Title,
-            issueResponse.Body ?? string.Empty,
-            comments.Select(comment => comment.Body ?? string.Empty).ToArray(),
-            (issueResponse.Labels ?? []).Select(label => label.Name).ToArray());
+        return ToWorkItem(issueUrl, issueResponse, comments);
+    }
+
+    public async Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(
+        string repositoryUrl,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        var repository = GitHubRepositoryReference.Parse(repositoryUrl);
+        ConfigureClient();
+
+        var requestUri = $"repos/{repository.Owner}/{repository.Repository}/issues?state=open&labels={Uri.EscapeDataString(label)}&per_page=100";
+        var issues = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubIssueDto>>(requestUri, cancellationToken) ?? [];
+
+        return issues
+            .Where(issue => issue.PullRequest is null)
+            .Select(issue => ToWorkItem(issue.HtmlUrl, issue, []))
+            .ToArray();
     }
 
     private void ConfigureClient()
@@ -39,10 +51,20 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
         }
     }
 
+    private static WorkItem ToWorkItem(string issueUrl, GitHubIssueDto issue, IReadOnlyList<GitHubCommentDto> comments)
+        => new(
+            issueUrl,
+            issue.Title,
+            issue.Body ?? string.Empty,
+            comments.Select(comment => comment.Body ?? string.Empty).ToArray(),
+            (issue.Labels ?? []).Select(label => label.Name).ToArray());
+
     private sealed record GitHubIssueDto(
+        [property: JsonPropertyName("html_url")] string HtmlUrl,
         [property: JsonPropertyName("title")] string Title,
         [property: JsonPropertyName("body")] string? Body,
-        [property: JsonPropertyName("labels")] IReadOnlyList<GitHubLabelDto>? Labels);
+        [property: JsonPropertyName("labels")] IReadOnlyList<GitHubLabelDto>? Labels,
+        [property: JsonPropertyName("pull_request")] object? PullRequest);
     private sealed record GitHubLabelDto([property: JsonPropertyName("name")] string Name);
     private sealed record GitHubCommentDto([property: JsonPropertyName("body")] string? Body);
 }

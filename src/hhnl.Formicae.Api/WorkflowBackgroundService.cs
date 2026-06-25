@@ -12,8 +12,15 @@ public sealed class WorkflowBackgroundService(IServiceScopeFactory scopeFactory,
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
+                var discovery = scope.ServiceProvider.GetRequiredService<WorkflowDiscoveryService>();
                 var orchestrator = scope.ServiceProvider.GetRequiredService<WorkflowOrchestrator>();
-                await orchestrator.AdvanceRunnableWorkflowsAsync(stoppingToken);
+                var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(stoppingToken);
+                var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(stoppingToken);
+
+                if (discovered > 0 || advanced > 0)
+                {
+                    logger.LogInformation("Workflow tick discovered {DiscoveredWorkflowCount} workflow(s) and advanced {AdvancedWorkflowCount} workflow(s).", discovered, advanced);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
