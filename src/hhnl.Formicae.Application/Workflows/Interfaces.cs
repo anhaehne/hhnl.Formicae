@@ -8,6 +8,12 @@ public interface IWorkItemProvider
         string repositoryUrl,
         string label,
         CancellationToken cancellationToken);
+
+    Task UpsertIssueCommentAsync(
+        string issueUrl,
+        string marker,
+        string body,
+        CancellationToken cancellationToken);
 }
 
 public interface ISourceControlProvider

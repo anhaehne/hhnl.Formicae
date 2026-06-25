@@ -103,18 +103,34 @@ public static class PullRequestCommentMarkers
 {
     private const string Prefix = "<!-- formicae:";
 
+    public static string Plan(Guid workflowId)
+        => $"<!-- formicae:workflow:{workflowId:N}:plan -->";
+
     public static string AddressComments(Guid workflowId)
         => $"<!-- formicae:workflow:{workflowId:N}:address-comments -->";
 
     public static bool IsAutomationComment(string body)
         => body.Contains(Prefix, StringComparison.OrdinalIgnoreCase);
 
+    public static string BuildPlanBody(Workflow workflow, AgentRunResult result)
+    {
+        var marker = Plan(workflow.Id);
+        var output = FormatCommentOutput(result.Output);
+
+        return $"""
+            {marker}
+            Formicae created an implementation plan for workflow `{workflow.Id:N}`.
+
+            ```text
+            {output}
+            ```
+            """;
+    }
+
     public static string BuildAddressCommentsBody(Workflow workflow, AgentRunResult result)
     {
         var marker = AddressComments(workflow.Id);
-        var output = string.IsNullOrWhiteSpace(result.Output)
-            ? "No additional output was produced."
-            : result.Output.Trim();
+        var output = FormatCommentOutput(result.Output);
 
         return $"""
             {marker}
@@ -124,6 +140,23 @@ public static class PullRequestCommentMarkers
             {output}
             ```
             """;
+    }
+
+    private static string FormatCommentOutput(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return "No additional output was produced.";
+        }
+
+        const int maxOutputLength = 60000;
+        var trimmed = output.Trim();
+        if (trimmed.Length <= maxOutputLength)
+        {
+            return trimmed;
+        }
+
+        return trimmed[..maxOutputLength] + Environment.NewLine + "... output truncated by Formicae ...";
     }
 }
 

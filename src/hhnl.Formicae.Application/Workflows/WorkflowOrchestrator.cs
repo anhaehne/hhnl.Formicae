@@ -81,6 +81,12 @@ public sealed class WorkflowOrchestrator(
         if (existing?.Status == TaskRunStatus.Succeeded)
         {
             workflow.PlanArtifact = existing.Output;
+            var existingResult = new AgentRunResult(true, existing.ExternalId ?? $"plan-{workflow.Id:N}", existing.Output ?? string.Empty, null);
+            await workItems.UpsertIssueCommentAsync(
+                workflow.IssueUrl,
+                PullRequestCommentMarkers.Plan(workflow.Id),
+                PullRequestCommentMarkers.BuildPlanBody(workflow, existingResult),
+                cancellationToken);
             workflow.Status = WorkflowStatus.Implementing;
             workflow.CurrentStep = WorkflowStep.Implement;
             workflow.UpdatedAt = DateTimeOffset.UtcNow;
@@ -114,6 +120,11 @@ public sealed class WorkflowOrchestrator(
         }
 
         workflow.PlanArtifact = result.Output;
+        await workItems.UpsertIssueCommentAsync(
+            workflow.IssueUrl,
+            PullRequestCommentMarkers.Plan(workflow.Id),
+            PullRequestCommentMarkers.BuildPlanBody(workflow, result),
+            cancellationToken);
         workflow.Status = WorkflowStatus.Implementing;
         workflow.CurrentStep = WorkflowStep.Implement;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;

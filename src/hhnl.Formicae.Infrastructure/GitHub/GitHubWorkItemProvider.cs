@@ -36,6 +36,35 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
             .ToArray();
     }
 
+    public async Task UpsertIssueCommentAsync(
+        string issueUrl,
+        string marker,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        var issue = GitHubIssueReference.Parse(issueUrl);
+        ConfigureClient();
+
+        var comments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubCommentDto>>(
+            $"repos/{issue.Owner}/{issue.Repository}/issues/{issue.Number}/comments",
+            cancellationToken) ?? [];
+        var existing = comments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is null)
+        {
+            await httpClient.PostAsJsonAsync(
+                $"repos/{issue.Owner}/{issue.Repository}/issues/{issue.Number}/comments",
+                new UpsertIssueCommentRequest(body),
+                cancellationToken);
+            return;
+        }
+
+        await httpClient.PatchAsJsonAsync(
+            $"repos/{issue.Owner}/{issue.Repository}/issues/comments/{existing.Id}",
+            new UpsertIssueCommentRequest(body),
+            cancellationToken);
+    }
+
     private void ConfigureClient()
     {
         httpClient.BaseAddress ??= new Uri("https://api.github.com/");
@@ -66,7 +95,10 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
         [property: JsonPropertyName("labels")] IReadOnlyList<GitHubLabelDto>? Labels,
         [property: JsonPropertyName("pull_request")] object? PullRequest);
     private sealed record GitHubLabelDto([property: JsonPropertyName("name")] string Name);
-    private sealed record GitHubCommentDto([property: JsonPropertyName("body")] string? Body);
+    private sealed record GitHubCommentDto(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("body")] string? Body);
+    private sealed record UpsertIssueCommentRequest([property: JsonPropertyName("body")] string Body);
 }
 
 internal sealed record GitHubIssueReference(string Owner, string Repository, int Number)

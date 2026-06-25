@@ -6,9 +6,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
 {
     private readonly Dictionary<string, WorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PullRequestComment> pullRequestComments = [];
+    private readonly List<string> issueComments = [];
 
     public List<GetIssueCall> GetIssueCalls { get; } = [];
     public List<ListIssuesWithLabelCall> ListIssuesWithLabelCalls { get; } = [];
+    public List<UpsertIssueCommentCall> UpsertIssueCommentCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreateDraftPullRequestCall> CreateDraftPullRequestCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
@@ -59,6 +61,14 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
             .ToArray());
     }
 
+    public Task UpsertIssueCommentAsync(string issueUrl, string marker, string body, CancellationToken cancellationToken)
+    {
+        UpsertIssueCommentCalls.Add(new UpsertIssueCommentCall(issueUrl, marker, body));
+        issueComments.RemoveAll(comment => comment.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        issueComments.Add(body);
+        return Task.CompletedTask;
+    }
+
     public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)
     {
         CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, workflowId));
@@ -76,6 +86,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         ListPullRequestCommentsCalls.Add(new ListPullRequestCommentsCall(workflow.Id, workflow.PullRequestUrl));
         return Task.FromResult<IReadOnlyList<PullRequestComment>>(pullRequestComments.Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body)).ToArray());
     }
+
     public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
     {
         UpsertPullRequestCommentCalls.Add(new UpsertPullRequestCommentCall(workflow.Id, workflow.PullRequestUrl, body));
@@ -94,6 +105,8 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
 public sealed record GetIssueCall(string IssueUrl);
 
 public sealed record ListIssuesWithLabelCall(string RepositoryUrl, string Label);
+
+public sealed record UpsertIssueCommentCall(string IssueUrl, string Marker, string Body);
 
 public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, Guid WorkflowId);
 

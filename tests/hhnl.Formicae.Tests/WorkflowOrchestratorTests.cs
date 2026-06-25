@@ -157,6 +157,12 @@ public sealed class WorkflowOrchestratorTests
         Assert.Single(runs, run => run.Kind == TaskRunKind.Plan);
         Assert.DoesNotContain(runs, run => run.Kind == TaskRunKind.Implement);
         Assert.Empty(devOps.CreateBranchCalls);
+        Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Contains(PullRequestCommentMarkers.Plan(started.WorkflowId), call.Body);
+            Assert.Contains("Fake Plan output", call.Body);
+        });
 
         devOps.AddIssueWithLabels(
             issueUrl,
@@ -170,6 +176,40 @@ public sealed class WorkflowOrchestratorTests
 
         Assert.Contains(runs, run => run.Kind == TaskRunKind.Implement && run.Status == TaskRunStatus.Succeeded);
         Assert.Single(devOps.CreateBranchCalls);
+    }
+
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Updates_existing_plan_comment_for_completed_plan_retry()
+    {
+        var store = new InMemoryWorkflowStore();
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Planning,
+            CurrentStep = WorkflowStep.Plan
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            ExternalId = "existing-plan",
+            Output = "Existing plan output"
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
+        {
+            Assert.Equal(workflow.IssueUrl, call.IssueUrl);
+            Assert.Equal(PullRequestCommentMarkers.Plan(workflow.Id), call.Marker);
+            Assert.Contains("Existing plan output", call.Body);
+        });
     }
 
     [Fact]
@@ -240,6 +280,12 @@ public sealed class WorkflowOrchestratorTests
         Assert.Equal("https://github.com/acme/widgets/pull/123", workflow.PullRequestUrl);
         Assert.Equal(2, devOps.GetIssueCalls.Count);
         Assert.All(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
+        Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Equal(PullRequestCommentMarkers.Plan(started.WorkflowId), call.Marker);
+            Assert.Contains("Fake Plan output", call.Body);
+        });
         Assert.Collection(devOps.CreateBranchCalls, call =>
         {
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
