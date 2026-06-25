@@ -19,7 +19,7 @@ Prerequisites:
 - PowerShell 7 or Windows PowerShell
 - PostgreSQL only when running with `UseFakeAdapters=false`
 - `kubectl`, `kind`, and either Docker or Podman for Kubernetes E2E tests
-- A container registry login only when pushing deployment images
+- A container registry login only when pushing deployment images`r`n- Helm when installing with the chart
 
 Install common Windows tools with WinGet:
 
@@ -28,7 +28,7 @@ winget install Microsoft.DotNet.SDK.10
 winget install Git.Git
 winget install Kubernetes.kubectl
 winget install Kubernetes.kind
-winget install RedHat.Podman
+winget install RedHat.Podman`r`nwinget install Helm.Helm
 ```
 
 Clone and restore:
@@ -93,7 +93,7 @@ The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before
 
 ## Kubernetes Deployment
 
-Deployment assets live in `deploy/kubernetes/base` and include Dockerfiles, kustomize manifests, PostgreSQL, API/worker workloads, health probes, placeholder secrets, and RBAC.
+Deployment assets live in `deploy/kubernetes/base` and `deploy/helm/formicae`. They include Dockerfiles, kustomize manifests, a Helm chart, PostgreSQL, API/worker workloads, health probes, placeholder secrets, and RBAC.
 
 See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
 
@@ -114,5 +114,6 @@ Important settings:
 - `hhnl.Formicae.Api` owns HTTP endpoints and the background orchestration loop.
 - `hhnl.Formicae.Worker` owns one-shot workflow advancement for scheduled or agent-driven execution.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
+
 
 

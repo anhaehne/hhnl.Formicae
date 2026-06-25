@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "formicae.fullname" . }}-config
+  labels:
+    {{- include "formicae.labels" . | nindent 4 }}
+data:
+  ASPNETCORE_HTTP_PORTS: {{ .Values.config.aspnetcoreHttpPorts | quote }}
+  UseFakeAdapters: {{ .Values.config.useFakeAdapters | quote }}
+  ApplyDatabaseMigrations: {{ .Values.config.applyDatabaseMigrations | quote }}
+  PersistenceMode: {{ .Values.config.persistenceMode | quote }}
+  WorkItemMode: {{ .Values.config.workItemMode | quote }}
+  SourceControlMode: {{ .Values.config.sourceControlMode | quote }}
+  AgentMode: {{ .Values.config.agentMode | quote }}
+  OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}
+  OpenHands__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
+  KubernetesJobs__Namespace: {{ default .Release.Namespace .Values.config.kubernetesJobsNamespace | quote }}
+  KubernetesJobs__Image: {{ .Values.config.kubernetesJobsImage | quote }}
+  KubernetesJobs__WorkspaceVolumeClaim: {{ .Values.config.kubernetesJobsWorkspaceVolumeClaim | quote }}

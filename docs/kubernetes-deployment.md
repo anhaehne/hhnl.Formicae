@@ -75,6 +75,32 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-i
 ```
 
 
+
+## Helm Chart
+
+A Helm chart is available at `deploy/helm/formicae`.
+
+Render the chart locally:
+
+```powershell
+helm template formicae deploy/helm/formicae --namespace formicae
+```
+
+Install or upgrade with published images:
+
+```powershell
+helm upgrade --install formicae deploy/helm/formicae `
+  --namespace formicae `
+  --create-namespace `
+  --set image.repositoryPrefix=anhaehne `
+  --set image.tag=0.1.0 `
+  --set secrets.postgresPassword='<replace-me>' `
+  --set secrets.connectionString='Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=<replace-me>' `
+  --set secrets.llmApiKey='<replace-me>' `
+  --set secrets.githubToken='<replace-me>'
+```
+
+The chart defaults `image.tag` to the current chart app version. The GitHub Actions image workflow tags images with the .NET project version from `Directory.Build.props`, so chart `appVersion`, chart defaults, and pushed image tags should be kept aligned when releasing.
 ## Kubernetes E2E Tests
 
 Kubernetes E2E tests live in a separate project and are not part of the normal solution test path.
@@ -97,4 +123,5 @@ Set `FORMICAE_E2E_KEEP_CLUSTER=true` or pass `-KeepCluster` to preserve the clus
 ## Notes
 
 The current Kubernetes runner seam renders Job manifests in-process. The included RBAC already grants the API/worker service account namespace-scoped access needed when the runner is upgraded to create and watch Jobs directly.
+
 

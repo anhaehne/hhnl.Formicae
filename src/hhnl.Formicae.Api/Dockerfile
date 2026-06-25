@@ -3,6 +3,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY hhnl.Formicae.slnx ./
+COPY Directory.Build.props ./
 COPY src/hhnl.Formicae.Application/hhnl.Formicae.Application.csproj src/hhnl.Formicae.Application/
 COPY src/hhnl.Formicae.Infrastructure/hhnl.Formicae.Infrastructure.csproj src/hhnl.Formicae.Infrastructure/
 COPY src/hhnl.Formicae.Api/hhnl.Formicae.Api.csproj src/hhnl.Formicae.Api/

@@ -1,0 +1,74 @@
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repositoryPrefix: anhaehne
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+api:
+  image:
+    repository: hhnl-formicae-api
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: http
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  image:
+    repository: hhnl-formicae-worker
+  schedule: "*/1 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+config:
+  aspnetcoreHttpPorts: "8080"
+  useFakeAdapters: "false"
+  applyDatabaseMigrations: "true"
+  persistenceMode: "Postgres"
+  workItemMode: "GitHub"
+  sourceControlMode: "GitHub"
+  agentMode: "OpenHands"
+  openHandsDefaultModel: "openhands/claude-sonnet-4"
+  openHandsLlmApiKeySecretName: "openhands-llm-api-key"
+  kubernetesJobsNamespace: ""
+  kubernetesJobsImage: "ghcr.io/openhands/openhands:latest"
+  kubernetesJobsWorkspaceVolumeClaim: "formicae-workspaces"
+
+secrets:
+  create: true
+  connectionString: "Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=replace-me"
+  postgresDb: "formicae"
+  postgresUser: "formicae"
+  postgresPassword: "replace-me"
+  llmApiKey: "replace-me"
+  githubToken: "replace-me"
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 2Gi
+  resources: {}
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+imagePullSecrets: []
