@@ -2,8 +2,18 @@ apiVersion: v1
 entries:
   formicae:
   - apiVersion: v2
+    appVersion: 0.1.4
+    created: "2026-06-25T14:55:32.119088357Z"
+    description: Kubernetes-native agent workflow orchestration MVP.
+    digest: d37ae041173029fee0d543c4469ba4df5590fbb111546e3ac81462261ad053a1
+    name: formicae
+    type: application
+    urls:
+    - https://anhaehne.github.io/hhnl.Formicae/formicae-0.1.4.tgz
+    version: 0.1.4
+  - apiVersion: v2
     appVersion: 0.1.3
-    created: "2026-06-25T14:45:05.523532747Z"
+    created: "2026-06-25T14:55:32.118036193Z"
     description: Kubernetes-native agent workflow orchestration MVP.
     digest: 21eab22de6311cdc6f9b48baf7e8682879420d3946160e5c31807b823ab81228
     name: formicae
@@ -13,7 +23,7 @@ entries:
     version: 0.1.3
   - apiVersion: v2
     appVersion: 0.1.2
-    created: "2026-06-25T14:45:05.522675067Z"
+    created: "2026-06-25T14:55:32.117312618Z"
     description: Kubernetes-native agent workflow orchestration MVP.
     digest: ed4bfa0ffeea39b634c04d5b16fe3d4523cd45946c4e66b0775e75bc5a70d97c
     name: formicae
@@ -23,7 +33,7 @@ entries:
     version: 0.1.2
   - apiVersion: v2
     appVersion: 0.1.1
-    created: "2026-06-25T14:45:05.521530152Z"
+    created: "2026-06-25T14:55:32.116831293Z"
     description: Kubernetes-native agent workflow orchestration MVP.
     digest: 0879a646f7d1f8728990e0b4eef427f042c1c277fc3bf67397084b8ae0001354
     name: formicae
@@ -33,7 +43,7 @@ entries:
     version: 0.1.1
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-06-25T14:45:05.520897622Z"
+    created: "2026-06-25T14:55:32.116195028Z"
     description: Kubernetes-native agent workflow orchestration MVP.
     digest: 3b901044613e98286adc7c9e7ed555602236a9ae93a63f32c9d47a54a1bbc96a
     name: formicae
@@ -41,4 +51,4 @@ entries:
     urls:
     - https://anhaehne.github.io/hhnl.Formicae/formicae-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-25T14:45:05.52027986Z"
+generated: "2026-06-25T14:55:32.115539724Z"
