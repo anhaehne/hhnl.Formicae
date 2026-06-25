@@ -1,0 +1,87 @@
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repositoryPrefix: anhaehne
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+api:
+  image:
+    repository: hhnl-formicae-api
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: http
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  image:
+    repository: hhnl-formicae-worker
+  schedule: "*/1 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  codexAuth:
+    enabled: false
+    secretName: formicae-codex-auth
+    secretKey: auth.json
+    mountPath: /root/.codex
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+config:
+  aspnetcoreHttpPorts: "8080"
+  useFakeAdapters: "false"
+  persistenceMode: "Postgres"
+  workItemMode: "GitHub"
+  sourceControlMode: "GitHub"
+  agentMode: "OpenHands"
+  openHandsAuthMethod: "ApiKey"
+  openHandsDefaultModel: ""
+  openHandsLlmApiKeySecretName: "openhands-llm-api-key"
+  openHandsShell: "/bin/sh"
+  openHandsBootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'
+  openHandsCommand: 'openhands --headless --json --override-with-envs -t "$FORMICAE_TASK_PROMPT"'
+  openHandsCodexSubscriptionImage: "node:22-bookworm-slim"
+  openHandsCodexSubscriptionBootstrapCommand: 'apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*'
+  openHandsCodexSubscriptionCommand: 'mkdir -p "$CODEX_HOME" /workspace && if [ -f /root/.codex/auth.json ]; then cp /root/.codex/auth.json "$CODEX_HOME/auth.json" && chmod 600 "$CODEX_HOME/auth.json"; fi && if [ "$FORMICAE_TASK_KIND" = "Implement" ]; then repo="${FORMICAE_REPOSITORY_URL#https://}" && git clone "https://x-access-token:${GITHUB_TOKEN}@${repo}" /workspace/repo && cd /workspace/repo && git checkout "$FORMICAE_BRANCH" && git config user.email "formicae@example.invalid" && git config user.name "Formicae Agent"; else cd /workspace; fi && codex_model_args="" && if [ -n "$FORMICAE_MODEL" ]; then codex_model_args="-m $FORMICAE_MODEL"; fi && npx -y @openai/codex exec $codex_model_args -C "$PWD" --skip-git-repo-check --json --dangerously-bypass-approvals-and-sandbox "$FORMICAE_TASK_PROMPT" && if [ "$FORMICAE_TASK_KIND" = "Implement" ]; then git add -A && if git diff --cached --quiet; then echo "Codex completed without file changes."; else git commit -m "Implement Formicae workflow ${FORMICAE_WORKFLOW_ID}" && git push origin "$FORMICAE_BRANCH"; fi; fi'
+  kubernetesJobsNamespace: ""
+  kubernetesJobsImage: "python:3.12-slim"
+  kubernetesJobsWorkspaceVolumeClaim: "formicae-workspaces"
+  kubernetesJobsTimeoutSeconds: "1800"
+  kubernetesJobsPollIntervalSeconds: "5"
+  kubernetesJobsDeleteFinishedJobs: "false"
+
+secrets:
+  create: true
+  runtimeSecretName: "formicae-runtime-secrets"
+  connectionString: ""
+  postgresDb: "formicae"
+  postgresUser: "formicae"
+  postgresPassword: ""
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 2Gi
+  resources: {}
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+imagePullSecrets: []

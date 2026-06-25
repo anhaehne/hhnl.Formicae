@@ -1,0 +1,11 @@
+Formicae has been installed.
+
+API service:
+  {{ include "formicae.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local
+
+Port-forward for local smoke testing:
+  kubectl port-forward service/{{ include "formicae.fullname" . }}-api 8080:{{ .Values.api.service.port }} -n {{ .Release.Namespace }}
+  Invoke-RestMethod http://localhost:8080/healthz
+
+Container image tag:
+  {{ .Values.image.tag }}

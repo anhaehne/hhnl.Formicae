@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: formicae
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - secret.example.yaml
+  - postgres.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - worker-cronjob.yaml
+images:
+  - name: hhnl-formicae-api
+    newName: ghcr.io/anhaehne/hhnl-formicae-api
+    newTag: latest
+  - name: hhnl-formicae-worker
+    newName: ghcr.io/anhaehne/hhnl-formicae-worker
+    newTag: latest

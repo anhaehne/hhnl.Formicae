@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "formicae.fullname" . }}-worker
+  labels:
+    {{- include "formicae.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  schedule: {{ .Values.worker.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.worker.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.worker.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "formicae.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: worker
+        spec:
+          serviceAccountName: {{ include "formicae.serviceAccountName" . }}
+          restartPolicy: Never
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: worker
+              image: {{ include "formicae.image" (dict "root" . "repository" .Values.worker.image.repository) | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "formicae.fullname" . }}-config
+                - secretRef:
+                    name: {{ include "formicae.fullname" . }}-secrets
+                - secretRef:
+                    name: {{ .Values.secrets.runtimeSecretName | quote }}
+                    optional: true
+              {{- if .Values.worker.codexAuth.enabled }}
+              volumeMounts:
+                - name: codex-auth
+                  mountPath: {{ .Values.worker.codexAuth.mountPath | quote }}
+                  readOnly: true
+              {{- end }}
+              resources:
+                {{- toYaml .Values.worker.resources | nindent 16 }}
+          {{- if .Values.worker.codexAuth.enabled }}
+          volumes:
+            - name: codex-auth
+              secret:
+                secretName: {{ .Values.worker.codexAuth.secretName | quote }}
+                items:
+                  - key: {{ .Values.worker.codexAuth.secretKey | quote }}
+                    path: {{ .Values.worker.codexAuth.secretKey | quote }}
+          {{- end }}

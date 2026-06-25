@@ -1,0 +1,86 @@
+name: Build container images
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Read project version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content ./Directory.Build.props
+          $version = $props.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Directory.Build.props must contain Project/PropertyGroup/Version."
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Normalize image owner
+        id: image-owner
+        shell: bash
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/hhnl.Formicae.Api/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.image-owner.outputs.value }}/hhnl-formicae-api:${{ steps.version.outputs.value }}
+            ${{ env.REGISTRY }}/${{ steps.image-owner.outputs.value }}/hhnl-formicae-api:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/hhnl.Formicae.Worker/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.image-owner.outputs.value }}/hhnl-formicae-worker:${{ steps.version.outputs.value }}
+            ${{ env.REGISTRY }}/${{ steps.image-owner.outputs.value }}/hhnl-formicae-worker:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}

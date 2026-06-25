@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "formicae.fullname" . }}-config
+  labels:
+    {{- include "formicae.labels" . | nindent 4 }}
+data:
+  ASPNETCORE_HTTP_PORTS: {{ .Values.config.aspnetcoreHttpPorts | quote }}
+  UseFakeAdapters: {{ .Values.config.useFakeAdapters | quote }}
+  PersistenceMode: {{ .Values.config.persistenceMode | quote }}
+  WorkItemMode: {{ .Values.config.workItemMode | quote }}
+  SourceControlMode: {{ .Values.config.sourceControlMode | quote }}
+  AgentMode: {{ .Values.config.agentMode | quote }}
+  OpenHands__AuthMethod: {{ .Values.config.openHandsAuthMethod | quote }}
+  OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}
+  OpenHands__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
+  OpenHands__Shell: {{ .Values.config.openHandsShell | quote }}
+  OpenHands__BootstrapCommand: {{ .Values.config.openHandsBootstrapCommand | quote }}
+  OpenHands__Command: {{ .Values.config.openHandsCommand | quote }}
+  OpenHands__CodexSubscriptionImage: {{ .Values.config.openHandsCodexSubscriptionImage | quote }}
+  OpenHands__CodexSubscriptionBootstrapCommand: {{ .Values.config.openHandsCodexSubscriptionBootstrapCommand | quote }}
+  OpenHands__CodexSubscriptionCommand: {{ .Values.config.openHandsCodexSubscriptionCommand | quote }}
+  KubernetesJobs__Namespace: {{ default .Release.Namespace .Values.config.kubernetesJobsNamespace | quote }}
+  KubernetesJobs__Image: {{ .Values.config.kubernetesJobsImage | quote }}
+  KubernetesJobs__WorkspaceVolumeClaim: {{ .Values.config.kubernetesJobsWorkspaceVolumeClaim | quote }}
+  KubernetesJobs__TimeoutSeconds: {{ .Values.config.kubernetesJobsTimeoutSeconds | quote }}
+  KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
+  KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
+  KubernetesJobs__RuntimeSecretName: {{ .Values.secrets.runtimeSecretName | quote }}
+  KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
+  KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.worker.codexAuth.secretName "" .Values.worker.codexAuth.enabled | quote }}
+  KubernetesJobs__CodexAuthSecretKey: {{ .Values.worker.codexAuth.secretKey | quote }}
+  KubernetesJobs__CodexAuthMountPath: {{ .Values.worker.codexAuth.mountPath | quote }}

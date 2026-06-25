@@ -31,6 +31,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support loops, parallel execution, decisions, scripts, and triggers.
 - Support customizable personas.
 - Support customizable tasks.
+- Support per-workflow-step capabilities, environments, and secrets.
 - Support customizable environments.
   - MCP server integration.
   - Custom Docker base image.
