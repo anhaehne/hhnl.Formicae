@@ -34,6 +34,9 @@ spec:
                 name: {{ include "formicae.fullname" . }}-config
             - secretRef:
                 name: {{ include "formicae.fullname" . }}-secrets
+            - secretRef:
+                name: {{ .Values.secrets.runtimeSecretName | quote }}
+                optional: true
           startupProbe:
             httpGet:
               path: /healthz

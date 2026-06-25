@@ -73,7 +73,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-i
 
 ## Helm Chart
 
-A Helm chart is available at `deploy/helm/formicae`.
+A Helm chart is available in this repository at `deploy/helm/formicae`. The chart deploys PostgreSQL by default through `postgres.enabled=true`.
 
 Render the chart locally:
 
@@ -81,18 +81,40 @@ Render the chart locally:
 helm template formicae deploy/helm/formicae --namespace formicae
 ```
 
-Install or upgrade with published images:
+Install or upgrade from a checkout of the repository:
 
 ```powershell
+git clone https://github.com/anhaehne/hhnl.Formicae.git
+cd hhnl.Formicae
+
 helm upgrade --install formicae deploy/helm/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
   --set image.tag=0.1.0 `
   --set secrets.postgresPassword='<replace-me>' `
-  --set secrets.connectionString='Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=<replace-me>' `
-  --set secrets.llmApiKey='<replace-me>' `
-  --set secrets.githubToken='<replace-me>'
+  --set secrets.connectionString='Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=<replace-me>'
+```
+
+Create the runtime credentials Secret separately after the chart is installed. The API and worker reference this Secret optionally, so pods can start before it exists. Restart the API after creating or updating the Secret so the environment variables are reloaded.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: formicae-runtime-secrets
+  namespace: formicae
+type: Opaque
+stringData:
+  LLM_API_KEY: "<replace-me>"
+  GITHUB_TOKEN: "<replace-me>"
+```
+
+Apply the Secret and restart the API:
+
+```powershell
+kubectl apply -f formicae-runtime-secrets.yaml
+kubectl rollout restart deployment/formicae-api -n formicae
 ```
 
 The chart defaults `image.tag` to the current chart app version. The GitHub Actions image workflow tags images with the .NET project version from `Directory.Build.props`, so chart `appVersion`, chart defaults, and pushed image tags should be kept aligned when releasing.

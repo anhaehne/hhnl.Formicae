@@ -34,5 +34,8 @@ spec:
                     name: {{ include "formicae.fullname" . }}-config
                 - secretRef:
                     name: {{ include "formicae.fullname" . }}-secrets
+                - secretRef:
+                    name: {{ .Values.secrets.runtimeSecretName | quote }}
+                    optional: true
               resources:
                 {{- toYaml .Values.worker.resources | nindent 16 }}
