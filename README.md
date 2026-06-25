@@ -109,6 +109,7 @@ Important settings:
 - `ConnectionStrings:Formicae` for PostgreSQL.
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the OpenHands-capable job image.
+- `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`.
 
 ## Architecture
 

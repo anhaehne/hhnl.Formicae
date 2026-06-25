@@ -97,7 +97,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.7
+  --set image.tag=0.1.8
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -142,6 +142,32 @@ stringData:
   GITHUB_TOKEN: "<replace-me>"
 ```
 
+
+### GitHub Webhooks
+
+Formicae accepts GitHub webhooks at:
+
+```text
+POST /api/webhooks/github
+```
+
+Configure the GitHub repository webhook with these events:
+
+- Issues
+- Issue comments
+- Pull requests
+- Pull request review comments
+- Pull request reviews
+
+Set the webhook content type to `application/json`. For production, set a webhook secret and pass the same value to the chart:
+
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --set secrets.githubWebhookSecret='<replace-me>'
+```
+
+When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the workflow loop immediately; unsupported events are acknowledged but ignored.
 Apply the runtime Secret:
 
 ```powershell

@@ -7,6 +7,9 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHealthChecks();
+builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHubWebhooks"));
+builder.Services.AddSingleton<WorkflowTickNotifier>();
+builder.Services.AddScoped<GitHubWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
@@ -23,6 +26,11 @@ if (usesPostgresPersistence)
 }
 
 app.MapHealthChecks("/healthz");
+
+app.MapPost("/api/webhooks/github", async (
+    HttpRequest request,
+    GitHubWebhookHandler handler,
+    CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
 
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
