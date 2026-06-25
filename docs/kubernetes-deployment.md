@@ -117,7 +117,9 @@ helm upgrade --install formicae formicae/formicae `
   --set secrets.connectionString='Host=<host>;Port=5432;Database=<database>;Username=<user>;Password=<password>'
 ```
 
-Create the runtime credentials Secret separately after the chart is installed. The API and worker reference this Secret optionally, so pods can start before it exists. Restart the API after creating or updating the Secret so the environment variables are reloaded.
+Create the runtime credentials Secret separately after the chart is installed. Pick one of the following options.
+
+Use an LLM API key:
 
 ```yaml
 apiVersion: v1
@@ -131,9 +133,21 @@ stringData:
   GITHUB_TOKEN: "<replace-me>"
 ```
 
-### OpenHands And Codex Subscription Access
+Use your Codex subscription:
 
-The default MVP runner starts OpenHands with `openhands --headless --json` and configures the model through `LLM_MODEL`. For that OpenHands path, use the normal OpenHands/OpenAI API-key style runtime Secret, for example:
+1. On a trusted machine, sign in with Codex:
+
+```powershell
+codex login
+```
+
+2. Encode your Codex auth file:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME/.codex/auth.json"))
+```
+
+3. Create `formicae-runtime-secrets.yaml` with the encoded value:
 
 ```yaml
 apiVersion: v1
@@ -143,27 +157,11 @@ metadata:
   namespace: formicae
 type: Opaque
 stringData:
-  LLM_API_KEY: "<replace-me>"
+  CODEX_AUTH_JSON_B64: "<paste-base64-auth-json>"
   GITHUB_TOKEN: "<replace-me>"
 ```
 
-OpenHands has a separate subscription-login path for Codex models. The OpenHands SDK documents `LLM.subscription_login(vendor="openai", model="gpt-5.2-codex")`, which performs a ChatGPT OAuth flow, caches credentials under `~/.openhands/auth/`, and reuses or refreshes that cache on later runs. That path is not the same as passing `LLM_API_KEY`.
-
-For OpenHands Agent Canvas or ACP agents that run Codex, OpenHands documents Codex authentication through Codex CLI's cached login at `$HOME/.codex/auth.json`; subscription login takes priority over API keys when that cached login exists. In Kubernetes, restore that file before starting the Codex ACP agent. A common Secret shape is:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: formicae-runtime-secrets
-  namespace: formicae
-type: Opaque
-stringData:
-  CODEX_AUTH_JSON_B64: "<base64-of-auth-json>"
-  GITHUB_TOKEN: "<replace-me>"
-```
-
-The worker or agent container entrypoint must decode it before OpenHands starts the Codex ACP process:
+4. Use a worker image or startup script that restores the file before running OpenHands:
 
 ```sh
 mkdir -p "$HOME/.codex"
@@ -171,13 +169,7 @@ printf '%s' "$CODEX_AUTH_JSON_B64" | base64 -d > "$HOME/.codex/auth.json"
 chmod 600 "$HOME/.codex/auth.json"
 ```
 
-For ChatGPT Business or Enterprise workspaces, Codex also supports `CODEX_ACCESS_TOKEN` for trusted non-interactive automation. OpenHands does not use that environment variable as the documented Codex ACP credential directly; if you choose this route, the container must first convert the token into Codex CLI auth storage:
-
-```sh
-printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token
-```
-
-The Helm chart passes every key in `formicae-runtime-secrets` to both the API and worker containers. Future worker CronJob pods read the updated Secret when they start. Treat `LLM_API_KEY`, `CODEX_AUTH_JSON_B64`, `CODEX_ACCESS_TOKEN`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners, prefer finite expirations, and rotate credentials regularly. See the OpenHands docs for [LLM subscriptions](https://docs.openhands.dev/sdk/guides/llm-subscriptions) and [ACP agent authentication](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents), and the Codex docs for [authentication](https://developers.openai.com/codex/auth), [environment variables](https://developers.openai.com/codex/environment-variables), and [access tokens](https://developers.openai.com/codex/enterprise/access-tokens).
+Treat `LLM_API_KEY`, `CODEX_AUTH_JSON_B64`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners.
 
 Apply the Secret and restart the API:
 
