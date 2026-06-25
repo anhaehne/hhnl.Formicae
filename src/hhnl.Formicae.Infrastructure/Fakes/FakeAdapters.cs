@@ -15,6 +15,20 @@ public sealed class FakeSourceControlProvider : ISourceControlProvider
 
     public Task<PullRequestResult> CreateDraftPullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
         => Task.FromResult(new PullRequestResult($"{workflow.RepositoryUrl.TrimEnd('/')}/pull/formicae-{workflow.Id:N}"));
+
+    public Task<IReadOnlyList<PullRequestComment>> ListPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<PullRequestComment>>([
+            new PullRequestComment(
+                $"fake-review-{workflow.Id:N}",
+                "fake-reviewer",
+                "Please address this fake review comment.",
+                $"{workflow.PullRequestUrl ?? workflow.RepositoryUrl}#discussion_r1",
+                DateTimeOffset.UtcNow,
+                PullRequestCommentKind.ReviewComment)
+        ]);
+
+    public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 }
 
 public sealed class FakeAgentRunner : IAgentRunner

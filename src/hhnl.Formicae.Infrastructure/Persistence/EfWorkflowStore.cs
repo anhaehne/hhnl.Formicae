@@ -20,7 +20,8 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
             .Where(workflow => workflow.Status == WorkflowStatus.Queued
                 || workflow.Status == WorkflowStatus.Planning
                 || workflow.Status == WorkflowStatus.Implementing
-                || workflow.Status == WorkflowStatus.CreatingPullRequest)
+                || workflow.Status == WorkflowStatus.CreatingPullRequest
+                || workflow.Status == WorkflowStatus.Reviewing)
             .OrderBy(workflow => workflow.CreatedAt)
             .ToListAsync(cancellationToken);
 

@@ -32,7 +32,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         lock (gate)
         {
             return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
-                .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest)
+                .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing)
                 .OrderBy(workflow => workflow.CreatedAt)
                 .ToArray());
         }

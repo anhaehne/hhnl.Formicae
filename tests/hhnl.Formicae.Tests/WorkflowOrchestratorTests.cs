@@ -1,5 +1,6 @@
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
+using hhnl.Formicae.Infrastructure.GitHub;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using hhnl.Formicae.Infrastructure.OpenHands;
 using hhnl.Formicae.Infrastructure.Prompts;
@@ -25,6 +26,7 @@ public sealed class WorkflowOrchestratorTests
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
 
         var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
         var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
@@ -36,7 +38,8 @@ public sealed class WorkflowOrchestratorTests
         Assert.Collection(runs,
             run => Assert.Equal(TaskRunKind.Plan, run.Kind),
             run => Assert.Equal(TaskRunKind.Implement, run.Kind),
-            run => Assert.Equal(TaskRunKind.CreatePullRequest, run.Kind));
+            run => Assert.Equal(TaskRunKind.CreatePullRequest, run.Kind),
+            run => Assert.Equal(TaskRunKind.AddressComments, run.Kind));
         Assert.All(runs, run => Assert.Equal(TaskRunStatus.Succeeded, run.Status));
     }
 
@@ -137,21 +140,27 @@ public sealed class WorkflowOrchestratorTests
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
 
+        var workflowAfterAdvance = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
         var runs = await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None);
+
         Assert.Single(runs, run => run.Kind == TaskRunKind.Plan);
         Assert.Single(runs, run => run.Kind == TaskRunKind.Implement);
         Assert.Single(runs, run => run.Kind == TaskRunKind.CreatePullRequest);
+        Assert.DoesNotContain(runs, run => run.Kind == TaskRunKind.AddressComments);
+        Assert.NotNull(workflowAfterAdvance);
+        Assert.Equal(WorkflowStatus.Reviewing, workflowAfterAdvance.Status);
     }
 
     [Fact]
-    public async Task AdvanceRunnableWorkflows_Uses_mock_devops_adapter_for_issue_branch_and_pull_request()
+    public async Task AdvanceRunnableWorkflows_Uses_mock_devops_adapter_for_issue_branch_pull_request_and_comments()
     {
         var store = new InMemoryWorkflowStore();
         var service = new WorkflowService(store);
         var issueUrl = "https://github.com/acme/widgets/issues/99";
         var repositoryUrl = "https://github.com/acme/widgets";
         var devOps = new MockDevOpsAdapter()
-            .AddIssue(issueUrl, "Scripted issue", "Scripted issue body", "Scripted comment");
+            .AddIssue(issueUrl, "Scripted issue", "Scripted issue body", "Scripted comment")
+            .AddPullRequestComment("1", "reviewer", "Please address this before merging.", PullRequestCommentKind.ReviewComment);
         devOps.DefaultBranchName = "formicae/scripted-branch";
         devOps.DefaultPullRequestUrl = "https://github.com/acme/widgets/pull/123";
         var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
@@ -164,8 +173,10 @@ public sealed class WorkflowOrchestratorTests
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
 
         var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
 
         Assert.NotNull(workflow);
         Assert.Equal(WorkflowStatus.Completed, workflow.Status);
@@ -187,6 +198,361 @@ public sealed class WorkflowOrchestratorTests
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Plan);
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Implement);
         });
+        Assert.Contains(runs, run => run.Kind == TaskRunKind.AddressComments && run.Status == TaskRunStatus.Succeeded);
+        Assert.Collection(devOps.ListPullRequestCommentsCalls, call =>
+        {
+            Assert.Equal(started.WorkflowId, call.WorkflowId);
+            Assert.Equal("https://github.com/acme/widgets/pull/123", call.PullRequestUrl);
+        });
+        Assert.Collection(devOps.UpsertPullRequestCommentCalls, call =>
+        {
+            Assert.Equal(started.WorkflowId, call.WorkflowId);
+            Assert.Equal("https://github.com/acme/widgets/pull/123", call.PullRequestUrl);
+            Assert.Contains(PullRequestCommentMarkers.AddressComments(started.WorkflowId), call.Body);
+            Assert.Contains("Fake AddressComments output", call.Body);
+        });
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Leaves_pull_request_in_reviewing_when_no_comments_exist()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/100";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssue(issueUrl, "Scripted issue", "Scripted issue body")
+            .AddPullRequestComment("formicae", "automation", PullRequestCommentMarkers.AddressComments(Guid.Empty));
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+
+        Assert.Equal(0, advanced);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Reviewing, workflow.Status);
+        Assert.Equal(WorkflowStep.AddressComments, workflow.CurrentStep);
+        Assert.DoesNotContain(runs, run => run.Kind == TaskRunKind.AddressComments);
+        Assert.Collection(devOps.ListPullRequestCommentsCalls, call =>
+        {
+            Assert.Equal(started.WorkflowId, call.WorkflowId);
+            Assert.Equal(devOps.DefaultPullRequestUrl, call.PullRequestUrl);
+        });
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Fails_workflow_when_address_comments_agent_fails()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/101";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssue(issueUrl, "Scripted issue", "Scripted issue body")
+            .AddPullRequestComment("1", "reviewer", "Please fix this.", PullRequestCommentKind.ReviewComment);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FailingAddressCommentsAgentRunner(), new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
+        Assert.Equal("address comments failed", workflow.FailureReason);
+        Assert.Contains(runs, run => run.Kind == TaskRunKind.AddressComments && run.Status == TaskRunStatus.Failed);
+    }
+
+    [Fact]
+    public async Task FilePromptRenderer_Renders_pull_request_comments_for_address_comments_task()
+    {
+        var workflow = new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            BranchName = "formicae/comment-fix",
+            PullRequestUrl = "https://github.com/acme/widgets/pull/123",
+            PlanArtifact = "Existing plan"
+        };
+        var comments = new[]
+        {
+            new PullRequestComment(
+                "review:1",
+                "reviewer",
+                "Please cover this edge case.",
+                "https://github.com/acme/widgets/pull/123#discussion_r1",
+                DateTimeOffset.Parse("2026-06-25T10:11:12Z"),
+                PullRequestCommentKind.ReviewComment)
+        };
+
+        var prompt = await new FilePromptRenderer().RenderAsync(TaskRunKind.AddressComments, workflow, null, comments, CancellationToken.None);
+
+        Assert.Contains("formicae/comment-fix", prompt);
+        Assert.Contains("[ReviewComment] reviewer at 2026-06-25T10:11:12.0000000+00:00", prompt);
+        Assert.Contains("URL: https://github.com/acme/widgets/pull/123#discussion_r1", prompt);
+        Assert.Contains("Please cover this edge case.", prompt);
+    }
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_Lists_issue_and_review_comments_for_pull_request()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new CapturingGitHubHandler();
+            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
+            var workflow = new Workflow
+            {
+                RepositoryUrl = "https://github.com/acme/widgets",
+                IssueUrl = "https://github.com/acme/widgets/issues/42",
+                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+            };
+
+            var comments = await provider.ListPullRequestCommentsAsync(workflow, CancellationToken.None);
+
+            Assert.Equal([
+                "https://api.github.com/repos/acme/widgets/issues/123/comments",
+                "https://api.github.com/repos/acme/widgets/pulls/123/comments"
+            ], handler.Requests.Select(request => request.RequestUri?.ToString()));
+            Assert.All(handler.Requests, request => Assert.Equal("Bearer", request.Headers.Authorization?.Scheme));
+            Assert.Collection(comments,
+                comment =>
+                {
+                    Assert.Equal("issue:10", comment.Id);
+                    Assert.Equal("maintainer", comment.Author);
+                    Assert.Equal("Please update the docs.", comment.Body);
+                    Assert.Equal("https://github.com/acme/widgets/pull/123#issuecomment-10", comment.Url);
+                    Assert.Equal(PullRequestCommentKind.IssueComment, comment.Kind);
+                },
+                comment =>
+                {
+                    Assert.Equal("review:20", comment.Id);
+                    Assert.Equal("reviewer", comment.Author);
+                    Assert.Equal("Please add a regression test.", comment.Body);
+                    Assert.Equal("https://github.com/acme/widgets/pull/123#discussion_r20", comment.Url);
+                    Assert.Equal(PullRequestCommentKind.ReviewComment, comment.Kind);
+                });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_Creates_marked_pull_request_comment_when_missing()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new UpsertGitHubCommentHandler(existingMarkedCommentId: null);
+            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
+            var workflow = new Workflow
+            {
+                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                RepositoryUrl = "https://github.com/acme/widgets",
+                IssueUrl = "https://github.com/acme/widgets/issues/42",
+                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+            };
+            var body = PullRequestCommentMarkers.BuildAddressCommentsBody(
+                workflow,
+                new AgentRunResult(true, "run-1", "Addressed the requested changes.", null));
+
+            await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
+
+            Assert.Equal([
+                "GET https://api.github.com/repos/acme/widgets/issues/123/comments",
+                "POST https://api.github.com/repos/acme/widgets/issues/123/comments"
+            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
+            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Addressed the requested changes."));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_Updates_marked_pull_request_comment_when_present()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new UpsertGitHubCommentHandler(existingMarkedCommentId: 77);
+            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
+            var workflow = new Workflow
+            {
+                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                RepositoryUrl = "https://github.com/acme/widgets",
+                IssueUrl = "https://github.com/acme/widgets/issues/42",
+                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+            };
+            var body = PullRequestCommentMarkers.BuildAddressCommentsBody(
+                workflow,
+                new AgentRunResult(true, "run-1", "Updated summary.", null));
+
+            await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
+
+            Assert.Equal([
+                "GET https://api.github.com/repos/acme/widgets/issues/123/comments",
+                "PATCH https://api.github.com/repos/acme/widgets/issues/comments/77"
+            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
+            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Updated summary."));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+
+    private sealed class FailingAddressCommentsAgentRunner : IAgentRunner
+    {
+        public Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
+        {
+            if (task.Kind == TaskRunKind.AddressComments)
+            {
+                return Task.FromResult(new AgentRunResult(false, "address-comments-run", "failed", "address comments failed"));
+            }
+
+            return Task.FromResult(new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}", $"Fake {task.Kind} output.", null));
+        }
+    }
+
+    private sealed class UpsertGitHubCommentHandler(long? existingMarkedCommentId) : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            if (request.Content is not null)
+            {
+                var requestJson = await request.Content.ReadAsStringAsync(cancellationToken);
+                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
+                RequestBodies.Add(document.RootElement.GetProperty("body").GetString() ?? string.Empty);
+            }
+
+            var path = request.RequestUri?.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/issues/123/comments")
+            {
+                var json = existingMarkedCommentId is null
+                    ? "[]"
+                    : $$"""
+                      [
+                        {
+                          "id": {{existingMarkedCommentId}},
+                          "body": "<!-- formicae:workflow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:address-comments --> previous summary",
+                          "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-{{existingMarkedCommentId}}",
+                          "updated_at": "2026-06-25T10:00:00Z",
+                          "user": { "login": "automation" }
+                        }
+                      ]
+                      """;
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json)
+                };
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/repos/acme/widgets/issues/123/comments")
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
+                {
+                    Content = new StringContent("{}")
+                };
+            }
+
+            if (request.Method == HttpMethod.Patch && path == $"/repos/acme/widgets/issues/comments/{existingMarkedCommentId}")
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+            }
+
+            throw new InvalidOperationException($"Unexpected GitHub request: {request.Method} {path}");
+        }
+    }
+
+    private sealed class CapturingGitHubHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+
+            var path = request.RequestUri?.AbsolutePath;
+            var json = path switch
+            {
+                "/repos/acme/widgets/issues/123/comments" =>
+                    """
+                    [
+                      {
+                        "id": 10,
+                        "body": "Please update the docs.",
+                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-10",
+                        "updated_at": "2026-06-25T10:00:00Z",
+                        "user": { "login": "maintainer" }
+                      },
+                      {
+                        "id": 11,
+                        "body": "   ",
+                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-11",
+                        "updated_at": "2026-06-25T10:01:00Z",
+                        "user": { "login": "maintainer" }
+                      },
+                      {
+                        "id": 12,
+                        "body": "<!-- formicae:workflow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:address-comments --> automated summary",
+                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-12",
+                        "updated_at": "2026-06-25T10:01:30Z",
+                        "user": { "login": "maintainer" }
+                      }
+                    ]
+                    """,
+                "/repos/acme/widgets/pulls/123/comments" =>
+                    """
+                    [
+                      {
+                        "id": 20,
+                        "body": "Please add a regression test.",
+                        "html_url": "https://github.com/acme/widgets/pull/123#discussion_r20",
+                        "updated_at": "2026-06-25T10:02:00Z",
+                        "user": { "login": "reviewer" }
+                      }
+                    ]
+                    """,
+                _ => throw new InvalidOperationException($"Unexpected GitHub request path: {path}")
+            };
+
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            });
+        }
     }
 }
 

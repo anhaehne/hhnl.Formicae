@@ -81,6 +81,7 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "Plan", 0));
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "Implement", 1));
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "CreatePullRequest", 2));
+                Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "AddressComments", 3));
 
                 var logs = await http.GetFromJsonAsync<JsonElement[]>($"/api/workflows/{workflowId}/logs");
                 Assert.NotNull(logs);
@@ -109,12 +110,12 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
             latest = JsonDocument.Parse(await http.GetStringAsync($"/api/workflows/{workflowId}"));
             var root = latest.RootElement;
 
-            if (IsEnumValue(root.GetProperty("status"), "Completed", 4))
+            if (IsEnumValue(root.GetProperty("status"), "Completed", 5))
             {
                 return latest;
             }
 
-            if (IsEnumValue(root.GetProperty("status"), "Failed", 5))
+            if (IsEnumValue(root.GetProperty("status"), "Failed", 6))
             {
                 throw new InvalidOperationException($"Workflow failed: {root}");
             }
@@ -130,8 +131,8 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
 
     private static void AssertWorkflowCompleted(JsonElement workflow)
     {
-        Assert.True(IsEnumValue(workflow.GetProperty("status"), "Completed", 4), workflow.ToString());
-        Assert.True(IsEnumValue(workflow.GetProperty("currentStep"), "Done", 4), workflow.ToString());
+        Assert.True(IsEnumValue(workflow.GetProperty("status"), "Completed", 5), workflow.ToString());
+        Assert.True(IsEnumValue(workflow.GetProperty("currentStep"), "Done", 5), workflow.ToString());
         Assert.False(string.IsNullOrWhiteSpace(workflow.GetProperty("pullRequestUrl").GetString()));
     }
 

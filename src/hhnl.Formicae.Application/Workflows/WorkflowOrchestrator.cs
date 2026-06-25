@@ -42,6 +42,8 @@ public sealed class WorkflowOrchestrator(
                     return await RunImplementationIfReadyAsync(workflow, cancellationToken);
                 case WorkflowStatus.CreatingPullRequest:
                     return await CreatePullRequestAsync(workflow, cancellationToken);
+                case WorkflowStatus.Reviewing:
+                    return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
             }
         }
         catch (Exception exception)
@@ -174,8 +176,8 @@ public sealed class WorkflowOrchestrator(
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.CreatePullRequest, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && workflow.PullRequestUrl is not null)
         {
-            workflow.Status = WorkflowStatus.Completed;
-            workflow.CurrentStep = WorkflowStep.Done;
+            workflow.Status = WorkflowStatus.Reviewing;
+            workflow.CurrentStep = WorkflowStep.AddressComments;
             workflow.UpdatedAt = DateTimeOffset.UtcNow;
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
             return true;
@@ -193,6 +195,52 @@ public sealed class WorkflowOrchestrator(
         await store.UpsertTaskRunAsync(run, cancellationToken);
 
         workflow.PullRequestUrl = pullRequest.Url;
+        workflow.Status = WorkflowStatus.Reviewing;
+        workflow.CurrentStep = WorkflowStep.AddressComments;
+        workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        return true;
+    }
+
+    private async Task<bool> AddressPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, cancellationToken);
+        if (existing?.Status == TaskRunStatus.Succeeded)
+        {
+            workflow.Status = WorkflowStatus.Completed;
+            workflow.CurrentStep = WorkflowStep.Done;
+            workflow.UpdatedAt = DateTimeOffset.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
+
+        var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
+        if (comments.Count == 0)
+        {
+            return false;
+        }
+
+        var prompt = await promptRenderer.RenderAsync(TaskRunKind.AddressComments, workflow, null, comments, cancellationToken);
+        var branch = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before addressing pull request comments.");
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
+        run.Status = TaskRunStatus.Running;
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+
+        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
+        CompleteTaskRun(run, result);
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await AddAgentOutputLogAsync(workflow.Id, run, result, cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            FailWorkflow(workflow, result.FailureReason ?? "Pull request comment agent failed.");
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
+
+        var responseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result);
+        await sourceControl.UpsertPullRequestCommentAsync(workflow, responseBody, cancellationToken);
+
         workflow.Status = WorkflowStatus.Completed;
         workflow.CurrentStep = WorkflowStep.Done;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;

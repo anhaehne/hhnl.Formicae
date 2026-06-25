@@ -65,6 +65,72 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         return new PullRequestResult(created.HtmlUrl);
     }
 
+    public async Task<IReadOnlyList<PullRequestComment>> ListPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reading pull request comments.");
+        var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        ConfigureClient();
+
+        var issueComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubIssueCommentDto>>(
+            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
+            cancellationToken) ?? [];
+        var reviewComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubReviewCommentDto>>(
+            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/pulls/{pullRequest.Number}/comments",
+            cancellationToken) ?? [];
+
+        return issueComments
+            .Select(comment => new PullRequestComment(
+                $"issue:{comment.Id}",
+                comment.User?.Login ?? "unknown",
+                comment.Body ?? string.Empty,
+                comment.HtmlUrl,
+                comment.UpdatedAt,
+                PullRequestCommentKind.IssueComment))
+            .Concat(reviewComments.Select(comment => new PullRequestComment(
+                $"review:{comment.Id}",
+                comment.User?.Login ?? "unknown",
+                comment.Body ?? string.Empty,
+                comment.HtmlUrl,
+                comment.UpdatedAt,
+                PullRequestCommentKind.ReviewComment)))
+            .Where(comment => !string.IsNullOrWhiteSpace(comment.Body))
+            .Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body))
+            .OrderBy(comment => comment.UpdatedAt)
+            .ThenBy(comment => comment.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public async Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
+    {
+        var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before writing pull request comments.");
+        var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var marker = PullRequestCommentMarkers.AddressComments(workflow.Id);
+        ConfigureClient();
+
+        var issueComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubIssueCommentDto>>(
+            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
+            cancellationToken) ?? [];
+        var existing = issueComments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+        HttpResponseMessage response;
+        if (existing is null)
+        {
+            response = await httpClient.PostAsJsonAsync(
+                $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
+                new UpsertIssueCommentRequest(body),
+                cancellationToken);
+        }
+        else
+        {
+            response = await httpClient.PatchAsJsonAsync(
+                $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/comments/{existing.Id}",
+                new UpsertIssueCommentRequest(body),
+                cancellationToken);
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     private async Task UpsertWorkflowSummaryAsync(
         GitHubRepositoryReference repository,
         Workflow workflow,
@@ -181,7 +247,21 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         [property: JsonPropertyName("body")] string Body,
         [property: JsonPropertyName("draft")] bool Draft);
     private sealed record GitHubPullRequestDto([property: JsonPropertyName("html_url")] string HtmlUrl);
+    private sealed record GitHubUserDto([property: JsonPropertyName("login")] string Login);
+    private sealed record GitHubIssueCommentDto(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("body")] string? Body,
+        [property: JsonPropertyName("html_url")] string HtmlUrl,
+        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
+        [property: JsonPropertyName("user")] GitHubUserDto? User);
+    private sealed record GitHubReviewCommentDto(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("body")] string? Body,
+        [property: JsonPropertyName("html_url")] string HtmlUrl,
+        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
+        [property: JsonPropertyName("user")] GitHubUserDto? User);
     private sealed record GitHubContentDto([property: JsonPropertyName("sha")] string Sha);
+    private sealed record UpsertIssueCommentRequest([property: JsonPropertyName("body")] string Body);
     private sealed record PutContentRequest(
         [property: JsonPropertyName("message")] string Message,
         [property: JsonPropertyName("content")] string Content,
@@ -201,5 +281,20 @@ internal sealed record GitHubRepositoryReference(string Owner, string Repository
         }
 
         return new GitHubRepositoryReference(parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
+    }
+}
+
+internal sealed record GitHubPullRequestReference(string Owner, string Repository, int Number)
+{
+    public static GitHubPullRequestReference Parse(string pullRequestUrl)
+    {
+        var uri = new Uri(pullRequestUrl);
+        var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 4 || !string.Equals(parts[2], "pull", StringComparison.OrdinalIgnoreCase) || !int.TryParse(parts[3], out var number))
+        {
+            throw new ArgumentException("Expected a GitHub pull request URL like https://github.com/{owner}/{repo}/pull/{number}.", nameof(pullRequestUrl));
+        }
+
+        return new GitHubPullRequestReference(parts[0], parts[1], number);
     }
 }

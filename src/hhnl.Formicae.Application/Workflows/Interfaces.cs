@@ -13,6 +13,15 @@ public interface ISourceControlProvider
         Workflow workflow,
         IReadOnlyList<TaskRun> taskRuns,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<PullRequestComment>> ListPullRequestCommentsAsync(
+        Workflow workflow,
+        CancellationToken cancellationToken);
+
+    Task UpsertPullRequestCommentAsync(
+        Workflow workflow,
+        string body,
+        CancellationToken cancellationToken);
 }
 
 public interface IAgentRunner
@@ -36,4 +45,6 @@ public interface IWorkflowStore
 public interface IPromptRenderer
 {
     Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken);
+
+    Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? workItem, IReadOnlyList<PullRequestComment> pullRequestComments, CancellationToken cancellationToken);
 }

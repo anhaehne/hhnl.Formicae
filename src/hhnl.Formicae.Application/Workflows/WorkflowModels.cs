@@ -6,6 +6,7 @@ public enum WorkflowStatus
     Planning,
     Implementing,
     CreatingPullRequest,
+    Reviewing,
     Completed,
     Failed,
     Canceled
@@ -17,6 +18,7 @@ public enum WorkflowStep
     Plan,
     Implement,
     CreatePullRequest,
+    AddressComments,
     Done
 }
 
@@ -24,7 +26,8 @@ public enum TaskRunKind
 {
     Plan,
     Implement,
-    CreatePullRequest
+    CreatePullRequest,
+    AddressComments
 }
 
 public enum TaskRunStatus
@@ -96,6 +99,34 @@ public static class WorkItemWorkflowLabels
     public const string ReadyToImplement = "ready-to-implement";
 }
 
+public static class PullRequestCommentMarkers
+{
+    private const string Prefix = "<!-- formicae:";
+
+    public static string AddressComments(Guid workflowId)
+        => $"<!-- formicae:workflow:{workflowId:N}:address-comments -->";
+
+    public static bool IsAutomationComment(string body)
+        => body.Contains(Prefix, StringComparison.OrdinalIgnoreCase);
+
+    public static string BuildAddressCommentsBody(Workflow workflow, AgentRunResult result)
+    {
+        var marker = AddressComments(workflow.Id);
+        var output = string.IsNullOrWhiteSpace(result.Output)
+            ? "No additional output was produced."
+            : result.Output.Trim();
+
+        return $"""
+            {marker}
+            Formicae addressed the pull request comments for workflow `{workflow.Id:N}`.
+
+            ```text
+            {output}
+            ```
+            """;
+    }
+}
+
 public sealed record WorkItem(
     string Url,
     string Title,
@@ -122,3 +153,17 @@ public sealed record AgentRunResult(
     string? FailureReason);
 
 public sealed record PullRequestResult(string Url);
+
+public sealed record PullRequestComment(
+    string Id,
+    string Author,
+    string Body,
+    string Url,
+    DateTimeOffset UpdatedAt,
+    PullRequestCommentKind Kind);
+
+public enum PullRequestCommentKind
+{
+    IssueComment,
+    ReviewComment
+}

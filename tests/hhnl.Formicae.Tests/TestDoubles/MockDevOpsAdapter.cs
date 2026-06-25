@@ -5,10 +5,13 @@ namespace hhnl.Formicae.Tests.TestDoubles;
 public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvider
 {
     private readonly Dictionary<string, WorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<PullRequestComment> pullRequestComments = [];
 
     public List<GetIssueCall> GetIssueCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreateDraftPullRequestCall> CreateDraftPullRequestCalls { get; } = [];
+    public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
+    public List<UpsertPullRequestCommentCall> UpsertPullRequestCommentCalls { get; } = [];
 
     public string DefaultBranchName { get; set; } = "formicae/mock-branch";
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
@@ -19,6 +22,12 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public MockDevOpsAdapter AddIssueWithLabels(string issueUrl, string title, string body, IReadOnlyList<string> labels, params string[] comments)
     {
         workItems[issueUrl] = new WorkItem(issueUrl, title, body, comments, labels);
+        return this;
+    }
+
+    public MockDevOpsAdapter AddPullRequestComment(string id, string author, string body, PullRequestCommentKind kind = PullRequestCommentKind.IssueComment)
+    {
+        pullRequestComments.Add(new PullRequestComment(id, author, body, $"{DefaultPullRequestUrl}#comment-{id}", DateTimeOffset.UtcNow, kind));
         return this;
     }
 
@@ -50,6 +59,25 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         CreateDraftPullRequestCalls.Add(new CreateDraftPullRequestCall(workflow.Id, workflow.RepositoryUrl, workflow.BranchName, taskRuns));
         return Task.FromResult(new PullRequestResult(DefaultPullRequestUrl));
     }
+
+    public Task<IReadOnlyList<PullRequestComment>> ListPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        ListPullRequestCommentsCalls.Add(new ListPullRequestCommentsCall(workflow.Id, workflow.PullRequestUrl));
+        return Task.FromResult<IReadOnlyList<PullRequestComment>>(pullRequestComments.Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body)).ToArray());
+    }
+    public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
+    {
+        UpsertPullRequestCommentCalls.Add(new UpsertPullRequestCommentCall(workflow.Id, workflow.PullRequestUrl, body));
+        pullRequestComments.RemoveAll(comment => PullRequestCommentMarkers.IsAutomationComment(comment.Body));
+        pullRequestComments.Add(new PullRequestComment(
+            $"formicae:{workflow.Id:N}:address-comments",
+            "formicae",
+            body,
+            $"{workflow.PullRequestUrl ?? DefaultPullRequestUrl}#formicae-address-comments",
+            DateTimeOffset.UtcNow,
+            PullRequestCommentKind.IssueComment));
+        return Task.CompletedTask;
+    }
 }
 
 public sealed record GetIssueCall(string IssueUrl);
@@ -61,3 +89,7 @@ public sealed record CreateDraftPullRequestCall(
     string RepositoryUrl,
     string? BranchName,
     IReadOnlyList<TaskRun> TaskRuns);
+
+public sealed record ListPullRequestCommentsCall(Guid WorkflowId, string? PullRequestUrl);
+
+public sealed record UpsertPullRequestCommentCall(Guid WorkflowId, string? PullRequestUrl, string Body);
