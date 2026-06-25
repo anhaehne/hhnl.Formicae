@@ -14,13 +14,11 @@ public sealed class KustomizeOverlayTests
         var manifest = result.StandardOutput;
 
         Assert.Contains("name: formicae-api", manifest);
-        Assert.Contains("kind: CronJob", manifest);
         Assert.Contains("name: formicae-postgres", manifest);
         Assert.Contains("kind: Role", manifest);
         Assert.Contains("PersistenceMode: Postgres", manifest);
         Assert.Contains("AgentMode: Fake", manifest);
         Assert.Contains("image: localhost/hhnl-formicae-api:e2e", manifest);
-        Assert.Contains("image: localhost/hhnl-formicae-worker:e2e", manifest);
     }
 
     private static string FindRepositoryRoot()

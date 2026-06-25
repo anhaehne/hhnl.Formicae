@@ -89,11 +89,7 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri http://localhost:5000/api/workflows/github-issue -ContentType application/json -Body $body
 ```
 
-Run one orchestration tick from the worker:
-
-```powershell
-dotnet run --project src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj
-```
+The API hosts the background orchestration loop. It wakes automatically on supported GitHub webhooks and also polls periodically while the process is running.
 
 ## Kubernetes E2E
 
@@ -115,7 +111,7 @@ The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before
 
 ## Kubernetes Deployment
 
-Deployment assets live in `deploy/kubernetes/base` and `deploy/helm/formicae`. They include Dockerfiles, kustomize manifests, a Helm chart, PostgreSQL, API/worker workloads, health probes, placeholder secrets, and RBAC.
+Deployment assets live in `deploy/kubernetes/base` and `deploy/helm/formicae`. They include Dockerfiles, kustomize manifests, a Helm chart, PostgreSQL, the API workload, health probes, placeholder secrets, and RBAC.
 
 See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
 
@@ -135,6 +131,5 @@ Important settings:
 
 - `hhnl.Formicae.Application` owns workflow state, interfaces, and orchestration logic.
 - `hhnl.Formicae.Infrastructure` owns persistence and external adapters.
-- `hhnl.Formicae.Api` owns HTTP endpoints and the background orchestration loop.
-- `hhnl.Formicae.Worker` owns one-shot workflow advancement for scheduled or agent-driven execution.
+- `hhnl.Formicae.Api` owns HTTP endpoints and the distributed-lock-protected background orchestration loop.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.

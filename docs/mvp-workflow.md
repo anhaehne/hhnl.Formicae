@@ -11,7 +11,7 @@ The MVP workflow is intentionally static so agents can understand and test it qu
 - `baseBranch`
 - `model`
 
-The workflow starts in `Queued` with `CurrentStep = None`. The worker monitors the work item provider and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
+The workflow starts in `Queued` with `CurrentStep = None`. The API background orchestrator monitors the work item provider under a PostgreSQL distributed lock and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
 
 ## State Machine
 
@@ -40,11 +40,11 @@ Each agent or integration step is stored as a task run:
 - `Plan`: fetches GitHub issue context and asks OpenHands to produce an implementation plan.
 - `Implement`: creates or reuses a branch and asks OpenHands to apply the plan.
 - `CreatePullRequest`: opens a draft pull request for the branch.
-- `AddressComments`: once the pull request has comments, asks the agent to address issue comments and review comments from the PR. On success, Formicae posts or updates a marked top-level PR summary comment.
+- `AddressComments`: once the pull request has comments, asks the agent to address issue comments and review comments from the PR. On success, Formicae posts a new marked top-level PR summary comment.
 
 Completed task runs are reused on retry. This makes workflow advancement idempotent at the step level. `AddressingComments` is shown as a diagram phase for readability; in persisted workflow state this is `Reviewing` with `CurrentStep = AddressComments`.
 
-After PR creation, the workflow remains in `Reviewing` until pull request comments exist. Comment monitoring reads both top-level PR issue comments and inline review comments, but ignores comments containing the hidden `<!-- formicae:... -->` marker so automation comments are not treated as user feedback even when the same account is used. When comments are found, the worker runs `AddressComments`; a successful run completes the workflow, and a failed run marks the workflow `Failed`.
+After PR creation, the workflow remains in `Reviewing` until pull request comments exist. Comment monitoring reads both top-level PR issue comments and inline review comments, but ignores comments containing the hidden `<!-- formicae:... -->` marker so automation comments are not treated as user feedback even when the same account is used. When comments are found, the API orchestrator runs `AddressComments`; a successful run completes the workflow, and a failed run marks the workflow `Failed`.
 
 Later pull request comment or review webhooks requeue the completed workflow for another `AddressComments` pass when there are comments newer than the previous successful pass. Only those newer comments are reacted to and included in the agent prompt for the follow-up pass.
 

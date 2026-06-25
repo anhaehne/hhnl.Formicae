@@ -12,6 +12,14 @@ public sealed class WorkflowBackgroundService(IServiceScopeFactory scopeFactory,
             {
                 await notifier.WaitForSignalOrDelayAsync(TimeSpan.FromSeconds(5), stoppingToken);
                 await using var scope = scopeFactory.CreateAsyncScope();
+                var orchestrationLock = scope.ServiceProvider.GetRequiredService<IWorkflowOrchestrationLock>();
+                await using var lockHandle = await orchestrationLock.TryAcquireAsync(stoppingToken);
+                if (lockHandle is null)
+                {
+                    logger.LogDebug("Skipped workflow orchestration tick because another instance holds the lock.");
+                    continue;
+                }
+
                 var discovery = scope.ServiceProvider.GetRequiredService<WorkflowDiscoveryService>();
                 var orchestrator = scope.ServiceProvider.GetRequiredService<WorkflowOrchestrator>();
                 var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(stoppingToken);

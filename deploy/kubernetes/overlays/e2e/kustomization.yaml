@@ -36,6 +36,3 @@ images:
   - name: docker.io/limeray/hhnl-formicae-api
     newName: localhost/hhnl-formicae-api
     newTag: e2e
-  - name: docker.io/limeray/hhnl-formicae-worker
-    newName: localhost/hhnl-formicae-worker
-    newTag: e2e

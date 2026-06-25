@@ -3,7 +3,6 @@
     <Project Path="src/hhnl.Formicae.Api/hhnl.Formicae.Api.csproj" />
     <Project Path="src/hhnl.Formicae.Application/hhnl.Formicae.Application.csproj" />
     <Project Path="src/hhnl.Formicae.Infrastructure/hhnl.Formicae.Infrastructure.csproj" />
-    <Project Path="src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj" />
