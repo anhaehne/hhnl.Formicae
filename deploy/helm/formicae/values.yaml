@@ -27,6 +27,11 @@ worker:
   schedule: "*/1 * * * *"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
+  codexAuth:
+    enabled: false
+    secretName: formicae-codex-auth
+    secretKey: auth.json
+    mountPath: /root/.codex
   resources:
     requests:
       cpu: 50m

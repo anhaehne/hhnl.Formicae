@@ -141,41 +141,44 @@ Use your Codex subscription:
 codex login
 ```
 
-2. Encode your Codex auth file:
+2. Create a Kubernetes Secret from the Codex auth file:
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME/.codex/auth.json"))
+kubectl create secret generic formicae-codex-auth `
+  --namespace formicae `
+  --from-file=auth.json="$HOME/.codex/auth.json"
 ```
 
-3. Create `formicae-runtime-secrets.yaml` with the encoded value:
+3. Enable the worker mount:
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: formicae-runtime-secrets
-  namespace: formicae
-type: Opaque
-stringData:
-  CODEX_AUTH_JSON_B64: "<paste-base64-auth-json>"
-  GITHUB_TOKEN: "<replace-me>"
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --create-namespace `
+  --set worker.codexAuth.enabled=true
 ```
 
-4. Use a worker image or startup script that restores the file before running OpenHands:
+The chart mounts the Secret as `/root/.codex/auth.json` in the worker container. If your worker image runs as a different user, override the `.codex` directory path:
 
-```sh
-mkdir -p "$HOME/.codex"
-printf '%s' "$CODEX_AUTH_JSON_B64" | base64 -d > "$HOME/.codex/auth.json"
-chmod 600 "$HOME/.codex/auth.json"
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --set worker.codexAuth.enabled=true `
+  --set worker.codexAuth.mountPath=/home/app/.codex
 ```
 
-Treat `LLM_API_KEY`, `CODEX_AUTH_JSON_B64`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners.
+Treat `LLM_API_KEY`, `formicae-codex-auth`, and `~/.codex/auth.json` as secrets. Use subscription-backed Codex auth only on trusted private runners.
 
-Apply the Secret and restart the API:
+Apply the runtime Secret:
 
 ```powershell
 kubectl apply -f formicae-runtime-secrets.yaml
-kubectl rollout restart deployment/formicae-api -n formicae
+```
+
+Codex auth is used by worker pods, not the API. You do not need to restart the API after changing `formicae-codex-auth`. New worker Jobs read the updated Secret when they start; either wait for the next CronJob run or start one immediately:
+
+```powershell
+kubectl create job --from=cronjob/formicae-worker "formicae-worker-manual-$(Get-Random)" -n formicae
 ```
 
 The chart defaults `image.tag` to the current chart app version. The GitHub Actions image workflow tags images with the .NET project version from `Directory.Build.props`, so chart `appVersion`, chart defaults, and pushed image tags should be kept aligned when releasing.

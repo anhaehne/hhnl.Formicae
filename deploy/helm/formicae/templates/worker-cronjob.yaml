@@ -37,5 +37,20 @@ spec:
                 - secretRef:
                     name: {{ .Values.secrets.runtimeSecretName | quote }}
                     optional: true
+              {{- if .Values.worker.codexAuth.enabled }}
+              volumeMounts:
+                - name: codex-auth
+                  mountPath: {{ .Values.worker.codexAuth.mountPath | quote }}
+                  readOnly: true
+              {{- end }}
               resources:
                 {{- toYaml .Values.worker.resources | nindent 16 }}
+          {{- if .Values.worker.codexAuth.enabled }}
+          volumes:
+            - name: codex-auth
+              secret:
+                secretName: {{ .Values.worker.codexAuth.secretName | quote }}
+                items:
+                  - key: {{ .Values.worker.codexAuth.secretKey | quote }}
+                    path: {{ .Values.worker.codexAuth.secretKey | quote }}
+          {{- end }}
