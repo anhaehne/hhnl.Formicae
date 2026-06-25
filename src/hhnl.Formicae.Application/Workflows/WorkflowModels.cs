@@ -180,7 +180,10 @@ public sealed record AgentTask(
     string Prompt,
     string RepositoryUrl,
     string BranchName,
-    string? Model);
+    string? Model,
+    IReadOnlyList<AgentTaskContextFile>? ContextFiles = null);
+
+public sealed record AgentTaskContextFile(string FileName, string Content);
 
 public sealed record AgentRunResult(
     bool Succeeded,

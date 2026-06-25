@@ -13,7 +13,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<UpsertIssueCommentCall> UpsertIssueCommentCalls { get; } = [];
     public List<ReactToIssueCall> ReactToIssueCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
-    public List<CreateDraftPullRequestCall> CreateDraftPullRequestCalls { get; } = [];
+    public List<CreatePullRequestCall> CreatePullRequestCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
     public List<UpsertPullRequestCommentCall> UpsertPullRequestCommentCalls { get; } = [];
     public List<ReactToPullRequestCommentCall> ReactToPullRequestCommentCalls { get; } = [];
@@ -88,9 +88,9 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.FromResult(DefaultBranchName);
     }
 
-    public Task<PullRequestResult> CreateDraftPullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
+    public Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
     {
-        CreateDraftPullRequestCalls.Add(new CreateDraftPullRequestCall(workflow.Id, workflow.RepositoryUrl, workflow.BranchName, taskRuns));
+        CreatePullRequestCalls.Add(new CreatePullRequestCall(workflow.Id, workflow.RepositoryUrl, workflow.BranchName, taskRuns));
         return Task.FromResult(new PullRequestResult(DefaultPullRequestUrl));
     }
 
@@ -130,7 +130,7 @@ public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
 
 public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, Guid WorkflowId);
 
-public sealed record CreateDraftPullRequestCall(
+public sealed record CreatePullRequestCall(
     Guid WorkflowId,
     string RepositoryUrl,
     string? BranchName,

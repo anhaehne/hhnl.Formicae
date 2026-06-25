@@ -34,7 +34,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         return branchName;
     }
 
-    public async Task<PullRequestResult> CreateDraftPullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
+    public async Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(workflow.RepositoryUrl);
         var branchName = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before creating a pull request.");
@@ -56,7 +56,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         var body = BuildPullRequestBody(workflow, taskRuns);
         var response = await httpClient.PostAsJsonAsync(
             $"repos/{repository.Owner}/{repository.Repository}/pulls",
-            new CreatePullRequestRequest(title, branchName, workflow.BaseBranch, body, true),
+            new CreatePullRequestRequest(title, branchName, workflow.BaseBranch, body, false),
             cancellationToken);
 
         await EnsureSuccessAsync(response, cancellationToken);

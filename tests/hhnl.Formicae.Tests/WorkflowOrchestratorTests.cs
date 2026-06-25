@@ -311,7 +311,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal("develop", call.BaseBranch);
             Assert.Equal(started.WorkflowId, call.WorkflowId);
         });
-        Assert.Collection(devOps.CreateDraftPullRequestCalls, call =>
+        Assert.Collection(devOps.CreatePullRequestCalls, call =>
         {
             Assert.Equal(started.WorkflowId, call.WorkflowId);
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
@@ -417,7 +417,8 @@ public sealed class WorkflowOrchestratorTests
             Output = "Previous address-comments output",
             UpdatedAt = previousAddressedAt
         }, CancellationToken.None);
-        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+        var agentRunner = new CapturingAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
 
         var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
 
@@ -429,17 +430,27 @@ public sealed class WorkflowOrchestratorTests
         Assert.Equal(WorkflowStep.Done, updated.CurrentStep);
         Assert.NotNull(run);
         Assert.Equal(TaskRunStatus.Succeeded, run.Status);
-        Assert.Contains("Fake AddressComments output", run.Output);
+        Assert.Contains("Captured AddressComments output", run.Output);
         Assert.Collection(devOps.ReactToPullRequestCommentCalls, call =>
         {
             Assert.Equal(workflow.Id, call.WorkflowId);
             Assert.Equal("new", call.CommentId);
             Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
         });
+        Assert.NotNull(agentRunner.LastTask);
+        Assert.Contains("Comments to address:", agentRunner.LastTask.Prompt);
+        Assert.Contains("Anything else to add?", agentRunner.LastTask.Prompt);
+        Assert.DoesNotContain("Already addressed.", agentRunner.LastTask.Prompt);
+        Assert.Contains("/workspace/formicae/context/pull-request-conversation.md", agentRunner.LastTask.Prompt);
+        var contextFile = Assert.Single(agentRunner.LastTask.ContextFiles!);
+        Assert.Equal("pull-request-conversation.md", contextFile.FileName);
+        Assert.Contains(devOps.DefaultPullRequestUrl, contextFile.Content);
+        Assert.Contains("Already addressed.", contextFile.Content);
+        Assert.Contains("Anything else to add?", contextFile.Content);
         Assert.Collection(devOps.UpsertPullRequestCommentCalls, call =>
         {
             Assert.Equal(workflow.Id, call.WorkflowId);
-            Assert.Contains("Fake AddressComments output", call.Body);
+            Assert.Contains("Captured AddressComments output", call.Body);
         });
     }
 
@@ -500,6 +511,8 @@ public sealed class WorkflowOrchestratorTests
         Assert.Contains("formicae/comment-fix", prompt);
         Assert.Contains("[ReviewComment] reviewer at 2026-06-25T10:11:12.0000000+00:00", prompt);
         Assert.Contains("URL: https://github.com/acme/widgets/pull/123#discussion_r1", prompt);
+        Assert.Contains("Comments to address:", prompt);
+        Assert.Contains("/workspace/formicae/context/pull-request-conversation.md", prompt);
         Assert.Contains("Please cover this edge case.", prompt);
     }
 
@@ -526,9 +539,10 @@ public sealed class WorkflowOrchestratorTests
                 new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement, Status = TaskRunStatus.Succeeded, Output = "Implemented the management UI and recent workflow API." }
             };
 
-            var result = await provider.CreateDraftPullRequestAsync(workflow, runs, CancellationToken.None);
+            var result = await provider.CreatePullRequestAsync(workflow, runs, CancellationToken.None);
 
             Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
+            Assert.False(handler.CreatedPullRequestDraft);
             Assert.Contains("## Implementation Summary", handler.CreatedPullRequestBody);
             Assert.Contains("Implemented the management UI and recent workflow API.", handler.CreatedPullRequestBody);
         }
@@ -727,6 +741,7 @@ public sealed class WorkflowOrchestratorTests
     private sealed class CreatePullRequestGitHubHandler : HttpMessageHandler
     {
         public string CreatedPullRequestBody { get; private set; } = string.Empty;
+        public bool? CreatedPullRequestDraft { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -760,6 +775,7 @@ public sealed class WorkflowOrchestratorTests
                 var requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
                 using var document = System.Text.Json.JsonDocument.Parse(requestJson);
                 CreatedPullRequestBody = document.RootElement.GetProperty("body").GetString() ?? string.Empty;
+                CreatedPullRequestDraft = document.RootElement.GetProperty("draft").GetBoolean();
                 return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
                 {
                     Content = new StringContent("""
@@ -905,6 +921,17 @@ public sealed class WorkflowOrchestratorTests
             {
                 Content = new StringContent(json)
             });
+        }
+    }
+
+    private sealed class CapturingAgentRunner : IAgentRunner
+    {
+        public AgentTask? LastTask { get; private set; }
+
+        public Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
+        {
+            LastTask = task;
+            return Task.FromResult(new AgentRunResult(true, $"captured-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Captured {task.Kind} output", null));
         }
     }
 }
@@ -1075,6 +1102,39 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_codex_subscription_checks_out_and_pushes_address_comments()
+    {
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "python:3.12-slim" }),
+            Options.Create(new OpenHandsOptions
+            {
+                AuthMethod = OpenHandsAuthMethods.CodexSubscription,
+                DefaultModel = null,
+                CodexSubscriptionBootstrapCommand = string.Empty
+            }));
+
+        var result = await runner.RunAsync(new AgentTask(
+            Guid.Parse("66666666-6666-6666-6666-666666666666"),
+            TaskRunKind.AddressComments,
+            "Address comments",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("mcr.microsoft.com/dotnet/sdk:10.0", jobRunner.LastSpec.Image);
+        Assert.Equal(KubernetesJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
+        var shellCommand = Assert.Single(jobRunner.LastSpec.Command, command => command.Contains("FORMICAE_TASK_KIND"));
+        Assert.Contains("AddressComments", shellCommand);
+        Assert.Contains("git clone \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" /workspace/repo", shellCommand);
+        Assert.Contains("git remote set-url origin \"https://x-access-token:${GITHUB_TOKEN}@${repo}\"", shellCommand);
+        Assert.Contains("git push origin \"$FORMICAE_BRANCH\"", shellCommand);
+        Assert.Contains("Address comments for Formicae workflow ${FORMICAE_WORKFLOW_ID}", shellCommand);
+    }
+    [Fact]
     public async Task OpenHands_runner_allows_codex_subscription_without_configured_model()
     {
         var jobRunner = new CapturingJobRunner();
@@ -1231,6 +1291,65 @@ public sealed class AdapterContractTests
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
     }
 
+
+    [Fact]
+    public async Task Kubernetes_runner_mounts_context_configmap_owned_by_job()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Statuses = new Queue<k8s.Models.V1Job>([
+                new k8s.Models.V1Job
+                {
+                    Status = new k8s.Models.V1JobStatus { Succeeded = 1 }
+                }
+            ]),
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta
+                    {
+                        Name = "formicae-address-comments-pod",
+                        CreationTimestamp = DateTime.UtcNow
+                    }
+                }
+            ],
+            PodLogs = "agent output"
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5,
+            DeleteFinishedJobs = true
+        }));
+
+        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+            "formicae-address-comments",
+            "formicae-agent:test",
+            new Dictionary<string, string>(),
+            ["/bin/sh", "-lc", "run agent"],
+            ContextFiles:
+            [
+                new KubernetesJobContextFile("pull-request-conversation.md", "# Conversation")
+            ]), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(api.CreatedJob);
+        Assert.NotNull(api.CreatedConfigMap);
+        Assert.Equal("formicae-address-comments-context", api.CreatedConfigMap.Metadata.Name);
+        Assert.Equal("# Conversation", api.CreatedConfigMap.Data["pull-request-conversation.md"]);
+        var ownerReference = Assert.Single(api.CreatedConfigMap.Metadata.OwnerReferences);
+        Assert.Equal("Job", ownerReference.Kind);
+        Assert.Equal("formicae-address-comments", ownerReference.Name);
+        Assert.Equal("formicae-address-comments-uid", ownerReference.Uid);
+        var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
+        Assert.Contains(container.VolumeMounts, mount => mount.Name == "formicae-context" && mount.MountPath == "/workspace/formicae/context" && mount.ReadOnlyProperty == true);
+        Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Name == "formicae-context" && volume.ConfigMap.Name == "formicae-address-comments-context");
+        Assert.Collection(api.DeletedJobs, name => Assert.Equal("formicae-address-comments", name));
+        Assert.Collection(api.DeletedConfigMaps, name => Assert.Equal("formicae-address-comments-context", name));
+    }
+
     [Fact]
     public async Task Kubernetes_runner_maps_failed_job_to_failed_result()
     {
@@ -1296,13 +1415,24 @@ public sealed class AdapterContractTests
     private sealed class CapturingKubernetesJobApi : IKubernetesJobApi
     {
         public k8s.Models.V1Job? CreatedJob { get; private set; }
+        public k8s.Models.V1ConfigMap? CreatedConfigMap { get; private set; }
+        public List<string> DeletedJobs { get; } = [];
+        public List<string> DeletedConfigMaps { get; } = [];
         public Queue<k8s.Models.V1Job> Statuses { get; init; } = new();
         public IReadOnlyList<k8s.Models.V1Pod> Pods { get; init; } = [];
         public string PodLogs { get; init; } = string.Empty;
 
-        public Task CreateJobAsync(k8s.Models.V1Job job, string namespaceName, CancellationToken cancellationToken)
+        public Task<k8s.Models.V1Job> CreateJobAsync(k8s.Models.V1Job job, string namespaceName, CancellationToken cancellationToken)
         {
+            job.Metadata ??= new k8s.Models.V1ObjectMeta();
+            job.Metadata.Uid ??= $"{job.Metadata.Name}-uid";
             CreatedJob = job;
+            return Task.FromResult(job);
+        }
+
+        public Task CreateConfigMapAsync(k8s.Models.V1ConfigMap configMap, string namespaceName, CancellationToken cancellationToken)
+        {
+            CreatedConfigMap = configMap;
             return Task.CompletedTask;
         }
 
@@ -1318,6 +1448,15 @@ public sealed class AdapterContractTests
             => Task.FromResult(PodLogs);
 
         public Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken)
-            => Task.CompletedTask;
+        {
+            DeletedJobs.Add(name);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        {
+            DeletedConfigMaps.Add(name);
+            return Task.CompletedTask;
+        }
     }
 }

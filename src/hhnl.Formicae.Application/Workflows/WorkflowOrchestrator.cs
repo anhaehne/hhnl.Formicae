@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace hhnl.Formicae.Application.Workflows;
 
 public sealed class WorkflowOrchestrator(
@@ -201,7 +203,7 @@ public sealed class WorkflowOrchestrator(
         await store.UpsertTaskRunAsync(run, cancellationToken);
 
         var taskRuns = await store.ListTaskRunsAsync(workflow.Id, cancellationToken);
-        var pullRequest = await sourceControl.CreateDraftPullRequestAsync(workflow, taskRuns, cancellationToken);
+        var pullRequest = await sourceControl.CreatePullRequestAsync(workflow, taskRuns, cancellationToken);
         run.Status = TaskRunStatus.Succeeded;
         run.Output = pullRequest.Url;
         run.UpdatedAt = DateTimeOffset.UtcNow;
@@ -238,6 +240,10 @@ public sealed class WorkflowOrchestrator(
         }
 
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.AddressComments, workflow, null, commentsToAddress, cancellationToken);
+        var contextFiles = new[]
+        {
+            new AgentTaskContextFile("pull-request-conversation.md", FormatPullRequestConversation(workflow, comments))
+        };
         var branch = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before addressing pull request comments.");
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
         run.Status = TaskRunStatus.Running;
@@ -248,7 +254,7 @@ public sealed class WorkflowOrchestrator(
             await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
         }
 
-        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
+        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
         CompleteTaskRun(run, result);
         await store.UpsertTaskRunAsync(run, cancellationToken);
         await AddAgentOutputLogAsync(workflow.Id, run, result, cancellationToken);
@@ -284,6 +290,27 @@ public sealed class WorkflowOrchestrator(
         workflow.Status = WorkflowStatus.Failed;
         workflow.FailureReason = reason;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static string FormatPullRequestConversation(Workflow workflow, IReadOnlyList<PullRequestComment> comments)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# Pull Request Conversation");
+        builder.AppendLine();
+        builder.AppendLine($"Pull request: {workflow.PullRequestUrl}");
+        builder.AppendLine();
+
+        foreach (var comment in comments.OrderBy(comment => comment.UpdatedAt))
+        {
+            builder.AppendLine($"## {comment.Kind} by {comment.Author} at {comment.UpdatedAt:O}");
+            builder.AppendLine();
+            builder.AppendLine($"URL: {comment.Url}");
+            builder.AppendLine();
+            builder.AppendLine(comment.Body);
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
     }
 
     private Task AddAgentOutputLogAsync(Guid workflowId, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)

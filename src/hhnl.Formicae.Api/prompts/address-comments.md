@@ -8,7 +8,9 @@ Issue: {{issue_url}}
 Plan:
 {{plan_artifact}}
 
-Comments:
+Comments to address:
 {{pull_request_comments}}
 
-Make the smallest coherent change that resolves the comments, run relevant tests, commit and push the branch if changes were made, and leave a concise summary of what changed in the task output. Do not create or update pull request comments; Formicae posts the workflow summary comment after this task succeeds.
+Full pull request conversation context is available in the container at `/workspace/formicae/context/pull-request-conversation.md` if more context is needed.
+
+Make the smallest coherent change that resolves the comments, run relevant tests, and leave a concise summary of what changed in the task output. Do not commit, push, or create/update pull request comments; Formicae commits, pushes, and posts the workflow summary comment after this task succeeds.
