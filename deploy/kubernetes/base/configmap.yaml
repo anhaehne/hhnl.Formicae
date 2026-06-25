@@ -7,11 +7,15 @@ metadata:
 data:
   ASPNETCORE_HTTP_PORTS: "8080"
   UseFakeAdapters: "false"
+  OpenHands__AuthMethod: "ApiKey"
   OpenHands__DefaultModel: "openhands/claude-sonnet-4"
   OpenHands__LlmApiKeySecretName: "openhands-llm-api-key"
   OpenHands__Shell: "/bin/sh"
   OpenHands__BootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'
   OpenHands__Command: 'openhands --headless --json --override-with-envs -t "$FORMICAE_TASK_PROMPT"'
+  OpenHands__CodexSubscriptionImage: "node:22-bookworm-slim"
+  OpenHands__CodexSubscriptionBootstrapCommand: ""
+  OpenHands__CodexSubscriptionCommand: "npx -y @agentclientprotocol/codex-acp"
   KubernetesJobs__Namespace: "formicae"
   KubernetesJobs__Image: "python:3.12-slim"
   KubernetesJobs__WorkspaceVolumeClaim: "formicae-workspaces"

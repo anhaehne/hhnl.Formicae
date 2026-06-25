@@ -148,14 +148,22 @@ kubectl apply -f formicae-runtime-secrets.yaml
 
 By default, agent Jobs use `python:3.12-slim`, install the current OpenHands CLI with `uv`, and run `openhands --headless --json --override-with-envs`. OpenHands requires `LLM_API_KEY` and `LLM_MODEL` for this mode.
 
+Use the default API-key auth mode explicitly with:
+
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --set config.openHandsAuthMethod=ApiKey
+```
+
 ### Codex Subscription Auth
 
 Codex subscription auth is different from an OpenAI API key. It is supported by Codex's own CLI/ACP agent, which reuses the `codex login` file at `~/.codex/auth.json`.
 
-The default OpenHands headless command above does not use `~/.codex/auth.json` as an `LLM_API_KEY` replacement. Mount Codex auth only when the selected agent command reads the Codex auth file directly, for example a Codex ACP based runner using:
+The default OpenHands headless command above does not use `~/.codex/auth.json` as an `LLM_API_KEY` replacement. Set the auth method to `CodexSubscription` when the selected agent command reads the Codex auth file directly, for example a Codex ACP based runner using:
 
 ```text
-npx -y @zed-industries/codex-acp
+npx -y @agentclientprotocol/codex-acp
 ```
 
 Create the Codex auth Secret:
@@ -180,14 +188,16 @@ kubectl create secret generic formicae-codex-auth `
 helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
+  --set config.openHandsAuthMethod=CodexSubscription `
   --set worker.codexAuth.enabled=true
 ```
 
-The chart mounts the Secret as `/root/.codex/auth.json` in the worker container and in agent Jobs created by Formicae. If your agent image runs as a different user, override the `.codex` directory path:
+With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The chart mounts the Secret as `/root/.codex/auth.json` in the worker container and in agent Jobs created by Formicae. If your agent image runs as a different user, override the `.codex` directory path:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
+  --set config.openHandsAuthMethod=CodexSubscription `
   --set worker.codexAuth.enabled=true `
   --set worker.codexAuth.mountPath=/home/app/.codex
 ```

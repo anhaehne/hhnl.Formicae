@@ -157,6 +157,40 @@ public sealed class AdapterContractTests
         Assert.Equal(["/bin/sh", "-lc", "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\""], jobRunner.LastSpec.Command);
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
         Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
+        Assert.Equal(OpenHandsAuthMethods.ApiKey, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+    }
+
+    [Fact]
+    public async Task OpenHands_runner_uses_codex_subscription_command_when_configured()
+    {
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "python:3.12-slim" }),
+            Options.Create(new OpenHandsOptions
+            {
+                AuthMethod = OpenHandsAuthMethods.CodexSubscription,
+                DefaultModel = "gpt-5.2-codex",
+                CodexSubscriptionImage = "node:22-bookworm-slim",
+                CodexSubscriptionCommand = "npx -y @agentclientprotocol/codex-acp"
+            }));
+
+        var result = await runner.RunAsync(new AgentTask(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            TaskRunKind.Implement,
+            "Implement this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("node:22-bookworm-slim", jobRunner.LastSpec.Image);
+        Assert.Equal(["/bin/sh", "-lc", "npx -y @agentclientprotocol/codex-acp"], jobRunner.LastSpec.Command);
+        Assert.Equal(OpenHandsAuthMethods.CodexSubscription, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+        Assert.Equal("gpt-5.2-codex", jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
+        Assert.Equal("""{"model":"gpt-5.2-codex"}""", jobRunner.LastSpec.Environment["CODEX_CONFIG"]);
+        Assert.False(jobRunner.LastSpec.Environment.ContainsKey("LLM_MODEL"));
     }
 
     [Fact]

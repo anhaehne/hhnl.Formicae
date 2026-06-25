@@ -47,11 +47,15 @@ config:
   workItemMode: "GitHub"
   sourceControlMode: "GitHub"
   agentMode: "OpenHands"
+  openHandsAuthMethod: "ApiKey"
   openHandsDefaultModel: "openhands/claude-sonnet-4"
   openHandsLlmApiKeySecretName: "openhands-llm-api-key"
   openHandsShell: "/bin/sh"
   openHandsBootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'
   openHandsCommand: 'openhands --headless --json --override-with-envs -t "$FORMICAE_TASK_PROMPT"'
+  openHandsCodexSubscriptionImage: "node:22-bookworm-slim"
+  openHandsCodexSubscriptionBootstrapCommand: ""
+  openHandsCodexSubscriptionCommand: "npx -y @agentclientprotocol/codex-acp"
   kubernetesJobsNamespace: ""
   kubernetesJobsImage: "python:3.12-slim"
   kubernetesJobsWorkspaceVolumeClaim: "formicae-workspaces"
