@@ -6,9 +6,6 @@ on:
       - main
     tags:
       - "v*"
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -49,7 +46,6 @@ jobs:
           echo "value=${namespace}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           username: limeray
@@ -63,7 +59,7 @@ jobs:
         with:
           context: .
           file: src/hhnl.Formicae.Api/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-api:${{ steps.version.outputs.value }}
             ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-api:latest
@@ -78,7 +74,7 @@ jobs:
         with:
           context: .
           file: src/hhnl.Formicae.Worker/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-worker:${{ steps.version.outputs.value }}
             ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-worker:latest
