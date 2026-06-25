@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.git/
+.vs/
+.vscode/
+agent-os/specs/*/visuals/*
+!agent-os/specs/*/visuals/.gitkeep
+TestResults/
+*.user
+*.suo
+*.log

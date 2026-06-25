@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: formicae-config
+  labels:
+    app.kubernetes.io/name: hhnl-formicae
+data:
+  ASPNETCORE_HTTP_PORTS: "8080"
+  UseFakeAdapters: "false"
+  ApplyDatabaseMigrations: "true"
+  OpenHands__DefaultModel: "openhands/claude-sonnet-4"
+  OpenHands__LlmApiKeySecretName: "openhands-llm-api-key"
+  KubernetesJobs__Namespace: "formicae"
+  KubernetesJobs__Image: "ghcr.io/openhands/openhands:latest"
+  KubernetesJobs__WorkspaceVolumeClaim: "formicae-workspaces"

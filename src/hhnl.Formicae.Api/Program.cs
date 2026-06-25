@@ -1,6 +1,8 @@
 using hhnl.Formicae.Api;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure;
+using hhnl.Formicae.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +11,13 @@ builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
 var app = builder.Build();
+
+if (app.Configuration.GetValue("ApplyDatabaseMigrations", false) && !app.Configuration.GetValue("UseFakeAdapters", true))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<FormicaeDbContext>();
+    await dbContext.Database.MigrateAsync();
+}
 
 app.MapHealthChecks("/healthz");
 

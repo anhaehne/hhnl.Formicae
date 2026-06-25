@@ -49,6 +49,12 @@ Run one orchestration tick from the worker:
 dotnet run --project src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj
 ```
 
+
+## Kubernetes Deployment
+
+Deployment assets live in `deploy/kubernetes/base` and include Dockerfiles, kustomize manifests, PostgreSQL, API/worker workloads, health probes, placeholder secrets, and RBAC.
+
+See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
 ## Configuration
 
 `UseFakeAdapters` defaults to `true`. Set it to `false` to use PostgreSQL and the real integration seams.
@@ -66,3 +72,4 @@ Important settings:
 - `hhnl.Formicae.Api` owns HTTP endpoints and the background orchestration loop.
 - `hhnl.Formicae.Worker` owns one-shot workflow advancement for scheduled or agent-driven execution.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
+
