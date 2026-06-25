@@ -194,6 +194,13 @@ public sealed class WorkflowOrchestratorTests
 
         Assert.Contains(runs, run => run.Kind == TaskRunKind.Implement && run.Status == TaskRunStatus.Succeeded);
         Assert.Single(devOps.CreateBranchCalls);
+        Assert.Collection(devOps.ReactToIssueCalls,
+            call => Assert.Equal(WorkflowReactionContent.Started, call.Reaction),
+            call =>
+            {
+                Assert.Equal(issueUrl, call.IssueUrl);
+                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+            });
     }
 
 

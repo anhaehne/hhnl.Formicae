@@ -158,6 +158,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
+        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
         workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.Id, cancellationToken);
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
@@ -165,7 +166,6 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
-        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
