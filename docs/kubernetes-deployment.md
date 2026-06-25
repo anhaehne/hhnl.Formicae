@@ -37,7 +37,7 @@ Required keys:
 
 The API always applies EF Core migrations on startup when PostgreSQL persistence is configured. The Kubernetes ConfigMap sets `UseFakeAdapters=false` and `PersistenceMode=Postgres`, so deployments migrate automatically before serving traffic.
 
-Agent jobs can receive generated context files through a per-job ConfigMap. Formicae sets the ConfigMap owner reference to the Kubernetes Job and also deletes the ConfigMap when gentJobs.deleteFinishedJobs removes the Job, so the mounted context is cleaned up with the Job lifecycle.
+Agent jobs can receive generated context files through a per-job ConfigMap. Formicae sets the ConfigMap owner reference to the Kubernetes Job and also deletes the ConfigMap when `agentJobs.deleteFinishedJobs` removes the Job, so the mounted context is cleaned up with the Job lifecycle.
 
 ## Deploy
 
@@ -93,7 +93,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.21
+  --set image.tag=0.1.22
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:

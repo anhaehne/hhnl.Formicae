@@ -1,12 +1,15 @@
 namespace hhnl.Formicae.Infrastructure.Kubernetes;
 
 using System.Text;
+using hhnl.Formicae.Application.Workflows;
 using k8s;
 using k8s.Models;
 
 public interface IKubernetesJobRunner
 {
-    Task<KubernetesJobResult> RunJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
+    Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
+
+    Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken);
 }
 
 public sealed record KubernetesJobSpec(
@@ -18,6 +21,7 @@ public sealed record KubernetesJobSpec(
     IReadOnlyList<KubernetesJobContextFile>? ContextFiles = null,
     string ContextFilesMountPath = "/workspace/formicae/context");
 public sealed record KubernetesJobContextFile(string FileName, string Content);
+public sealed record KubernetesJobStartResult(string JobName);
 public sealed record KubernetesJobResult(bool Succeeded, string JobName, string Logs, string? FailureReason);
 
 public static class KubernetesJobAuthMethods
@@ -104,16 +108,18 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
         => client.Dispose();
 }
 
-public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Extensions.Options.IOptions<KubernetesJobOptions> options) : IKubernetesJobRunner
+public sealed class KubernetesJobRunner(
+    IKubernetesJobApi jobApi,
+    Microsoft.Extensions.Options.IOptions<KubernetesJobOptions> options,
+    IEnumerable<IWorkflowTickSignal> tickSignals) : IKubernetesJobRunner
 {
     private const string ContainerName = "openhands";
     private const string ManagedByLabel = "app.kubernetes.io/managed-by";
     private const string ManagedByValue = "formicae";
 
-    public async Task<KubernetesJobResult> RunJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
+    public async Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
     {
-        var namespaceName = string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
-        var manifest = KubernetesJobManifest.Render(spec);
+        var namespaceName = ResolveNamespace();
         var job = BuildJob(spec);
         V1Job createdJob;
 
@@ -140,39 +146,103 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
             }
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds)));
+        StartCompletionSignalWatcher(spec.Name, namespaceName);
+        return new KubernetesJobStartResult(spec.Name);
+    }
 
+    public async Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
+    {
+        var namespaceName = ResolveNamespace();
+        V1Job current;
         try
+        {
+            current = await jobApi.ReadJobStatusAsync(jobName, namespaceName, cancellationToken);
+        }
+        catch (Exception exception) when (IsNotFound(exception))
+        {
+            return new KubernetesJobResult(false, jobName, string.Empty, $"Kubernetes job '{jobName}' was not found.");
+        }
+
+        if (IsComplete(current))
+        {
+            var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
+            await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
+            return new KubernetesJobResult(true, jobName, logs, null);
+        }
+
+        if (IsFailed(current, out var failureReason))
+        {
+            var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
+            await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
+            return new KubernetesJobResult(false, jobName, logs, failureReason);
+        }
+
+        if (IsTimedOut(current, out var timeoutReason))
+        {
+            var logs = await ReadLogsAsync(jobName, namespaceName, CancellationToken.None);
+            await DeleteIfConfiguredAsync(jobName, namespaceName, CancellationToken.None);
+            return new KubernetesJobResult(false, jobName, logs, timeoutReason);
+        }
+
+        return null;
+    }
+    private string ResolveNamespace()
+        => string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
+
+    private bool IsTimedOut(V1Job job, out string reason)
+    {
+        var startedAt = job.Status?.StartTime ?? job.Metadata?.CreationTimestamp;
+        if (startedAt is null)
+        {
+            reason = string.Empty;
+            return false;
+        }
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds));
+        if (DateTimeOffset.UtcNow - startedAt.Value.ToUniversalTime() <= timeout)
+        {
+            reason = string.Empty;
+            return false;
+        }
+
+        reason = $"Kubernetes job '{job.Metadata?.Name}' timed out after {options.Value.TimeoutSeconds} seconds.";
+        return true;
+    }
+
+    private void StartCompletionSignalWatcher(string jobName, string namespaceName)
+    {
+        var signal = tickSignals.FirstOrDefault();
+        if (signal is null)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
         {
             while (true)
             {
-                var current = await jobApi.ReadJobStatusAsync(spec.Name, namespaceName, timeout.Token);
-                if (IsComplete(current))
+                try
                 {
-                    var logs = await ReadLogsAsync(spec.Name, namespaceName, timeout.Token);
-                    await DeleteIfConfiguredAsync(spec, namespaceName, cancellationToken);
-                    return new KubernetesJobResult(true, spec.Name, Combine(manifest, logs), null);
+                    var current = await jobApi.ReadJobStatusAsync(jobName, namespaceName, CancellationToken.None);
+                    if (IsComplete(current) || IsFailed(current, out _) || IsTimedOut(current, out _))
+                    {
+                        signal.Signal();
+                        return;
+                    }
+                }
+                catch (Exception exception) when (IsNotFound(exception))
+                {
+                    return;
+                }
+                catch
+                {
+                    // The periodic orchestration loop is still the durable fallback.
                 }
 
-                if (IsFailed(current, out var failureReason))
-                {
-                    var logs = await ReadLogsAsync(spec.Name, namespaceName, timeout.Token);
-                    await DeleteIfConfiguredAsync(spec, namespaceName, cancellationToken);
-                    return new KubernetesJobResult(false, spec.Name, Combine(manifest, logs), failureReason);
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, options.Value.PollIntervalSeconds)), timeout.Token);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, options.Value.PollIntervalSeconds)), CancellationToken.None);
             }
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            var logs = await ReadLogsAsync(spec.Name, namespaceName, CancellationToken.None);
-            await DeleteIfConfiguredAsync(spec, namespaceName, CancellationToken.None);
-            return new KubernetesJobResult(false, spec.Name, Combine(manifest, logs), $"Kubernetes job '{spec.Name}' timed out after {options.Value.TimeoutSeconds} seconds.");
-        }
+        });
     }
-
     private V1Job BuildJob(KubernetesJobSpec spec)
     {
         var labels = new Dictionary<string, string>
@@ -327,16 +397,11 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
     private static string ContextConfigMapName(string jobName)
         => $"{jobName}-context";
 
-    private async Task DeleteContextConfigMapAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
+    private async Task DeleteContextConfigMapAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
-        if (spec.ContextFiles is not { Count: > 0 })
-        {
-            return;
-        }
-
         try
         {
-            await jobApi.DeleteConfigMapAsync(ContextConfigMapName(spec.Name), namespaceName, cancellationToken);
+            await jobApi.DeleteConfigMapAsync(ContextConfigMapName(jobName), namespaceName, cancellationToken);
         }
         catch (Exception exception) when (IsNotFound(exception))
         {
@@ -435,15 +500,15 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         return builder.ToString();
     }
 
-    private async Task DeleteIfConfiguredAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
+    private async Task DeleteIfConfiguredAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
         if (!options.Value.DeleteFinishedJobs)
         {
             return;
         }
 
-        await jobApi.DeleteJobAsync(spec.Name, namespaceName, cancellationToken);
-        await DeleteContextConfigMapAsync(spec, namespaceName, cancellationToken);
+        await jobApi.DeleteJobAsync(jobName, namespaceName, cancellationToken);
+        await DeleteContextConfigMapAsync(jobName, namespaceName, cancellationToken);
     }
 
     private static string Combine(string manifest, string logs)

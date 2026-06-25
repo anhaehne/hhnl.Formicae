@@ -96,6 +96,38 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
+        if (existing?.Status == TaskRunStatus.Running)
+        {
+            var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
+            if (result is null)
+            {
+                return false;
+            }
+
+            CompleteTaskRun(existing, result);
+            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
+
+            if (!result.Succeeded)
+            {
+                FailWorkflow(workflow, result.FailureReason ?? "Planning agent failed.");
+                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                return true;
+            }
+
+            workflow.PlanArtifact = result.Output;
+            await workItems.UpsertIssueCommentAsync(
+                workflow.IssueUrl,
+                PullRequestCommentMarkers.Plan(workflow.Id),
+                PullRequestCommentMarkers.BuildPlanBody(workflow, result),
+                cancellationToken);
+            workflow.Status = WorkflowStatus.Implementing;
+            workflow.CurrentStep = WorkflowStep.Implement;
+            workflow.UpdatedAt = DateTimeOffset.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
+
         workflow.Status = WorkflowStatus.Planning;
         workflow.CurrentStep = WorkflowStep.Plan;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
@@ -110,23 +142,32 @@ public sealed class WorkflowOrchestrator(
         await store.UpsertTaskRunAsync(run, cancellationToken);
         await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
-        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
-        CompleteTaskRun(run, result);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
-        await AddAgentOutputLogAsync(workflow.Id, run, result, cancellationToken);
+        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
+        run.ExternalId = start.ExternalId;
+        run.UpdatedAt = DateTimeOffset.UtcNow;
 
-        if (!result.Succeeded)
+        if (start.CompletedResult is null)
         {
-            FailWorkflow(workflow, result.FailureReason ?? "Planning agent failed.");
+            await store.UpsertTaskRunAsync(run, cancellationToken);
+            return true;
+        }
+
+        CompleteTaskRun(run, start.CompletedResult);
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
+
+        if (!start.CompletedResult.Succeeded)
+        {
+            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Planning agent failed.");
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
             return true;
         }
 
-        workflow.PlanArtifact = result.Output;
+        workflow.PlanArtifact = start.CompletedResult.Output;
         await workItems.UpsertIssueCommentAsync(
             workflow.IssueUrl,
             PullRequestCommentMarkers.Plan(workflow.Id),
-            PullRequestCommentMarkers.BuildPlanBody(workflow, result),
+            PullRequestCommentMarkers.BuildPlanBody(workflow, start.CompletedResult),
             cancellationToken);
         workflow.Status = WorkflowStatus.Implementing;
         workflow.CurrentStep = WorkflowStep.Implement;
@@ -134,7 +175,6 @@ public sealed class WorkflowOrchestrator(
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         return true;
     }
-
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
@@ -158,6 +198,32 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
+        if (existing?.Status == TaskRunStatus.Running)
+        {
+            var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
+            if (result is null)
+            {
+                return false;
+            }
+
+            CompleteTaskRun(existing, result);
+            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
+
+            if (!result.Succeeded)
+            {
+                FailWorkflow(workflow, result.FailureReason ?? "Implementation agent failed.");
+                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                return true;
+            }
+
+            workflow.Status = WorkflowStatus.CreatingPullRequest;
+            workflow.CurrentStep = WorkflowStep.CreatePullRequest;
+            workflow.UpdatedAt = DateTimeOffset.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
+
         await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
         workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.Id, cancellationToken);
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
@@ -167,14 +233,23 @@ public sealed class WorkflowOrchestrator(
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
 
-        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
-        CompleteTaskRun(run, result);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
-        await AddAgentOutputLogAsync(workflow.Id, run, result, cancellationToken);
+        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
+        run.ExternalId = start.ExternalId;
+        run.UpdatedAt = DateTimeOffset.UtcNow;
 
-        if (!result.Succeeded)
+        if (start.CompletedResult is null)
         {
-            FailWorkflow(workflow, result.FailureReason ?? "Implementation agent failed.");
+            await store.UpsertTaskRunAsync(run, cancellationToken);
+            return true;
+        }
+
+        CompleteTaskRun(run, start.CompletedResult);
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
+
+        if (!start.CompletedResult.Succeeded)
+        {
+            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Implementation agent failed.");
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
             return true;
         }
@@ -185,7 +260,6 @@ public sealed class WorkflowOrchestrator(
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         return true;
     }
-
     private async Task<bool> CreatePullRequestAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.CreatePullRequest, cancellationToken);
@@ -220,6 +294,35 @@ public sealed class WorkflowOrchestrator(
     private async Task<bool> AddressPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, cancellationToken);
+        if (existing?.Status == TaskRunStatus.Running)
+        {
+            var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
+            if (result is null)
+            {
+                return false;
+            }
+
+            CompleteTaskRun(existing, result);
+            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
+
+            if (!result.Succeeded)
+            {
+                FailWorkflow(workflow, result.FailureReason ?? "Pull request comment agent failed.");
+                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                return true;
+            }
+
+            var runningResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result);
+            await sourceControl.UpsertPullRequestCommentAsync(workflow, runningResponseBody, cancellationToken);
+
+            workflow.Status = WorkflowStatus.Completed;
+            workflow.CurrentStep = WorkflowStep.Done;
+            workflow.UpdatedAt = DateTimeOffset.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            return true;
+        }
+
         var previousAddressedAt = existing?.Status == TaskRunStatus.Succeeded ? existing.UpdatedAt : (DateTimeOffset?)null;
         var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
         if (comments.Count == 0)
@@ -254,20 +357,29 @@ public sealed class WorkflowOrchestrator(
             await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
         }
 
-        var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
-        CompleteTaskRun(run, result);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
-        await AddAgentOutputLogAsync(workflow.Id, run, result, cancellationToken);
+        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
+        run.ExternalId = start.ExternalId;
+        run.UpdatedAt = DateTimeOffset.UtcNow;
 
-        if (!result.Succeeded)
+        if (start.CompletedResult is null)
         {
-            FailWorkflow(workflow, result.FailureReason ?? "Pull request comment agent failed.");
+            await store.UpsertTaskRunAsync(run, cancellationToken);
+            return true;
+        }
+
+        CompleteTaskRun(run, start.CompletedResult);
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
+
+        if (!start.CompletedResult.Succeeded)
+        {
+            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Pull request comment agent failed.");
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
             return true;
         }
 
-        var responseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result);
-        await sourceControl.UpsertPullRequestCommentAsync(workflow, responseBody, cancellationToken);
+        var completedResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, start.CompletedResult);
+        await sourceControl.UpsertPullRequestCommentAsync(workflow, completedResponseBody, cancellationToken);
 
         workflow.Status = WorkflowStatus.Completed;
         workflow.CurrentStep = WorkflowStep.Done;
@@ -275,7 +387,15 @@ public sealed class WorkflowOrchestrator(
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         return true;
     }
+    private async Task<AgentRunResult?> TryGetRunningAgentResultAsync(TaskRun run, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(run.ExternalId))
+        {
+            return new AgentRunResult(false, run.Id.ToString("N"), string.Empty, "Running task run does not have an external job id.");
+        }
 
+        return await agentRunner.TryGetResultAsync(run.ExternalId, cancellationToken);
+    }
     private static void CompleteTaskRun(TaskRun run, AgentRunResult result)
     {
         run.Status = result.Succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;

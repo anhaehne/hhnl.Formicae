@@ -65,6 +65,12 @@ public sealed class FakeSourceControlProvider : ISourceControlProvider
 
 public sealed class FakeAgentRunner : IAgentRunner
 {
-    public Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
-        => Task.FromResult(new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Fake {task.Kind} output for {task.RepositoryUrl} on {task.BranchName}.", null));
+    public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
+    {
+        var result = new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Fake {task.Kind} output for {task.RepositoryUrl} on {task.BranchName}.", null);
+        return Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
+    }
+
+    public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+        => Task.FromResult<AgentRunResult?>(null);
 }

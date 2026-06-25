@@ -147,6 +147,42 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Schedules_multiple_agent_jobs_without_waiting_for_completion()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var repositoryUrl = "https://github.com/acme/widgets";
+        var firstIssueUrl = "https://github.com/acme/widgets/issues/42";
+        var secondIssueUrl = "https://github.com/acme/widgets/issues/43";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(firstIssueUrl, "First issue", "First body", [WorkItemWorkflowLabels.ReadyToPlan])
+            .AddIssueWithLabels(secondIssueUrl, "Second issue", "Second body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var first = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(firstIssueUrl, repositoryUrl, null, null), CancellationToken.None);
+        var second = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(secondIssueUrl, repositoryUrl, null, null), CancellationToken.None);
+        var agentRunner = new DeferredAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var firstWorkflow = await store.GetWorkflowAsync(first.WorkflowId, CancellationToken.None);
+        var secondWorkflow = await store.GetWorkflowAsync(second.WorkflowId, CancellationToken.None);
+        var firstRun = await store.GetTaskRunAsync(first.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        var secondRun = await store.GetTaskRunAsync(second.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+
+        Assert.Equal(2, advanced);
+        Assert.Equal(2, agentRunner.StartedTasks.Count);
+        Assert.NotNull(firstWorkflow);
+        Assert.NotNull(secondWorkflow);
+        Assert.Equal(WorkflowStatus.Planning, firstWorkflow.Status);
+        Assert.Equal(WorkflowStatus.Planning, secondWorkflow.Status);
+        Assert.NotNull(firstRun);
+        Assert.NotNull(secondRun);
+        Assert.Equal(TaskRunStatus.Running, firstRun.Status);
+        Assert.Equal(TaskRunStatus.Running, secondRun.Status);
+        Assert.Equal(agentRunner.StartedExternalIds[0], firstRun.ExternalId);
+        Assert.Equal(agentRunner.StartedExternalIds[1], secondRun.ExternalId);
+    }
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_implement_label_after_planning()
     {
         var store = new InMemoryWorkflowStore();
@@ -734,15 +770,16 @@ public sealed class WorkflowOrchestratorTests
 
     private sealed class FailingAddressCommentsAgentRunner : IAgentRunner
     {
-        public Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
+        public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
         {
-            if (task.Kind == TaskRunKind.AddressComments)
-            {
-                return Task.FromResult(new AgentRunResult(false, "address-comments-run", "failed", "address comments failed"));
-            }
-
-            return Task.FromResult(new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}", $"Fake {task.Kind} output.", null));
+            var result = task.Kind == TaskRunKind.AddressComments
+                ? new AgentRunResult(false, "address-comments-run", "failed", "address comments failed")
+                : new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}", $"Fake {task.Kind} output.", null);
+            return Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
         }
+
+        public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+            => Task.FromResult<AgentRunResult?>(null);
     }
 
     private sealed class CreatePullRequestGitHubHandler : HttpMessageHandler
@@ -935,11 +972,33 @@ public sealed class WorkflowOrchestratorTests
     {
         public AgentTask? LastTask { get; private set; }
 
-        public Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
+        public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
         {
             LastTask = task;
-            return Task.FromResult(new AgentRunResult(true, $"captured-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Captured {task.Kind} output", null));
+            var result = new AgentRunResult(true, $"captured-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Captured {task.Kind} output", null);
+            return Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
         }
+
+        public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+            => Task.FromResult<AgentRunResult?>(null);
+    }
+
+    private sealed class DeferredAgentRunner : IAgentRunner
+    {
+        public List<AgentTask> StartedTasks { get; } = [];
+        public List<string> StartedExternalIds { get; } = [];
+        public Dictionary<string, AgentRunResult?> Results { get; } = [];
+
+        public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
+        {
+            var externalId = $"deferred-{task.Kind.ToString().ToLowerInvariant()}-{StartedTasks.Count}";
+            StartedTasks.Add(task);
+            StartedExternalIds.Add(externalId);
+            return Task.FromResult(new AgentRunStartResult(externalId));
+        }
+
+        public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+            => Task.FromResult(Results.TryGetValue(externalId, out var result) ? result : null);
     }
 }
 
@@ -970,14 +1029,16 @@ public sealed class AdapterContractTests
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
-        var result = await runner.RunAsync(new AgentTask(
+        var start = await runner.StartAsync(new AgentTask(
             Guid.Parse("11111111-1111-1111-1111-111111111111"),
             TaskRunKind.Plan,
             "Plan this",
             "https://github.com/acme/widgets",
             "formicae/test",
             null), CancellationToken.None);
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("openhands:test", jobRunner.LastSpec.Image);
@@ -1000,7 +1061,7 @@ public sealed class AdapterContractTests
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
-        await runner.RunAsync(new AgentTask(
+        await runner.StartAsync(new AgentTask(
             workflowId,
             TaskRunKind.AddressComments,
             "Address first comment",
@@ -1011,7 +1072,7 @@ public sealed class AdapterContractTests
             secondJobRunner,
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
-        await runner.RunAsync(new AgentTask(
+        await runner.StartAsync(new AgentTask(
             workflowId,
             TaskRunKind.AddressComments,
             "Address second comment",
@@ -1022,7 +1083,7 @@ public sealed class AdapterContractTests
             repeatedJobRunner,
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
-        await runner.RunAsync(new AgentTask(
+        await runner.StartAsync(new AgentTask(
             workflowId,
             TaskRunKind.AddressComments,
             "Address first comment",
@@ -1059,7 +1120,7 @@ public sealed class AdapterContractTests
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
-        var result = await runner.RunAsync(new AgentTask(
+        var start = await runner.StartAsync(new AgentTask(
             Guid.Parse("55555555-5555-5555-5555-555555555555"),
             TaskRunKind.Plan,
             "Plan this",
@@ -1067,6 +1128,9 @@ public sealed class AdapterContractTests
             "formicae/test",
             null), CancellationToken.None);
 
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
+
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.Equal("Implementation plan:\n1. Add the management UI.\n2. Cover it with tests.", result.Output);
         Assert.DoesNotContain("apiVersion", result.Output);
@@ -1089,14 +1153,16 @@ public sealed class AdapterContractTests
                 CodexSubscriptionCommand = "run codex"
             }));
 
-        var result = await runner.RunAsync(new AgentTask(
+        var start = await runner.StartAsync(new AgentTask(
             Guid.Parse("22222222-2222-2222-2222-222222222222"),
             TaskRunKind.Implement,
             "Implement this",
             "https://github.com/acme/widgets",
             "formicae/test",
             null), CancellationToken.None);
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("node:22-bookworm-slim", jobRunner.LastSpec.Image);
@@ -1122,14 +1188,16 @@ public sealed class AdapterContractTests
                 CodexSubscriptionBootstrapCommand = string.Empty
             }));
 
-        var result = await runner.RunAsync(new AgentTask(
+        var start = await runner.StartAsync(new AgentTask(
             Guid.Parse("66666666-6666-6666-6666-666666666666"),
             TaskRunKind.AddressComments,
             "Address comments",
             "https://github.com/acme/widgets",
             "formicae/test",
             null), CancellationToken.None);
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("mcr.microsoft.com/dotnet/sdk:10.0", jobRunner.LastSpec.Image);
@@ -1156,14 +1224,16 @@ public sealed class AdapterContractTests
                 CodexSubscriptionCommand = "run codex"
             }));
 
-        var result = await runner.RunAsync(new AgentTask(
+        var start = await runner.StartAsync(new AgentTask(
             Guid.Parse("44444444-4444-4444-4444-444444444444"),
             TaskRunKind.Plan,
             "Plan this",
             "https://github.com/acme/widgets",
             "formicae/test",
             null), CancellationToken.None);
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal(string.Empty, jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
@@ -1179,7 +1249,7 @@ public sealed class AdapterContractTests
             Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
             Options.Create(new OpenHandsOptions { AuthMethod = "Unknown" }));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(new AgentTask(
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.StartAsync(new AgentTask(
             Guid.Parse("33333333-3333-3333-3333-333333333333"),
             TaskRunKind.Plan,
             "Plan this",
@@ -1222,14 +1292,16 @@ public sealed class AdapterContractTests
             RuntimeSecretName = "formicae-runtime-secrets",
             LlmApiKeySecretName = "openhands-llm-api-key",
             CodexAuthSecretName = "formicae-codex-auth"
-        }));
+        }), []);
 
-        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new KubernetesJobSpec(
             "formicae-plan-test",
             "openhands:test",
             new Dictionary<string, string> { ["LLM_MODEL"] = "test-model" },
             ["openhands", "--headless", "--json", "-t", "Plan this"]), CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.Null(result.FailureReason);
         Assert.Contains("agent output", result.Logs);
@@ -1276,15 +1348,17 @@ public sealed class AdapterContractTests
             RuntimeSecretName = "formicae-runtime-secrets",
             LlmApiKeySecretName = "openhands-llm-api-key",
             CodexAuthSecretName = "formicae-codex-auth"
-        }));
+        }), []);
 
-        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new KubernetesJobSpec(
             "formicae-plan-test",
             "node:22-bookworm-slim",
             new Dictionary<string, string> { ["CODEX_HOME"] = "/tmp/codex-home" },
             ["/bin/sh", "-lc", "run codex"],
             KubernetesJobAuthMethods.CodexSubscription), CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.Null(result.FailureReason);
         Assert.Contains("agent output", result.Logs);
@@ -1329,9 +1403,9 @@ public sealed class AdapterContractTests
             PollIntervalSeconds = 1,
             TimeoutSeconds = 5,
             DeleteFinishedJobs = true
-        }));
+        }), []);
 
-        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new KubernetesJobSpec(
             "formicae-address-comments",
             "formicae-agent:test",
             new Dictionary<string, string>(),
@@ -1340,7 +1414,9 @@ public sealed class AdapterContractTests
             [
                 new KubernetesJobContextFile("pull-request-conversation.md", "# Conversation")
             ]), CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.True(result.Succeeded);
         Assert.NotNull(api.CreatedJob);
         Assert.NotNull(api.CreatedConfigMap);
@@ -1394,14 +1470,16 @@ public sealed class AdapterContractTests
             Namespace = "formicae",
             PollIntervalSeconds = 1,
             TimeoutSeconds = 5
-        }));
+        }), []);
 
-        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new KubernetesJobSpec(
             "formicae-plan-test",
             "openhands:test",
             new Dictionary<string, string>(),
             ["openhands", "--headless", "--json", "-t", "Plan this"]), CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
 
+        Assert.NotNull(result);
         Assert.False(result.Succeeded);
         Assert.Equal("The agent container failed.", result.FailureReason);
         Assert.Contains("agent error", result.Logs);
@@ -1412,11 +1490,14 @@ public sealed class AdapterContractTests
         public KubernetesJobSpec? LastSpec { get; private set; }
         public KubernetesJobResult? Result { get; init; }
 
-        public Task<KubernetesJobResult> RunJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
+        public Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
         {
             LastSpec = spec;
-            return Task.FromResult(Result ?? new KubernetesJobResult(true, spec.Name, "ok", null));
+            return Task.FromResult(new KubernetesJobStartResult(spec.Name));
         }
+
+        public Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
+            => Task.FromResult<KubernetesJobResult?>(Result ?? new KubernetesJobResult(true, jobName, "ok", null));
     }
 
     private sealed class CapturingKubernetesJobApi : IKubernetesJobApi
