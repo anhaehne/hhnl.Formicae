@@ -11,4 +11,4 @@ Plan:
 Comments:
 {{pull_request_comments}}
 
-Make the smallest coherent change that resolves the comments, run relevant tests, commit and push the branch if changes were made, and leave a concise summary of what changed in the task output. Do not create or update pull request comments; Formicae posts the workflow summary comment after this task succeeds.
+Make the smallest coherent change that resolves the comments, run relevant tests, and leave a concise summary of what changed in the task output. Do not commit, push, or create/update pull request comments; Formicae commits, pushes, and posts the workflow summary comment after this task succeeds.

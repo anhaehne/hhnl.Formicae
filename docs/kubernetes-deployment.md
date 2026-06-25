@@ -91,7 +91,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.16
+  --set image.tag=0.1.17
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -221,7 +221,7 @@ helm upgrade --install formicae formicae/formicae `
   --set agentJobs.codexAuth.enabled=true
 ```
 
-With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The default Codex subscription image is `mcr.microsoft.com/dotnet/sdk:10.0`; its bootstrap command installs Git, certificates, curl, gnupg, and Node.js 22 so agent Jobs can run `dotnet` and `npx @openai/codex` in the same container. The chart configures agent Jobs created by Formicae to mount the Secret as `/root/.codex/auth.json`. If your agent image runs as a different user, override the `.codex` directory path:
+With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The default Codex subscription image is `mcr.microsoft.com/dotnet/sdk:10.0`; its bootstrap command installs Git, certificates, curl, gnupg, and Node.js 22 so agent Jobs can run `dotnet` and `npx @openai/codex` in the same container. For implementation and pull request comment-addressing tasks, the wrapper checks out the workflow branch with `GITHUB_TOKEN`, resets `origin` to the token-authenticated URL before pushing, commits any uncommitted changes, and pushes the branch after Codex exits. The chart configures agent Jobs created by Formicae to mount the Secret as `/root/.codex/auth.json`. If your agent image runs as a different user, override the `.codex` directory path:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `

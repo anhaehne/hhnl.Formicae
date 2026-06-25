@@ -1075,6 +1075,39 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_codex_subscription_checks_out_and_pushes_address_comments()
+    {
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "python:3.12-slim" }),
+            Options.Create(new OpenHandsOptions
+            {
+                AuthMethod = OpenHandsAuthMethods.CodexSubscription,
+                DefaultModel = null,
+                CodexSubscriptionBootstrapCommand = string.Empty
+            }));
+
+        var result = await runner.RunAsync(new AgentTask(
+            Guid.Parse("66666666-6666-6666-6666-666666666666"),
+            TaskRunKind.AddressComments,
+            "Address comments",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("mcr.microsoft.com/dotnet/sdk:10.0", jobRunner.LastSpec.Image);
+        Assert.Equal(KubernetesJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
+        var shellCommand = Assert.Single(jobRunner.LastSpec.Command, command => command.Contains("FORMICAE_TASK_KIND"));
+        Assert.Contains("AddressComments", shellCommand);
+        Assert.Contains("git clone \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" /workspace/repo", shellCommand);
+        Assert.Contains("git remote set-url origin \"https://x-access-token:${GITHUB_TOKEN}@${repo}\"", shellCommand);
+        Assert.Contains("git push origin \"$FORMICAE_BRANCH\"", shellCommand);
+        Assert.Contains("Address comments for Formicae workflow ${FORMICAE_WORKFLOW_ID}", shellCommand);
+    }
+    [Fact]
     public async Task OpenHands_runner_allows_codex_subscription_without_configured_model()
     {
         var jobRunner = new CapturingJobRunner();
