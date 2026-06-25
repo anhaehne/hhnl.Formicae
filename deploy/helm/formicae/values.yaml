@@ -51,10 +51,10 @@ config:
 secrets:
   create: true
   runtimeSecretName: "formicae-runtime-secrets"
-  connectionString: "Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=replace-me"
+  connectionString: ""
   postgresDb: "formicae"
   postgresUser: "formicae"
-  postgresPassword: "replace-me"
+  postgresPassword: ""
 
 postgres:
   enabled: true

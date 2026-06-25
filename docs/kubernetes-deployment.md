@@ -95,9 +95,26 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.0 `
-  --set secrets.postgresPassword='<replace-me>' `
-  --set secrets.connectionString='Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=<replace-me>'
+  --set image.tag=0.1.0
+```
+
+By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
+
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --create-namespace `
+  --set secrets.postgresPassword='<replace-me>'
+```
+
+To use an existing PostgreSQL instance instead of bundled PostgreSQL, disable bundled PostgreSQL and set only `secrets.connectionString`:
+
+```powershell
+helm upgrade --install formicae formicae/formicae `
+  --namespace formicae `
+  --create-namespace `
+  --set postgres.enabled=false `
+  --set secrets.connectionString='Host=<host>;Port=5432;Database=<database>;Username=<user>;Password=<password>'
 ```
 
 Create the runtime credentials Secret separately after the chart is installed. The API and worker reference this Secret optionally, so pods can start before it exists. Restart the API after creating or updating the Secret so the environment variables are reloaded.
