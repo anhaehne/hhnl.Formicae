@@ -38,7 +38,6 @@ worker:
 config:
   aspnetcoreHttpPorts: "8080"
   useFakeAdapters: "false"
-  applyDatabaseMigrations: "true"
   persistenceMode: "Postgres"
   workItemMode: "GitHub"
   sourceControlMode: "GitHub"

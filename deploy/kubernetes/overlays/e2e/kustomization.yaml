@@ -17,7 +17,6 @@ patches:
         WorkItemMode: "Fake"
         SourceControlMode: "Fake"
         AgentMode: "Fake"
-        ApplyDatabaseMigrations: "true"
   - target:
       kind: Secret
       name: formicae-secrets

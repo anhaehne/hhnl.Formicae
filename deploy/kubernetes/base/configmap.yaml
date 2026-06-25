@@ -7,7 +7,6 @@ metadata:
 data:
   ASPNETCORE_HTTP_PORTS: "8080"
   UseFakeAdapters: "false"
-  ApplyDatabaseMigrations: "true"
   OpenHands__DefaultModel: "openhands/claude-sonnet-4"
   OpenHands__LlmApiKeySecretName: "openhands-llm-api-key"
   KubernetesJobs__Namespace: "formicae"

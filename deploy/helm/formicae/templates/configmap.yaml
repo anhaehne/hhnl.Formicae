@@ -7,7 +7,6 @@ metadata:
 data:
   ASPNETCORE_HTTP_PORTS: {{ .Values.config.aspnetcoreHttpPorts | quote }}
   UseFakeAdapters: {{ .Values.config.useFakeAdapters | quote }}
-  ApplyDatabaseMigrations: {{ .Values.config.applyDatabaseMigrations | quote }}
   PersistenceMode: {{ .Values.config.persistenceMode | quote }}
   WorkItemMode: {{ .Values.config.workItemMode | quote }}
   SourceControlMode: {{ .Values.config.sourceControlMode | quote }}

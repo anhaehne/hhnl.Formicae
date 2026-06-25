@@ -38,12 +38,7 @@ Required keys:
 - `LLM_API_KEY`
 - `GITHUB_TOKEN`
 
-The API applies EF Core migrations on startup when:
-
-- `UseFakeAdapters=false`
-- `ApplyDatabaseMigrations=true`
-
-Both are set in the Kubernetes ConfigMap.
+The API always applies EF Core migrations on startup when PostgreSQL persistence is configured. The Kubernetes ConfigMap sets `UseFakeAdapters=false` and `PersistenceMode=Postgres`, so deployments migrate automatically before serving traffic.
 
 ## Deploy
 

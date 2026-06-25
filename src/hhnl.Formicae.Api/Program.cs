@@ -12,7 +12,10 @@ builder.Services.AddHostedService<WorkflowBackgroundService>();
 
 var app = builder.Build();
 
-if (app.Configuration.GetValue("ApplyDatabaseMigrations", false) && !app.Configuration.GetValue("UseFakeAdapters", true))
+var usesPostgresPersistence = !app.Configuration.GetValue("UseFakeAdapters", true)
+    && !string.Equals(app.Configuration["PersistenceMode"], "InMemory", StringComparison.OrdinalIgnoreCase);
+
+if (usesPostgresPersistence)
 {
     await using var scope = app.Services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<FormicaeDbContext>();

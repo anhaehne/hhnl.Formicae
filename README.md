@@ -19,7 +19,8 @@ Prerequisites:
 - PowerShell 7 or Windows PowerShell
 - PostgreSQL only when running with `UseFakeAdapters=false`
 - `kubectl`, `kind`, and either Docker or Podman for Kubernetes E2E tests
-- A container registry login only when pushing deployment images`r`n- Helm when installing with the chart
+- A container registry login only when pushing deployment images
+- Helm when installing with the chart
 
 Install common Windows tools with WinGet:
 
@@ -28,7 +29,8 @@ winget install Microsoft.DotNet.SDK.10
 winget install Git.Git
 winget install Kubernetes.kubectl
 winget install Kubernetes.kind
-winget install RedHat.Podman`r`nwinget install Helm.Helm
+winget install RedHat.Podman
+winget install Helm.Helm
 ```
 
 Clone and restore:
@@ -100,6 +102,7 @@ See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, co
 ## Configuration
 
 `UseFakeAdapters` defaults to `true`. Set it to `false` to use PostgreSQL and the real integration seams.
+When PostgreSQL persistence is configured, the API applies EF Core migrations automatically on startup.
 
 Important settings:
 
