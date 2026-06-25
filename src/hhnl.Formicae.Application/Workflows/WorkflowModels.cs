@@ -121,9 +121,7 @@ public static class PullRequestCommentMarkers
             {marker}
             Formicae created an implementation plan for workflow `{workflow.Id:N}`.
 
-            ```text
             {output}
-            ```
             """;
     }
 

@@ -68,6 +68,24 @@ public sealed class WorkflowOrchestratorTests
         Assert.Single(workflows);
     }
     [Fact]
+    public void BuildPlanBody_renders_plan_as_markdown()
+    {
+        var workflow = new Workflow
+        {
+            Id = Guid.Parse("66666666-6666-6666-6666-666666666666"),
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            BaseBranch = "main"
+        };
+        var result = new AgentRunResult(true, "plan-run", "**Implementation Plan**\n\n1. Add the UI.", null);
+
+        var body = PullRequestCommentMarkers.BuildPlanBody(workflow, result);
+
+        Assert.Contains("**Implementation Plan**", body);
+        Assert.Contains("1. Add the UI.", body);
+        Assert.DoesNotContain("```text", body);
+    }
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Completes_fake_vertical_slice()
     {
         var store = new InMemoryWorkflowStore();
