@@ -18,13 +18,41 @@ function Assert-Tool {
 
     $command = Get-Command $Name -ErrorAction SilentlyContinue
     if (-not $command) {
-        throw "Required tool '$Name' was not found on PATH. $InstallHint"
+        $command = Find-InstalledTool -Name $Name
     }
 
-    & $Name @Arguments | Out-Host
+    if (-not $command) {
+        throw "Required tool '$Name' was not found on PATH or common package install locations. $InstallHint"
+    }
+
+    $toolPath = if ($command.Source) { $command.Source } else { $command.FullName }
+    $toolDirectory = Split-Path -Parent $toolPath
+    if ($toolDirectory -and (($env:PATH -split ';') -notcontains $toolDirectory)) {
+        $env:PATH = "$toolDirectory;$env:PATH"
+    }
+
+    & $toolPath @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Required tool '$Name' failed preflight. $InstallHint"
     }
+}
+
+function Find-InstalledTool {
+    param([Parameter(Mandatory)] [string]$Name)
+
+    $candidate = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter "$Name.exe" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($candidate) {
+        return $candidate
+    }
+
+    $candidate = Get-ChildItem -Path "$env:ProgramData\chocolatey" -Recurse -Filter "$Name.exe" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($candidate) {
+        return $candidate
+    }
+
+    return $null
 }
 
 Assert-Tool -Name "kind" -Arguments @("version") -InstallHint "Install kind before running Kubernetes E2E tests."

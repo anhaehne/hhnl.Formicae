@@ -7,6 +7,8 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 {
     private const string ClusterName = "formicae-e2e";
     private const string Namespace = "formicae";
+    private const string ApiImage = "localhost/hhnl-formicae-api:e2e";
+    private const string WorkerImage = "localhost/hhnl-formicae-worker:e2e";
 
     private readonly List<Process> longRunningProcesses = [];
     private bool ownsCluster;
@@ -139,10 +141,18 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 
     private async Task BuildAndLoadImagesAsync()
     {
-        await CommandRunner.RunRequiredAsync(ContainerCli, ["build", "-f", "src/hhnl.Formicae.Api/Dockerfile", "-t", "hhnl-formicae-api:e2e", "."], RepositoryRoot, TimeSpan.FromMinutes(5));
-        await CommandRunner.RunRequiredAsync(ContainerCli, ["build", "-f", "src/hhnl.Formicae.Worker/Dockerfile", "-t", "hhnl-formicae-worker:e2e", "."], RepositoryRoot, TimeSpan.FromMinutes(5));
-        await CommandRunner.RunRequiredAsync("kind", ["load", "docker-image", "hhnl-formicae-api:e2e", "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
-        await CommandRunner.RunRequiredAsync("kind", ["load", "docker-image", "hhnl-formicae-worker:e2e", "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
+        await CommandRunner.RunRequiredAsync(ContainerCli, ["build", "-f", "src/hhnl.Formicae.Api/Dockerfile", "-t", ApiImage, "."], RepositoryRoot, TimeSpan.FromMinutes(5));
+        await CommandRunner.RunRequiredAsync(ContainerCli, ["build", "-f", "src/hhnl.Formicae.Worker/Dockerfile", "-t", WorkerImage, "."], RepositoryRoot, TimeSpan.FromMinutes(5));
+
+        var apiArchive = Path.Combine(TempRoot, "formicae-api-e2e.tar");
+        var workerArchive = Path.Combine(TempRoot, "formicae-worker-e2e.tar");
+        File.Delete(apiArchive);
+        File.Delete(workerArchive);
+
+        await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", apiArchive, ApiImage], RepositoryRoot, TimeSpan.FromMinutes(3));
+        await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", workerArchive, WorkerImage], RepositoryRoot, TimeSpan.FromMinutes(3));
+        await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", apiArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
+        await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", workerArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
     }
 
     private async Task DeployAsync()
