@@ -14,8 +14,8 @@ public sealed class OpenHandsOptions
     public string Shell { get; set; } = "/bin/sh";
     public string BootstrapCommand { get; set; } = string.Empty;
     public string Command { get; set; } = "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\"";
-    public string CodexSubscriptionImage { get; set; } = "node:22-bookworm-slim";
-    public string CodexSubscriptionBootstrapCommand { get; set; } = "apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*";
+    public string CodexSubscriptionImage { get; set; } = "mcr.microsoft.com/dotnet/sdk:10.0";
+    public string CodexSubscriptionBootstrapCommand { get; set; } = "apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gnupg && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*";
     public string CodexSubscriptionCommand { get; set; } = "mkdir -p \"$CODEX_HOME\" /workspace && if [ -f /root/.codex/auth.json ]; then cp /root/.codex/auth.json \"$CODEX_HOME/auth.json\" && chmod 600 \"$CODEX_HOME/auth.json\"; fi && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ]; then repo=\"${FORMICAE_REPOSITORY_URL#https://}\" && git clone \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" /workspace/repo && cd /workspace/repo && git checkout \"$FORMICAE_BRANCH\" && git config user.email \"formicae@example.invalid\" && git config user.name \"Formicae Agent\"; else cd /workspace; fi && codex_model_args=\"\" && if [ -n \"$FORMICAE_MODEL\" ]; then codex_model_args=\"-m $FORMICAE_MODEL\"; fi && npx -y @openai/codex exec $codex_model_args -C \"$PWD\" --skip-git-repo-check --json --dangerously-bypass-approvals-and-sandbox \"$FORMICAE_TASK_PROMPT\" && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ]; then git add -A && if git diff --cached --quiet; then echo \"Codex completed without file changes.\"; else git commit -m \"Implement Formicae workflow ${FORMICAE_WORKFLOW_ID}\" && git push origin \"$FORMICAE_BRANCH\"; fi; fi";
 }
 
