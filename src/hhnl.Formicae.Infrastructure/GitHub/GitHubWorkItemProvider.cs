@@ -16,7 +16,12 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
             ?? throw new InvalidOperationException("GitHub issue response was empty.");
         var comments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubCommentDto>>($"repos/{issue.Owner}/{issue.Repository}/issues/{issue.Number}/comments", cancellationToken) ?? [];
 
-        return new WorkItem(issueUrl, issueResponse.Title, issueResponse.Body ?? string.Empty, comments.Select(comment => comment.Body ?? string.Empty).ToArray());
+        return new WorkItem(
+            issueUrl,
+            issueResponse.Title,
+            issueResponse.Body ?? string.Empty,
+            comments.Select(comment => comment.Body ?? string.Empty).ToArray(),
+            (issueResponse.Labels ?? []).Select(label => label.Name).ToArray());
     }
 
     private void ConfigureClient()
@@ -34,7 +39,11 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
         }
     }
 
-    private sealed record GitHubIssueDto([property: JsonPropertyName("title")] string Title, [property: JsonPropertyName("body")] string? Body);
+    private sealed record GitHubIssueDto(
+        [property: JsonPropertyName("title")] string Title,
+        [property: JsonPropertyName("body")] string? Body,
+        [property: JsonPropertyName("labels")] IReadOnlyList<GitHubLabelDto>? Labels);
+    private sealed record GitHubLabelDto([property: JsonPropertyName("name")] string Name);
     private sealed record GitHubCommentDto([property: JsonPropertyName("body")] string? Body);
 }
 

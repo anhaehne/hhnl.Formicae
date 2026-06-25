@@ -41,6 +41,79 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_plan_label()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", []);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+
+        Assert.Equal(0, advanced);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Queued, workflow.Status);
+        Assert.Equal(WorkflowStep.None, workflow.CurrentStep);
+        Assert.Empty(runs);
+        Assert.Single(devOps.GetIssueCalls);
+        Assert.All(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_implement_label_after_planning()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var planningAdvanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        var implementationAdvanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+
+        Assert.Equal(1, planningAdvanced);
+        Assert.Equal(0, implementationAdvanced);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Implementing, workflow.Status);
+        Assert.Equal(WorkflowStep.Implement, workflow.CurrentStep);
+        Assert.Single(runs, run => run.Kind == TaskRunKind.Plan);
+        Assert.DoesNotContain(runs, run => run.Kind == TaskRunKind.Implement);
+        Assert.Empty(devOps.CreateBranchCalls);
+
+        devOps.AddIssueWithLabels(
+            issueUrl,
+            "Scripted issue",
+            "Scripted issue body",
+            [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]);
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+
+        Assert.Contains(runs, run => run.Kind == TaskRunKind.Implement && run.Status == TaskRunStatus.Succeeded);
+        Assert.Single(devOps.CreateBranchCalls);
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Does_not_duplicate_completed_steps()
     {
         var store = new InMemoryWorkflowStore();
@@ -98,7 +171,8 @@ public sealed class WorkflowOrchestratorTests
         Assert.Equal(WorkflowStatus.Completed, workflow.Status);
         Assert.Equal("formicae/scripted-branch", workflow.BranchName);
         Assert.Equal("https://github.com/acme/widgets/pull/123", workflow.PullRequestUrl);
-        Assert.Collection(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
+        Assert.Equal(2, devOps.GetIssueCalls.Count);
+        Assert.All(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
         Assert.Collection(devOps.CreateBranchCalls, call =>
         {
             Assert.Equal(repositoryUrl, call.RepositoryUrl);

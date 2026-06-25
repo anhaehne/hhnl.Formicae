@@ -90,11 +90,22 @@ public sealed record WorkflowSummaryResponse(
     string? PullRequestUrl,
     string? FailureReason);
 
+public static class WorkItemWorkflowLabels
+{
+    public const string ReadyToPlan = "ready-to-plan";
+    public const string ReadyToImplement = "ready-to-implement";
+}
+
 public sealed record WorkItem(
     string Url,
     string Title,
     string Body,
-    IReadOnlyList<string> Comments);
+    IReadOnlyList<string> Comments,
+    IReadOnlyList<string> Labels)
+{
+    public bool HasLabel(string label)
+        => Labels.Any(existing => string.Equals(existing, label, StringComparison.OrdinalIgnoreCase));
+}
 
 public sealed record AgentTask(
     Guid WorkflowId,

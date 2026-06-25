@@ -11,17 +11,17 @@ The MVP workflow is intentionally static so agents can understand and test it qu
 - `baseBranch`
 - `model`
 
-The workflow starts in `Queued` with `CurrentStep = None`.
+The workflow starts in `Queued` with `CurrentStep = None`. The worker monitors the work item provider and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
 
 ## State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> Queued
-    Queued --> Planning
-    Planning --> Implementing: plan task succeeded
+    Queued --> Planning: ready-to-plan label
+    Planning --> Implementing: plan task succeeded, waits for ready-to-implement
     Planning --> Failed: plan task failed
-    Implementing --> CreatingPullRequest: implementation task succeeded
+    Implementing --> CreatingPullRequest: ready-to-implement label and implementation task succeeded
     Implementing --> Failed: implementation task failed
     CreatingPullRequest --> Completed: draft PR created
     CreatingPullRequest --> Failed: PR creation failed

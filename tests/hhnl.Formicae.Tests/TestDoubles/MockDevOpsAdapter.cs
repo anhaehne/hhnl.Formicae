@@ -14,8 +14,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
+        => AddIssueWithLabels(issueUrl, title, body, [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement], comments);
+
+    public MockDevOpsAdapter AddIssueWithLabels(string issueUrl, string title, string body, IReadOnlyList<string> labels, params string[] comments)
     {
-        workItems[issueUrl] = new WorkItem(issueUrl, title, body, comments);
+        workItems[issueUrl] = new WorkItem(issueUrl, title, body, comments, labels);
         return this;
     }
 
@@ -32,7 +35,8 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
             issueUrl,
             "Mock DevOps work item",
             "Default mock work item body.",
-            []));
+            [],
+            [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement]));
     }
 
     public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)

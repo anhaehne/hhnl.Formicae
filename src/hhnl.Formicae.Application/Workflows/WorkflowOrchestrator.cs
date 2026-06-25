@@ -14,18 +14,20 @@ public sealed class WorkflowOrchestrator(
 
         foreach (var workflow in workflows)
         {
-            await AdvanceAsync(workflow, cancellationToken);
-            advanced++;
+            if (await AdvanceAsync(workflow, cancellationToken))
+            {
+                advanced++;
+            }
         }
 
         return advanced;
     }
 
-    public async Task AdvanceAsync(Workflow workflow, CancellationToken cancellationToken)
+    public async Task<bool> AdvanceAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         if (workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
         {
-            return;
+            return false;
         }
 
         try
@@ -33,15 +35,13 @@ public sealed class WorkflowOrchestrator(
             switch (workflow.Status)
             {
                 case WorkflowStatus.Queued:
+                    return await StartPlanningIfReadyAsync(workflow, cancellationToken);
                 case WorkflowStatus.Planning:
-                    await RunPlanningAsync(workflow, cancellationToken);
-                    break;
+                    return await RunPlanningAsync(workflow, null, cancellationToken);
                 case WorkflowStatus.Implementing:
-                    await RunImplementationAsync(workflow, cancellationToken);
-                    break;
+                    return await RunImplementationIfReadyAsync(workflow, cancellationToken);
                 case WorkflowStatus.CreatingPullRequest:
-                    await CreatePullRequestAsync(workflow, cancellationToken);
-                    break;
+                    return await CreatePullRequestAsync(workflow, cancellationToken);
             }
         }
         catch (Exception exception)
@@ -56,10 +56,24 @@ public sealed class WorkflowOrchestrator(
                 Level = "Error",
                 Message = exception.Message
             }, cancellationToken);
+            return true;
         }
+
+        return false;
     }
 
-    private async Task RunPlanningAsync(Workflow workflow, CancellationToken cancellationToken)
+    private async Task<bool> StartPlanningIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        if (!issue.HasLabel(WorkItemWorkflowLabels.ReadyToPlan))
+        {
+            return false;
+        }
+
+        return await RunPlanningAsync(workflow, issue, cancellationToken);
+    }
+
+    private async Task<bool> RunPlanningAsync(Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded)
@@ -69,7 +83,7 @@ public sealed class WorkflowOrchestrator(
             workflow.CurrentStep = WorkflowStep.Implement;
             workflow.UpdatedAt = DateTimeOffset.UtcNow;
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
-            return;
+            return true;
         }
 
         workflow.Status = WorkflowStatus.Planning;
@@ -77,7 +91,7 @@ public sealed class WorkflowOrchestrator(
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
 
-        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Plan, workflow, issue, cancellationToken);
         var branch = workflow.BranchName ?? $"formicae/{workflow.Id:N}";
 
@@ -94,7 +108,7 @@ public sealed class WorkflowOrchestrator(
         {
             FailWorkflow(workflow, result.FailureReason ?? "Planning agent failed.");
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
-            return;
+            return true;
         }
 
         workflow.PlanArtifact = result.Output;
@@ -102,9 +116,21 @@ public sealed class WorkflowOrchestrator(
         workflow.CurrentStep = WorkflowStep.Implement;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        return true;
     }
 
-    private async Task RunImplementationAsync(Workflow workflow, CancellationToken cancellationToken)
+    private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        if (!issue.HasLabel(WorkItemWorkflowLabels.ReadyToImplement))
+        {
+            return false;
+        }
+
+        return await RunImplementationAsync(workflow, cancellationToken);
+    }
+
+    private async Task<bool> RunImplementationAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded)
@@ -113,7 +139,7 @@ public sealed class WorkflowOrchestrator(
             workflow.CurrentStep = WorkflowStep.CreatePullRequest;
             workflow.UpdatedAt = DateTimeOffset.UtcNow;
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
-            return;
+            return true;
         }
 
         workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.Id, cancellationToken);
@@ -133,16 +159,17 @@ public sealed class WorkflowOrchestrator(
         {
             FailWorkflow(workflow, result.FailureReason ?? "Implementation agent failed.");
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
-            return;
+            return true;
         }
 
         workflow.Status = WorkflowStatus.CreatingPullRequest;
         workflow.CurrentStep = WorkflowStep.CreatePullRequest;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        return true;
     }
 
-    private async Task CreatePullRequestAsync(Workflow workflow, CancellationToken cancellationToken)
+    private async Task<bool> CreatePullRequestAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.CreatePullRequest, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && workflow.PullRequestUrl is not null)
@@ -151,7 +178,7 @@ public sealed class WorkflowOrchestrator(
             workflow.CurrentStep = WorkflowStep.Done;
             workflow.UpdatedAt = DateTimeOffset.UtcNow;
             await store.UpdateWorkflowAsync(workflow, cancellationToken);
-            return;
+            return true;
         }
 
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.CreatePullRequest };
@@ -170,6 +197,7 @@ public sealed class WorkflowOrchestrator(
         workflow.CurrentStep = WorkflowStep.Done;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        return true;
     }
 
     private static void CompleteTaskRun(TaskRun run, AgentRunResult result)
