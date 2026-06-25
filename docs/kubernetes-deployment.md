@@ -131,6 +131,32 @@ stringData:
   GITHUB_TOKEN: "<replace-me>"
 ```
 
+### Codex Subscription Access
+
+Codex supports signing in with ChatGPT for subscription-backed access, and the Codex CLI can also use a Codex access token through `CODEX_ACCESS_TOKEN` for trusted, non-interactive automation. Use this path when a worker image runs Codex CLI commands and must use ChatGPT/Codex workspace entitlements instead of an OpenAI Platform API key. See the Codex docs for [authentication](https://developers.openai.com/codex/auth), [environment variables](https://developers.openai.com/codex/environment-variables), and [access tokens](https://developers.openai.com/codex/enterprise/access-tokens).
+
+For ChatGPT Business or Enterprise workspaces, create a Codex access token in the ChatGPT admin console, store it in the runtime Secret, and keep `formicae-runtime-secrets` as the default `secrets.runtimeSecretName` value:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: formicae-runtime-secrets
+  namespace: formicae
+type: Opaque
+stringData:
+  CODEX_ACCESS_TOKEN: "<replace-me>"
+  GITHUB_TOKEN: "<replace-me>"
+```
+
+The Helm chart passes every key in `formicae-runtime-secrets` to both the API and worker containers. Future worker CronJob pods read the updated Secret when they start. If the worker image runs `codex exec`, Codex will see `CODEX_ACCESS_TOKEN` in the process environment. For persistent CLI login inside a trusted container, pipe the token into `codex login --with-access-token` during container startup:
+
+```sh
+printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token
+```
+
+Access tokens are secrets. Store them only in Kubernetes Secrets or an external secret manager, avoid public or untrusted runners, prefer finite expirations, and rotate them regularly. If you do not need ChatGPT workspace entitlements, prefer an API-key based automation setup instead.
+
 Apply the Secret and restart the API:
 
 ```powershell
