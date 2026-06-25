@@ -109,7 +109,7 @@ Important settings:
 - `ConnectionStrings:Formicae` for PostgreSQL.
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the OpenHands-capable job image.
-- `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`.
+- `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
 
 ## Architecture
 

@@ -151,7 +151,12 @@ Formicae accepts GitHub webhooks at:
 POST /api/webhooks/github
 ```
 
-Configure the GitHub repository webhook with these events:
+In the GitHub repository webhook UI, use these settings:
+
+- Content type: `application/json`
+- Which events would you like to trigger this webhook?: `Let me select individual events`
+
+Select these individual events:
 
 - Issues
 - Issue comments
@@ -159,7 +164,9 @@ Configure the GitHub repository webhook with these events:
 - Pull request review comments
 - Pull request reviews
 
-Set the webhook content type to `application/json`. For production, set a webhook secret and pass the same value to the chart:
+Do not choose `Just the push event`; Formicae does not use push events for issue planning, implementation, or PR comment handling. Do not choose `Send me everything`; unsupported deliveries are acknowledged but ignored.
+
+For production, set a webhook secret and pass the same value to the chart:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `
@@ -167,7 +174,8 @@ helm upgrade --install formicae formicae/formicae `
   --set secrets.githubWebhookSecret='<replace-me>'
 ```
 
-When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the workflow loop immediately; unsupported events are acknowledged but ignored.
+When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the workflow loop immediately; unsupported events are acknowledged but ignored. Pull request comment and review deliveries can requeue completed workflows when new feedback is added after a previous comment-addressing pass.
+
 Apply the runtime Secret:
 
 ```powershell
