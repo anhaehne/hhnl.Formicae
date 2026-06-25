@@ -13,8 +13,8 @@ resources:
   - worker-cronjob.yaml
 images:
   - name: hhnl-formicae-api
-    newName: ghcr.io/anhaehne/hhnl-formicae-api
+    newName: docker.io/limeray/hhnl-formicae-api
     newTag: latest
   - name: hhnl-formicae-worker
-    newName: ghcr.io/anhaehne/hhnl-formicae-worker
+    newName: docker.io/limeray/hhnl-formicae-worker
     newTag: latest

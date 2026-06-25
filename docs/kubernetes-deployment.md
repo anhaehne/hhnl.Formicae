@@ -13,10 +13,10 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 Build and push images with your registry tag:
 
 ```powershell
-podman build -f src/hhnl.Formicae.Api/Dockerfile -t ghcr.io/anhaehne/hhnl-formicae-api:latest .
-podman build -f src/hhnl.Formicae.Worker/Dockerfile -t ghcr.io/anhaehne/hhnl-formicae-worker:latest .
-podman push ghcr.io/anhaehne/hhnl-formicae-api:latest
-podman push ghcr.io/anhaehne/hhnl-formicae-worker:latest
+podman build -f src/hhnl.Formicae.Api/Dockerfile -t docker.io/limeray/hhnl-formicae-api:latest .
+podman build -f src/hhnl.Formicae.Worker/Dockerfile -t docker.io/limeray/hhnl-formicae-worker:latest .
+podman push docker.io/limeray/hhnl-formicae-api:latest
+podman push docker.io/limeray/hhnl-formicae-worker:latest
 ```
 
 If you use a different registry or tag, update `deploy/kubernetes/base/kustomization.yaml` or run:
@@ -74,6 +74,8 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-i
 ## Helm Chart
 
 A Helm chart is published from this repository as an index-based Helm repository. The chart deploys PostgreSQL by default through `postgres.enabled=true`.
+
+Application images are published to Docker Hub by default as public images under `docker.io/limeray`. Configure the repository secret `DOCKERHUB_TOKEN` for the image publishing workflow; the workflow publishes as Docker Hub user `limeray`. Keep the Docker Hub repositories public so Kubernetes clusters can pull the chart defaults without an image pull secret.
 
 Add the chart repository:
 

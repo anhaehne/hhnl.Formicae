@@ -1,8 +1,8 @@
 replicaCount: 1
 
 image:
-  registry: ghcr.io
-  repositoryPrefix: anhaehne
+  registry: docker.io
+  repositoryPrefix: limeray
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 

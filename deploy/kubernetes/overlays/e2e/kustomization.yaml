@@ -33,9 +33,9 @@ patches:
         LLM_API_KEY: "e2e-unused"
         GITHUB_TOKEN: "e2e-unused"
 images:
-  - name: ghcr.io/anhaehne/hhnl-formicae-api
+  - name: docker.io/limeray/hhnl-formicae-api
     newName: localhost/hhnl-formicae-api
     newTag: e2e
-  - name: ghcr.io/anhaehne/hhnl-formicae-worker
+  - name: docker.io/limeray/hhnl-formicae-worker
     newName: localhost/hhnl-formicae-worker
     newTag: e2e
