@@ -16,6 +16,7 @@ Prerequisites:
 
 - .NET 10 SDK
 - Git
+- Node.js 22 or newer for the management UI
 - PowerShell 7 or Windows PowerShell
 - PostgreSQL only when running with `UseFakeAdapters=false`
 - `kubectl`, `kind`, and either Docker or Podman for Kubernetes E2E tests
@@ -53,8 +54,27 @@ dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj
 Run the API with fake adapters:
 
 ```powershell
-dotnet run --project src/hhnl.Formicae.Api/hhnl.Formicae.Api.csproj
+dotnet run --project src/hhnl.Formicae.Api/hhnl.Formicae.Api.csproj --urls http://localhost:5000
 ```
+
+Run the management UI in a second shell:
+
+```powershell
+cd src/hhnl.Formicae.Api/ClientApp
+npm install
+npm run dev
+```
+
+Open the Vite URL printed by the dev server, usually `http://localhost:5173`. The Vite dev server proxies `/api` requests to the ASP.NET Core API at `http://localhost:5000`. Fake adapters are enabled by default, so the UI can start and inspect workflows locally without GitHub, Azure DevOps, Kubernetes, PostgreSQL, or OpenHands credentials.
+
+Build the UI into the API static files:
+
+```powershell
+cd src/hhnl.Formicae.Api/ClientApp
+npm run build
+```
+
+The Vite production build writes to `src/hhnl.Formicae.Api/wwwroot`. Run this build before `dotnet publish` or container image builds when UI changes need to be bundled into the API static files.
 
 Start a workflow:
 
@@ -117,6 +137,3 @@ Important settings:
 - `hhnl.Formicae.Api` owns HTTP endpoints and the background orchestration loop.
 - `hhnl.Formicae.Worker` owns one-shot workflow advancement for scheduled or agent-driven execution.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
-
-
-
