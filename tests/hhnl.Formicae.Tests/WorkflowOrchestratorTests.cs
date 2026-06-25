@@ -6,6 +6,8 @@ using hhnl.Formicae.Infrastructure.OpenHands;
 using hhnl.Formicae.Infrastructure.Prompts;
 using hhnl.Formicae.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
+using Octokit;
+using Workflow = hhnl.Formicae.Application.Workflows.Workflow;
 
 namespace hhnl.Formicae.Tests;
 
@@ -309,6 +311,7 @@ public sealed class WorkflowOrchestratorTests
         {
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
             Assert.Equal("develop", call.BaseBranch);
+            Assert.Equal(issueUrl, call.IssueUrl);
             Assert.Equal(started.WorkflowId, call.WorkflowId);
         });
         Assert.Collection(devOps.CreatePullRequestCalls, call =>
@@ -517,212 +520,196 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task GitHubSourceControlProvider_CreateBranchAsync_uses_linked_branch_mutation_inputs()
+    {
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubSourceControlProvider(api);
+        var workflowId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        var branch = await provider.CreateBranchAsync(
+            "https://github.com/acme/widgets",
+            "main",
+            "https://github.com/acme/widgets/issues/42",
+            workflowId,
+            CancellationToken.None);
+
+        Assert.Equal("formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", branch);
+        Assert.Equal("heads/main", api.ReferenceName);
+        Assert.Collection(api.LinkedBranchCalls, call =>
+        {
+            Assert.Equal("acme", call.Owner);
+            Assert.Equal("widgets", call.Repository);
+            Assert.Equal(42, call.IssueNumber);
+            Assert.Equal("base-sha", call.BaseOid);
+            Assert.Equal("formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", call.BranchName);
+        });
+    }
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_CreateBranchAsync_is_idempotent_when_linked_branch_already_exists()
+    {
+        var api = new CapturingGitHubApi { ThrowLinkedBranchAlreadyExists = true };
+        var provider = new GitHubSourceControlProvider(api);
+        var workflowId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+        var branch = await provider.CreateBranchAsync(
+            "https://github.com/acme/widgets",
+            "main",
+            "https://github.com/acme/widgets/issues/42",
+            workflowId,
+            CancellationToken.None);
+
+        Assert.Equal("formicae/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", branch);
+        Assert.Single(api.LinkedBranchCalls);
+    }
+
+    [Fact]
     public async Task GitHubSourceControlProvider_Adds_implementation_summary_to_created_pull_request_body()
     {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubSourceControlProvider(api);
+        var workflow = new Workflow
         {
-            var handler = new CreatePullRequestGitHubHandler();
-            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
-            var workflow = new Workflow
-            {
-                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                RepositoryUrl = "https://github.com/acme/widgets",
-                IssueUrl = "https://github.com/acme/widgets/issues/42",
-                BaseBranch = "main",
-                BranchName = "formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            };
-            var runs = new[]
-            {
-                new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan, Status = TaskRunStatus.Succeeded, Output = "Plan output" },
-                new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement, Status = TaskRunStatus.Succeeded, Output = "Implemented the management UI and recent workflow API." }
-            };
-
-            var result = await provider.CreatePullRequestAsync(workflow, runs, CancellationToken.None);
-
-            Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
-            Assert.False(handler.CreatedPullRequestDraft);
-            Assert.Contains("## Implementation Summary", handler.CreatedPullRequestBody);
-            Assert.Contains("Implemented the management UI and recent workflow API.", handler.CreatedPullRequestBody);
-        }
-        finally
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            RepositoryUrl = "https://github.com/acme/widgets",
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            BaseBranch = "main",
+            BranchName = "formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        var runs = new[]
         {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
+            new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan, Status = TaskRunStatus.Succeeded, Output = "Plan output" },
+            new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement, Status = TaskRunStatus.Succeeded, Output = "Implemented the management UI and recent workflow API." }
+        };
+
+        var result = await provider.CreatePullRequestAsync(workflow, runs, CancellationToken.None);
+
+        Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
+        Assert.NotNull(api.CreatedPullRequest);
+        Assert.Equal(false, api.CreatedPullRequest.Draft);
+        Assert.Contains("## Implementation Summary", api.CreatedPullRequest.Body);
+        Assert.Contains("Implemented the management UI and recent workflow API.", api.CreatedPullRequest.Body);
+        Assert.Collection(api.CreatedFiles, file => Assert.Equal(".formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md", file.Path));
     }
+
     [Fact]
     public async Task GitHubWorkItemProvider_Reacts_to_issue()
     {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
-        {
-            var handler = new ReactionGitHubHandler();
-            var provider = new GitHubWorkItemProvider(new HttpClient(handler));
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubWorkItemProvider(api);
 
-            await provider.ReactToIssueAsync(
-                "https://github.com/acme/widgets/issues/42",
-                WorkflowReactionContent.Started,
-                CancellationToken.None);
+        await provider.ReactToIssueAsync(
+            "https://github.com/acme/widgets/issues/42",
+            WorkflowReactionContent.Started,
+            CancellationToken.None);
 
-            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/42/reactions"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
-            Assert.Equal([WorkflowReactionContent.Started], handler.Reactions);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
+        Assert.Equal([new ReactionCall("issue", "acme", "widgets", 42, WorkflowReactionContent.Started)], api.ReactionCalls);
     }
+
     [Fact]
     public async Task GitHubSourceControlProvider_Lists_issue_and_review_comments_for_pull_request()
     {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
+        var api = new CapturingGitHubApi();
+        api.IssueComments.Add(Model<IssueComment>(
+            (nameof(IssueComment.Id), 10L),
+            (nameof(IssueComment.Body), "Please update the docs."),
+            (nameof(IssueComment.HtmlUrl), "https://github.com/acme/widgets/pull/123#issuecomment-10"),
+            (nameof(IssueComment.UpdatedAt), DateTimeOffset.Parse("2026-06-25T10:00:00Z")),
+            (nameof(IssueComment.CreatedAt), DateTimeOffset.Parse("2026-06-25T09:59:00Z")),
+            (nameof(IssueComment.User), GitHubUser("maintainer"))));
+        api.IssueComments.Add(Model<IssueComment>((nameof(IssueComment.Id), 11L), (nameof(IssueComment.Body), "   ")));
+        api.IssueComments.Add(Model<IssueComment>((nameof(IssueComment.Id), 12L), (nameof(IssueComment.Body), "<!-- formicae:workflow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:address-comments --> automated summary")));
+        api.ReviewComments.Add(Model<PullRequestReviewComment>(
+            (nameof(PullRequestReviewComment.Id), 20L),
+            (nameof(PullRequestReviewComment.Body), "Please add a regression test."),
+            (nameof(PullRequestReviewComment.HtmlUrl), "https://github.com/acme/widgets/pull/123#discussion_r20"),
+            (nameof(PullRequestReviewComment.UpdatedAt), DateTimeOffset.Parse("2026-06-25T10:02:00Z")),
+            (nameof(PullRequestReviewComment.User), GitHubUser("reviewer"))));
+        var provider = new GitHubSourceControlProvider(api);
+        var workflow = new Workflow
         {
-            var handler = new CapturingGitHubHandler();
-            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
-            var workflow = new Workflow
+            RepositoryUrl = "https://github.com/acme/widgets",
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+        };
+
+        var comments = await provider.ListPullRequestCommentsAsync(workflow, CancellationToken.None);
+
+        Assert.Collection(comments,
+            comment =>
             {
-                RepositoryUrl = "https://github.com/acme/widgets",
-                IssueUrl = "https://github.com/acme/widgets/issues/42",
-                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
-            };
-
-            var comments = await provider.ListPullRequestCommentsAsync(workflow, CancellationToken.None);
-
-            Assert.Equal([
-                "https://api.github.com/repos/acme/widgets/issues/123/comments",
-                "https://api.github.com/repos/acme/widgets/pulls/123/comments"
-            ], handler.Requests.Select(request => request.RequestUri?.ToString()));
-            Assert.All(handler.Requests, request => Assert.Equal("Bearer", request.Headers.Authorization?.Scheme));
-            Assert.Collection(comments,
-                comment =>
-                {
-                    Assert.Equal("issue:10", comment.Id);
-                    Assert.Equal("maintainer", comment.Author);
-                    Assert.Equal("Please update the docs.", comment.Body);
-                    Assert.Equal("https://github.com/acme/widgets/pull/123#issuecomment-10", comment.Url);
-                    Assert.Equal(PullRequestCommentKind.IssueComment, comment.Kind);
-                },
-                comment =>
-                {
-                    Assert.Equal("review:20", comment.Id);
-                    Assert.Equal("reviewer", comment.Author);
-                    Assert.Equal("Please add a regression test.", comment.Body);
-                    Assert.Equal("https://github.com/acme/widgets/pull/123#discussion_r20", comment.Url);
-                    Assert.Equal(PullRequestCommentKind.ReviewComment, comment.Kind);
-                });
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
+                Assert.Equal("issue:10", comment.Id);
+                Assert.Equal("maintainer", comment.Author);
+                Assert.Equal("Please update the docs.", comment.Body);
+                Assert.Equal("https://github.com/acme/widgets/pull/123#issuecomment-10", comment.Url);
+                Assert.Equal(PullRequestCommentKind.IssueComment, comment.Kind);
+            },
+            comment =>
+            {
+                Assert.Equal("review:20", comment.Id);
+                Assert.Equal("reviewer", comment.Author);
+                Assert.Equal("Please add a regression test.", comment.Body);
+                Assert.Equal("https://github.com/acme/widgets/pull/123#discussion_r20", comment.Url);
+                Assert.Equal(PullRequestCommentKind.ReviewComment, comment.Kind);
+            });
     }
 
     [Fact]
     public async Task GitHubSourceControlProvider_Posts_marked_pull_request_comment()
     {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubSourceControlProvider(api);
+        var workflow = new Workflow
         {
-            var handler = new UpsertGitHubCommentHandler(existingMarkedCommentId: null);
-            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
-            var workflow = new Workflow
-            {
-                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                RepositoryUrl = "https://github.com/acme/widgets",
-                IssueUrl = "https://github.com/acme/widgets/issues/42",
-                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
-            };
-            var body = PullRequestCommentMarkers.BuildAddressCommentsBody(
-                workflow,
-                new AgentRunResult(true, "run-1", "Addressed the requested changes.", null));
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            RepositoryUrl = "https://github.com/acme/widgets",
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+        };
+        var body = PullRequestCommentMarkers.BuildAddressCommentsBody(
+            workflow,
+            new AgentRunResult(true, "run-1", "Addressed the requested changes.", null));
 
-            await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
+        await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
 
-            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/123/comments"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
-            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
-            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Addressed the requested changes."));
-        }
-        finally
+        Assert.Collection(api.CreatedIssueComments, comment =>
         {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
+            Assert.Equal("acme", comment.Owner);
+            Assert.Equal("widgets", comment.Repository);
+            Assert.Equal(123, comment.Number);
+            Assert.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id), comment.Body);
+            Assert.Contains("Addressed the requested changes.", comment.Body);
+        });
     }
 
     [Fact]
     public async Task GitHubSourceControlProvider_Reacts_to_issue_and_review_comments()
     {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubSourceControlProvider(api);
+        var workflow = new Workflow
         {
-            var handler = new ReactionGitHubHandler();
-            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
-            var workflow = new Workflow
-            {
-                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                RepositoryUrl = "https://github.com/acme/widgets",
-                IssueUrl = "https://github.com/acme/widgets/issues/42",
-                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
-            };
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            RepositoryUrl = "https://github.com/acme/widgets",
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+        };
 
-            await provider.ReactToPullRequestCommentAsync(
-                workflow,
-                new PullRequestComment("issue:10", "maintainer", "Please update docs.", "https://github.com/acme/widgets/pull/123#issuecomment-10", DateTimeOffset.UtcNow, PullRequestCommentKind.IssueComment),
-                WorkflowReactionContent.Started,
-                CancellationToken.None);
-            await provider.ReactToPullRequestCommentAsync(
-                workflow,
-                new PullRequestComment("review:20", "reviewer", "Please add a test.", "https://github.com/acme/widgets/pull/123#discussion_r20", DateTimeOffset.UtcNow, PullRequestCommentKind.ReviewComment),
-                WorkflowReactionContent.Started,
-                CancellationToken.None);
+        await provider.ReactToPullRequestCommentAsync(
+            workflow,
+            new PullRequestComment("issue:10", "maintainer", "Please update docs.", "https://github.com/acme/widgets/pull/123#issuecomment-10", DateTimeOffset.UtcNow, PullRequestCommentKind.IssueComment),
+            WorkflowReactionContent.Started,
+            CancellationToken.None);
+        await provider.ReactToPullRequestCommentAsync(
+            workflow,
+            new PullRequestComment("review:20", "reviewer", "Please add a test.", "https://github.com/acme/widgets/pull/123#discussion_r20", DateTimeOffset.UtcNow, PullRequestCommentKind.ReviewComment),
+            WorkflowReactionContent.Started,
+            CancellationToken.None);
 
-            Assert.Equal([
-                "POST https://api.github.com/repos/acme/widgets/issues/comments/10/reactions",
-                "POST https://api.github.com/repos/acme/widgets/pulls/comments/20/reactions"
-            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
-            Assert.Equal([WorkflowReactionContent.Started, WorkflowReactionContent.Started], handler.Reactions);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
-    }
-
-    [Fact]
-    public async Task GitHubSourceControlProvider_Posts_new_marked_pull_request_comment_when_present()
-    {
-        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
-        try
-        {
-            var handler = new UpsertGitHubCommentHandler(existingMarkedCommentId: 77);
-            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
-            var workflow = new Workflow
-            {
-                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                RepositoryUrl = "https://github.com/acme/widgets",
-                IssueUrl = "https://github.com/acme/widgets/issues/42",
-                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
-            };
-            var body = PullRequestCommentMarkers.BuildAddressCommentsBody(
-                workflow,
-                new AgentRunResult(true, "run-1", "Updated summary.", null));
-
-            await provider.UpsertPullRequestCommentAsync(workflow, body, CancellationToken.None);
-
-            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/123/comments"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
-            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains(PullRequestCommentMarkers.AddressComments(workflow.Id)));
-            Assert.Single(handler.RequestBodies, requestBody => requestBody.Contains("Updated summary."));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
-        }
+        Assert.Equal([
+            new ReactionCall("issue-comment", "acme", "widgets", 10, WorkflowReactionContent.Started),
+            new ReactionCall("review-comment", "acme", "widgets", 20, WorkflowReactionContent.Started)
+        ], api.ReactionCalls);
     }
 
     private sealed class FailingAddressCommentsAgentRunner : IAgentRunner
@@ -738,191 +725,119 @@ public sealed class WorkflowOrchestratorTests
         }
     }
 
-    private sealed class CreatePullRequestGitHubHandler : HttpMessageHandler
+    private sealed class CapturingGitHubApi : IGitHubApi
     {
-        public string CreatedPullRequestBody { get; private set; } = string.Empty;
-        public bool? CreatedPullRequestDraft { get; private set; }
+        public string? ReferenceName { get; private set; }
+        public bool ThrowLinkedBranchAlreadyExists { get; init; }
+        public NewPullRequest? CreatedPullRequest { get; private set; }
+        public List<IssueComment> IssueComments { get; } = [];
+        public List<PullRequestReviewComment> ReviewComments { get; } = [];
+        public List<LinkedBranchCall> LinkedBranchCalls { get; } = [];
+        public List<CreatedIssueComment> CreatedIssueComments { get; } = [];
+        public List<CreatedFile> CreatedFiles { get; } = [];
+        public List<ReactionCall> ReactionCalls { get; } = [];
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task<Issue> GetIssueAsync(string owner, string repository, int number)
+            => Task.FromResult(Model<Issue>(
+                (nameof(Issue.HtmlUrl), $"https://github.com/{owner}/{repository}/issues/{number}"),
+                (nameof(Issue.Title), "Issue title"),
+                (nameof(Issue.Body), "Issue body"),
+                (nameof(Issue.Labels), Array.Empty<Label>())));
+
+        public Task<IReadOnlyList<Issue>> ListIssuesWithLabelAsync(string owner, string repository, string label)
+            => Task.FromResult<IReadOnlyList<Issue>>([]);
+
+        public Task<IReadOnlyList<IssueComment>> GetIssueCommentsAsync(string owner, string repository, int number)
+            => Task.FromResult<IReadOnlyList<IssueComment>>(IssueComments);
+
+        public Task CreateIssueCommentAsync(string owner, string repository, int number, string body)
         {
-            var path = request.RequestUri?.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/contents/.formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md")
-            {
-                return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
-                {
-                    Content = new StringContent("{}")
-                };
-            }
-
-            if (request.Method == HttpMethod.Put && path == "/repos/acme/widgets/contents/.formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md")
-            {
-                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
-            }
-
-            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/pulls")
-            {
-                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent("[]")
-                };
-            }
-
-            if (request.Method == HttpMethod.Post && path == "/repos/acme/widgets/pulls")
-            {
-                var requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
-                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
-                CreatedPullRequestBody = document.RootElement.GetProperty("body").GetString() ?? string.Empty;
-                CreatedPullRequestDraft = document.RootElement.GetProperty("draft").GetBoolean();
-                return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
-                {
-                    Content = new StringContent("""
-                        { "html_url": "https://github.com/acme/widgets/pull/123" }
-                        """)
-                };
-            }
-
-            throw new InvalidOperationException($"Unexpected GitHub request: {request.Method} {path}");
+            CreatedIssueComments.Add(new CreatedIssueComment(owner, repository, number, body));
+            return Task.CompletedTask;
         }
-    }
-    private sealed class ReactionGitHubHandler : HttpMessageHandler
-    {
-        public List<HttpRequestMessage> Requests { get; } = [];
-        public List<string> Reactions { get; } = [];
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task UpdateIssueCommentAsync(string owner, string repository, long commentId, string body)
+            => Task.CompletedTask;
+
+        public Task ReactToIssueAsync(string owner, string repository, int number, string reaction)
         {
-            Requests.Add(request);
-            if (request.Content is not null)
-            {
-                var requestJson = await request.Content.ReadAsStringAsync(cancellationToken);
-                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
-                Reactions.Add(document.RootElement.GetProperty("content").GetString() ?? string.Empty);
-            }
-
-            return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
-            {
-                Content = new StringContent("{}")
-            };
+            ReactionCalls.Add(new ReactionCall("issue", owner, repository, number, reaction));
+            return Task.CompletedTask;
         }
-    }
-    private sealed class UpsertGitHubCommentHandler(long? existingMarkedCommentId) : HttpMessageHandler
-    {
-        public List<HttpRequestMessage> Requests { get; } = [];
-        public List<string> RequestBodies { get; } = [];
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task<Reference> GetReferenceAsync(string owner, string repository, string reference)
         {
-            Requests.Add(request);
-            if (request.Content is not null)
-            {
-                var requestJson = await request.Content.ReadAsStringAsync(cancellationToken);
-                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
-                RequestBodies.Add(document.RootElement.GetProperty("body").GetString() ?? string.Empty);
-            }
-
-            var path = request.RequestUri?.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/issues/123/comments")
-            {
-                var json = existingMarkedCommentId is null
-                    ? "[]"
-                    : $$"""
-                      [
-                        {
-                          "id": {{existingMarkedCommentId}},
-                          "body": "<!-- formicae:workflow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:address-comments --> previous summary",
-                          "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-{{existingMarkedCommentId}}",
-                          "updated_at": "2026-06-25T10:00:00Z",
-                          "user": { "login": "automation" }
-                        }
-                      ]
-                      """;
-                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent(json)
-                };
-            }
-
-            if (request.Method == HttpMethod.Post && path == "/repos/acme/widgets/issues/123/comments")
-            {
-                return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
-                {
-                    Content = new StringContent("{}")
-                };
-            }
-
-            if (request.Method == HttpMethod.Patch && path == $"/repos/acme/widgets/issues/comments/{existingMarkedCommentId}")
-            {
-                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
-            }
-
-            throw new InvalidOperationException($"Unexpected GitHub request: {request.Method} {path}");
+            ReferenceName = reference;
+            return Task.FromResult(Model<Reference>((nameof(Reference.Object), Model<TagObject>((nameof(TagObject.Sha), "base-sha")))));
         }
+
+        public Task<string> CreateLinkedBranchAsync(string owner, string repository, int issueNumber, string baseOid, string branchName, CancellationToken cancellationToken)
+        {
+            LinkedBranchCalls.Add(new LinkedBranchCall(owner, repository, issueNumber, baseOid, branchName));
+            if (ThrowLinkedBranchAlreadyExists)
+            {
+                throw new ApiException("branch already exists", System.Net.HttpStatusCode.UnprocessableEntity);
+            }
+
+            return Task.FromResult(branchName);
+        }
+
+        public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
+            => Task.FromResult<IReadOnlyList<PullRequest>>([]);
+
+        public Task<PullRequest> CreatePullRequestAsync(string owner, string repository, string title, string head, string baseBranch, string body)
+        {
+            CreatedPullRequest = new NewPullRequest(title, head, baseBranch) { Body = body, Draft = false };
+            return Task.FromResult(Model<PullRequest>((nameof(PullRequest.HtmlUrl), $"https://github.com/{owner}/{repository}/pull/123")));
+        }
+
+        public Task<IReadOnlyList<PullRequestReviewComment>> GetPullRequestReviewCommentsAsync(string owner, string repository, int number)
+            => Task.FromResult<IReadOnlyList<PullRequestReviewComment>>(ReviewComments);
+
+        public Task ReactToIssueCommentAsync(string owner, string repository, long commentId, string reaction)
+        {
+            ReactionCalls.Add(new ReactionCall("issue-comment", owner, repository, commentId, reaction));
+            return Task.CompletedTask;
+        }
+
+        public Task ReactToPullRequestReviewCommentAsync(string owner, string repository, long commentId, string reaction)
+        {
+            ReactionCalls.Add(new ReactionCall("review-comment", owner, repository, commentId, reaction));
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<RepositoryContent>> GetContentsByRefAsync(string owner, string repository, string path, string reference)
+            => throw new NotFoundException("not found", System.Net.HttpStatusCode.NotFound);
+
+        public Task CreateFileAsync(string owner, string repository, string path, string message, string content, string branch)
+        {
+            CreatedFiles.Add(new CreatedFile(path, content, branch));
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateFileAsync(string owner, string repository, string path, string message, string content, string sha, string branch)
+            => Task.CompletedTask;
     }
 
-    private sealed class CapturingGitHubHandler : HttpMessageHandler
+    private static T Model<T>(params (string Property, object? Value)[] values)
     {
-        public List<HttpRequestMessage> Requests { get; } = [];
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        var model = Activator.CreateInstance<T>();
+        foreach (var (propertyName, value) in values)
         {
-            Requests.Add(request);
-
-            var path = request.RequestUri?.AbsolutePath;
-            var json = path switch
-            {
-                "/repos/acme/widgets/issues/123/comments" =>
-                    """
-                    [
-                      {
-                        "id": 10,
-                        "body": "Please update the docs.",
-                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-10",
-                        "updated_at": "2026-06-25T10:00:00Z",
-                        "user": { "login": "maintainer" }
-                      },
-                      {
-                        "id": 11,
-                        "body": "   ",
-                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-11",
-                        "updated_at": "2026-06-25T10:01:00Z",
-                        "user": { "login": "maintainer" }
-                      },
-                      {
-                        "id": 12,
-                        "body": "<!-- formicae:workflow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:address-comments --> automated summary",
-                        "html_url": "https://github.com/acme/widgets/pull/123#issuecomment-12",
-                        "updated_at": "2026-06-25T10:01:30Z",
-                        "user": { "login": "maintainer" }
-                      }
-                    ]
-                    """,
-                "/repos/acme/widgets/pulls/123/comments" =>
-                    """
-                    [
-                      {
-                        "id": 20,
-                        "body": "Please add a regression test.",
-                        "html_url": "https://github.com/acme/widgets/pull/123#discussion_r20",
-                        "updated_at": "2026-06-25T10:02:00Z",
-                        "user": { "login": "reviewer" }
-                      }
-                    ]
-                    """,
-                _ => throw new InvalidOperationException($"Unexpected GitHub request path: {path}")
-            };
-
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(json)
-            });
+            var property = typeof(T).GetProperty(propertyName)!;
+            property.SetValue(model, value);
         }
+
+        return model;
     }
+
+    private static User GitHubUser(string login)
+        => Model<User>((nameof(User.Login), login));
+
+    private sealed record LinkedBranchCall(string Owner, string Repository, int IssueNumber, string BaseOid, string BranchName);
+    private sealed record CreatedIssueComment(string Owner, string Repository, int Number, string Body);
+    private sealed record CreatedFile(string Path, string Content, string Branch);
+    private sealed record ReactionCall(string Kind, string Owner, string Repository, long SubjectId, string Reaction);
 
     private sealed class CapturingAgentRunner : IAgentRunner
     {

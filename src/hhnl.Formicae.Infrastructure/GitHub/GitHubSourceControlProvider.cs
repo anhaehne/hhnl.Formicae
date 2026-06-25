@@ -1,51 +1,67 @@
 using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json.Serialization;
 using hhnl.Formicae.Application.Workflows;
+using Octokit;
+using Workflow = hhnl.Formicae.Application.Workflows.Workflow;
 
 namespace hhnl.Formicae.Infrastructure.GitHub;
 
-public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISourceControlProvider
+public sealed class GitHubSourceControlProvider : ISourceControlProvider
 {
-    public async Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)
+    private readonly IGitHubApi api;
+
+    public GitHubSourceControlProvider(GitHubClient client)
+        : this(new OctokitGitHubApi(client))
+    {
+    }
+
+    internal GitHubSourceControlProvider(IGitHubApi api)
+    {
+        this.api = api;
+    }
+
+    public async Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(repositoryUrl);
-        ConfigureClient();
+        var issue = GitHubIssueReference.Parse(issueUrl);
+        if (!string.Equals(repository.Owner, issue.Owner, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(repository.Repository, issue.Repository, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Issue URL must belong to the workflow repository.", nameof(issueUrl));
+        }
 
         var branchName = $"formicae/{workflowId:N}";
-        var baseRef = await httpClient.GetFromJsonAsync<GitHubRefDto>(
-            $"repos/{repository.Owner}/{repository.Repository}/git/ref/heads/{Uri.EscapeDataString(baseBranch)}",
-            cancellationToken)
-            ?? throw new InvalidOperationException("GitHub base branch response was empty.");
+        var baseRef = await api.GetReferenceAsync(repository.Owner, repository.Repository, $"heads/{baseBranch}");
 
-        var response = await httpClient.PostAsJsonAsync(
-            $"repos/{repository.Owner}/{repository.Repository}/git/refs",
-            new CreateRefRequest($"refs/heads/{branchName}", baseRef.Object.Sha),
-            cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
+        try
+        {
+            return await api.CreateLinkedBranchAsync(
+                repository.Owner,
+                repository.Repository,
+                issue.Number,
+                baseRef.Object.Sha,
+                branchName,
+                cancellationToken);
+        }
+        catch (ApiException exception) when (exception.StatusCode == HttpStatusCode.UnprocessableEntity
+            || exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
         {
             return branchName;
         }
-
-        await EnsureSuccessAsync(response, cancellationToken);
-        return branchName;
+        catch (InvalidOperationException exception) when (exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+        {
+            return branchName;
+        }
     }
 
     public async Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(workflow.RepositoryUrl);
         var branchName = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before creating a pull request.");
-        ConfigureClient();
 
         await UpsertWorkflowSummaryAsync(repository, workflow, taskRuns, branchName, cancellationToken);
 
-        var existing = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubPullRequestDto>>(
-            $"repos/{repository.Owner}/{repository.Repository}/pulls?state=open&head={Uri.EscapeDataString($"{repository.Owner}:{branchName}")}",
-            cancellationToken) ?? [];
-
+        var existing = await api.ListPullRequestsAsync(repository.Owner, repository.Repository, repository.Owner, branchName);
         var pullRequest = existing.FirstOrDefault();
         if (pullRequest is not null)
         {
@@ -54,14 +70,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
 
         var title = $"Formicae workflow for issue {workflow.IssueUrl}";
         var body = BuildPullRequestBody(workflow, taskRuns);
-        var response = await httpClient.PostAsJsonAsync(
-            $"repos/{repository.Owner}/{repository.Repository}/pulls",
-            new CreatePullRequestRequest(title, branchName, workflow.BaseBranch, body, false),
-            cancellationToken);
-
-        await EnsureSuccessAsync(response, cancellationToken);
-        var created = await response.Content.ReadFromJsonAsync<GitHubPullRequestDto>(cancellationToken)
-            ?? throw new InvalidOperationException("GitHub pull request response was empty.");
+        var created = await api.CreatePullRequestAsync(repository.Owner, repository.Repository, title, branchName, workflow.BaseBranch, body);
         return new PullRequestResult(created.HtmlUrl);
     }
 
@@ -69,14 +78,9 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reading pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
-        ConfigureClient();
 
-        var issueComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubIssueCommentDto>>(
-            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
-            cancellationToken) ?? [];
-        var reviewComments = await httpClient.GetFromJsonAsync<IReadOnlyList<GitHubReviewCommentDto>>(
-            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/pulls/{pullRequest.Number}/comments",
-            cancellationToken) ?? [];
+        var issueComments = await api.GetIssueCommentsAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number);
+        var reviewComments = await api.GetPullRequestReviewCommentsAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number);
 
         return issueComments
             .Select(comment => new PullRequestComment(
@@ -84,7 +88,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
                 comment.User?.Login ?? "unknown",
                 comment.Body ?? string.Empty,
                 comment.HtmlUrl,
-                comment.UpdatedAt,
+                comment.UpdatedAt ?? comment.CreatedAt,
                 PullRequestCommentKind.IssueComment))
             .Concat(reviewComments.Select(comment => new PullRequestComment(
                 $"review:{comment.Id}",
@@ -104,27 +108,23 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before writing pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
-        ConfigureClient();
 
-        var response = await httpClient.PostAsJsonAsync(
-            $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/{pullRequest.Number}/comments",
-            new UpsertIssueCommentRequest(body),
-            cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
+        await api.CreateIssueCommentAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number, body);
     }
 
     public async Task ReactToPullRequestCommentAsync(Workflow workflow, PullRequestComment comment, string reaction, CancellationToken cancellationToken)
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reacting to pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
-        ConfigureClient();
 
         var (kind, id) = ParseCommentReference(comment.Id);
-        var endpoint = kind == PullRequestCommentKind.IssueComment
-            ? $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/comments/{id}/reactions"
-            : $"repos/{pullRequest.Owner}/{pullRequest.Repository}/pulls/comments/{id}/reactions";
-        var response = await httpClient.PostAsJsonAsync(endpoint, new CreateReactionRequest(reaction), cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
+        if (kind == PullRequestCommentKind.IssueComment)
+        {
+            await api.ReactToIssueCommentAsync(pullRequest.Owner, pullRequest.Repository, id, reaction);
+            return;
+        }
+
+        await api.ReactToPullRequestReviewCommentAsync(pullRequest.Owner, pullRequest.Repository, id, reaction);
     }
 
     private async Task UpsertWorkflowSummaryAsync(
@@ -135,32 +135,25 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         CancellationToken cancellationToken)
     {
         var path = $".formicae/workflows/{workflow.Id:N}.md";
-        var content = Convert.ToBase64String(Encoding.UTF8.GetBytes(BuildWorkflowSummary(workflow, taskRuns)));
-        string? sha = null;
+        var content = BuildWorkflowSummary(workflow, taskRuns);
+        var message = $"Record Formicae workflow {workflow.Id:N}";
+        RepositoryContent? existing = null;
 
-        var existing = await httpClient.GetAsync(
-            $"repos/{repository.Owner}/{repository.Repository}/contents/{path}?ref={Uri.EscapeDataString(branchName)}",
-            cancellationToken);
-        if (existing.IsSuccessStatusCode)
+        try
         {
-            var file = await existing.Content.ReadFromJsonAsync<GitHubContentDto>(cancellationToken);
-            sha = file?.Sha;
+            existing = (await api.GetContentsByRefAsync(repository.Owner, repository.Repository, path, branchName)).FirstOrDefault();
         }
-        else if (existing.StatusCode != HttpStatusCode.NotFound)
+        catch (NotFoundException)
         {
-            await EnsureSuccessAsync(existing, cancellationToken);
         }
 
-        var response = await httpClient.PutAsJsonAsync(
-            $"repos/{repository.Owner}/{repository.Repository}/contents/{path}",
-            new PutContentRequest(
-                $"Record Formicae workflow {workflow.Id:N}",
-                content,
-                branchName,
-                sha),
-            cancellationToken);
+        if (existing is null)
+        {
+            await api.CreateFileAsync(repository.Owner, repository.Repository, path, message, content, branchName);
+            return;
+        }
 
-        await EnsureSuccessAsync(response, cancellationToken);
+        await api.UpdateFileAsync(repository.Owner, repository.Repository, path, message, content, existing.Sha, branchName);
     }
 
     private static string BuildPullRequestBody(Workflow workflow, IReadOnlyList<TaskRun> taskRuns)
@@ -190,6 +183,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
 
         return builder.ToString();
     }
+
     private static string BuildWorkflowSummary(Workflow workflow, IReadOnlyList<TaskRun> taskRuns)
     {
         var builder = new StringBuilder();
@@ -229,66 +223,6 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
                 ? (PullRequestCommentKind.ReviewComment, id)
                 : throw new ArgumentException($"Unsupported pull request comment id '{commentId}'.", nameof(commentId));
     }
-
-    private void ConfigureClient()
-    {
-        httpClient.BaseAddress ??= new Uri("https://api.github.com/");
-        if (!httpClient.DefaultRequestHeaders.UserAgent.Any())
-        {
-            httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("hhnl-formicae", "0.1"));
-        }
-
-        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("GITHUB_TOKEN is required for GitHub source control operations.");
-        }
-
-        httpClient.DefaultRequestHeaders.Authorization ??= new AuthenticationHeaderValue("Bearer", token);
-    }
-
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new InvalidOperationException($"GitHub API call failed with {(int)response.StatusCode} {response.ReasonPhrase}: {body}");
-    }
-
-    private sealed record GitHubRefDto([property: JsonPropertyName("object")] GitHubRefObjectDto Object);
-    private sealed record GitHubRefObjectDto([property: JsonPropertyName("sha")] string Sha);
-    private sealed record CreateRefRequest([property: JsonPropertyName("ref")] string Ref, [property: JsonPropertyName("sha")] string Sha);
-    private sealed record CreatePullRequestRequest(
-        [property: JsonPropertyName("title")] string Title,
-        [property: JsonPropertyName("head")] string Head,
-        [property: JsonPropertyName("base")] string Base,
-        [property: JsonPropertyName("body")] string Body,
-        [property: JsonPropertyName("draft")] bool Draft);
-    private sealed record GitHubPullRequestDto([property: JsonPropertyName("html_url")] string HtmlUrl);
-    private sealed record GitHubUserDto([property: JsonPropertyName("login")] string Login);
-    private sealed record GitHubIssueCommentDto(
-        [property: JsonPropertyName("id")] long Id,
-        [property: JsonPropertyName("body")] string? Body,
-        [property: JsonPropertyName("html_url")] string HtmlUrl,
-        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
-        [property: JsonPropertyName("user")] GitHubUserDto? User);
-    private sealed record GitHubReviewCommentDto(
-        [property: JsonPropertyName("id")] long Id,
-        [property: JsonPropertyName("body")] string? Body,
-        [property: JsonPropertyName("html_url")] string HtmlUrl,
-        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
-        [property: JsonPropertyName("user")] GitHubUserDto? User);
-    private sealed record GitHubContentDto([property: JsonPropertyName("sha")] string Sha);
-    private sealed record UpsertIssueCommentRequest([property: JsonPropertyName("body")] string Body);
-    private sealed record CreateReactionRequest([property: JsonPropertyName("content")] string Content);
-    private sealed record PutContentRequest(
-        [property: JsonPropertyName("message")] string Message,
-        [property: JsonPropertyName("content")] string Content,
-        [property: JsonPropertyName("branch")] string Branch,
-        [property: JsonPropertyName("sha")] string? Sha);
 }
 
 internal sealed record GitHubRepositoryReference(string Owner, string Repository)

@@ -23,7 +23,7 @@ public interface IWorkItemProvider
 
 public interface ISourceControlProvider
 {
-    Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken);
+    Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken);
 
     Task<PullRequestResult> CreatePullRequestAsync(
         Workflow workflow,

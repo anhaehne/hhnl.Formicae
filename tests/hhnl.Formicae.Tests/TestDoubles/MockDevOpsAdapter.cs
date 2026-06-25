@@ -82,9 +82,9 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.CompletedTask;
     }
 
-    public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)
+    public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
     {
-        CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, workflowId));
+        CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, issueUrl, workflowId));
         return Task.FromResult(DefaultBranchName);
     }
 
@@ -128,7 +128,7 @@ public sealed record UpsertIssueCommentCall(string IssueUrl, string Marker, stri
 
 public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
 
-public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, Guid WorkflowId);
+public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, string IssueUrl, Guid WorkflowId);
 
 public sealed record CreatePullRequestCall(
     Guid WorkflowId,

@@ -158,7 +158,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.Id, cancellationToken);
+        workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.IssueUrl, workflow.Id, cancellationToken);
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
 
