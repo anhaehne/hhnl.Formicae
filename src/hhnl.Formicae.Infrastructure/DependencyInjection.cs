@@ -8,6 +8,7 @@ using hhnl.Formicae.Infrastructure.Prompts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Octokit;
 
 namespace hhnl.Formicae.Infrastructure;
 
@@ -51,7 +52,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddHttpClient<IWorkItemProvider, GitHubWorkItemProvider>();
+            services.AddSingleton<IWorkItemProvider>(_ => new GitHubWorkItemProvider(CreateGitHubClient(requireToken: false)));
         }
 
         if (IsMode(configuration, "SourceControlMode", "Fake"))
@@ -60,7 +61,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddHttpClient<ISourceControlProvider, GitHubSourceControlProvider>();
+            services.AddSingleton<ISourceControlProvider>(_ => new GitHubSourceControlProvider(CreateGitHubClient(requireToken: true)));
         }
 
         if (IsMode(configuration, "AgentMode", "Fake"))
@@ -79,4 +80,22 @@ public static class DependencyInjection
 
     private static bool IsMode(IConfiguration configuration, string key, string expected)
         => string.Equals(configuration[key], expected, StringComparison.OrdinalIgnoreCase);
+
+    private static GitHubClient CreateGitHubClient(bool requireToken)
+    {
+        var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"));
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            if (requireToken)
+            {
+                throw new InvalidOperationException("GITHUB_TOKEN is required for GitHub source control operations.");
+            }
+
+            return client;
+        }
+
+        client.Credentials = new Credentials(token);
+        return client;
+    }
 }
