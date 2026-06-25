@@ -1,8 +1,9 @@
+using hhnl.Formicae.Application.Workflows;
 using System.Threading.Channels;
 
 namespace hhnl.Formicae.Api;
 
-public sealed class WorkflowTickNotifier
+public sealed class WorkflowTickNotifier : IWorkflowTickSignal
 {
     private readonly Channel<bool> channel = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {

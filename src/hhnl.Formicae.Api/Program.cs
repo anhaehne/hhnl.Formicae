@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHubWebhooks"));
 builder.Services.AddSingleton<WorkflowTickNotifier>();
+builder.Services.AddSingleton<IWorkflowTickSignal>(serviceProvider => serviceProvider.GetRequiredService<WorkflowTickNotifier>());
 builder.Services.AddScoped<GitHubWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<WorkflowBackgroundService>();

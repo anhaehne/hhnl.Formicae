@@ -27,23 +27,38 @@ public static class OpenHandsAuthMethods
 
 public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOptions<KubernetesJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions) : IAgentRunner
 {
-    public async Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
+    public async Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
+    {
+        var spec = BuildSpec(task);
+        var start = await jobRunner.StartJobAsync(spec, cancellationToken);
+        return new AgentRunStartResult(start.JobName);
+    }
+
+    public async Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+    {
+        var result = await jobRunner.TryGetJobResultAsync(externalId, cancellationToken);
+        if (result is null)
+        {
+            return null;
+        }
+
+        var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
+        return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
+    }
+
+    private KubernetesJobSpec BuildSpec(AgentTask task)
     {
         var command = ResolveCommand(openHandsOptions.Value);
         var model = ResolveModel(task, openHandsOptions.Value, command.AuthMethod);
         var jobName = BuildJobName(task);
         var environment = BuildEnvironment(task, model, command.AuthMethod);
-        var spec = new KubernetesJobSpec(
+        return new KubernetesJobSpec(
             jobName,
             command.Image ?? jobOptions.Value.Image,
             environment,
             [openHandsOptions.Value.Shell, "-lc", BuildShellCommand(command.BootstrapCommand, command.Command)],
             command.AuthMethod,
             task.ContextFiles?.Select(file => new KubernetesJobContextFile(file.FileName, file.Content)).ToArray());
-
-        var result = await jobRunner.RunJobAsync(spec, cancellationToken);
-        var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
-        return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
     }
 
     private static string BuildJobName(AgentTask task)

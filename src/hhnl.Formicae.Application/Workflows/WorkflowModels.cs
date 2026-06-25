@@ -106,6 +106,12 @@ public static class WorkflowReactionContent
     public const string Started = "eyes";
 }
 
+public interface IWorkflowTickSignal
+{
+    void Signal();
+}
+
+
 public static class PullRequestCommentMarkers
 {
     private const string Prefix = "<!-- formicae:";
@@ -184,6 +190,8 @@ public sealed record AgentTask(
     IReadOnlyList<AgentTaskContextFile>? ContextFiles = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
+
+public sealed record AgentRunStartResult(string ExternalId, AgentRunResult? CompletedResult = null);
 
 public sealed record AgentRunResult(
     bool Succeeded,

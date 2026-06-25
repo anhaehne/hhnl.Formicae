@@ -48,7 +48,9 @@ public interface ISourceControlProvider
 
 public interface IAgentRunner
 {
-    Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken);
+    Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken);
+
+    Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken);
 }
 
 public interface IWorkflowStore
