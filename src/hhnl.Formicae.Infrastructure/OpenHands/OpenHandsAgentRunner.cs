@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Kubernetes;
@@ -30,8 +31,7 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
     {
         var command = ResolveCommand(openHandsOptions.Value);
         var model = ResolveModel(task, openHandsOptions.Value, command.AuthMethod);
-        var rawName = $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}";
-        var jobName = rawName[..Math.Min(63, rawName.Length)];
+        var jobName = BuildJobName(task);
         var environment = BuildEnvironment(task, model, command.AuthMethod);
         var spec = new KubernetesJobSpec(
             jobName,
@@ -43,6 +43,15 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         var result = await jobRunner.RunJobAsync(spec, cancellationToken);
         var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
         return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
+    }
+
+    private static string BuildJobName(AgentTask task)
+    {
+        var prefix = $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}";
+        var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(task.Prompt)))[..8].ToLowerInvariant();
+        var suffix = $"-{hash}";
+        var maxPrefixLength = 63 - suffix.Length;
+        return $"{prefix[..Math.Min(prefix.Length, maxPrefixLength)]}{suffix}";
     }
 
     private static string ExtractAgentOutput(string logs)

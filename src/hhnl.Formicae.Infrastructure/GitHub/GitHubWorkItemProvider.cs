@@ -65,6 +65,18 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
             cancellationToken);
     }
 
+    public async Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
+    {
+        var issue = GitHubIssueReference.Parse(issueUrl);
+        ConfigureClient();
+
+        var response = await httpClient.PostAsJsonAsync(
+            $"repos/{issue.Owner}/{issue.Repository}/issues/{issue.Number}/reactions",
+            new CreateReactionRequest(reaction),
+            cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     private void ConfigureClient()
     {
         httpClient.BaseAddress ??= new Uri("https://api.github.com/");
@@ -98,7 +110,19 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
     private sealed record GitHubCommentDto(
         [property: JsonPropertyName("id")] long Id,
         [property: JsonPropertyName("body")] string? Body);
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException($"GitHub API call failed with {(int)response.StatusCode} {response.ReasonPhrase}: {body}");
+    }
+
     private sealed record UpsertIssueCommentRequest([property: JsonPropertyName("body")] string Body);
+    private sealed record CreateReactionRequest([property: JsonPropertyName("content")] string Content);
 }
 
 internal sealed record GitHubIssueReference(string Owner, string Repository, int Number)

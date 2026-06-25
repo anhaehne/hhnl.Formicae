@@ -131,6 +131,20 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task ReactToPullRequestCommentAsync(Workflow workflow, PullRequestComment comment, string reaction, CancellationToken cancellationToken)
+    {
+        var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reacting to pull request comments.");
+        var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        ConfigureClient();
+
+        var (kind, id) = ParseCommentReference(comment.Id);
+        var endpoint = kind == PullRequestCommentKind.IssueComment
+            ? $"repos/{pullRequest.Owner}/{pullRequest.Repository}/issues/comments/{id}/reactions"
+            : $"repos/{pullRequest.Owner}/{pullRequest.Repository}/pulls/comments/{id}/reactions";
+        var response = await httpClient.PostAsJsonAsync(endpoint, new CreateReactionRequest(reaction), cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     private async Task UpsertWorkflowSummaryAsync(
         GitHubRepositoryReference repository,
         Workflow workflow,
@@ -181,9 +195,19 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
             builder.AppendLine($"- {run.Kind}: {run.Status}");
         }
 
+        var implementation = taskRuns
+            .OrderByDescending(run => run.UpdatedAt)
+            .FirstOrDefault(run => run.Kind == TaskRunKind.Implement && !string.IsNullOrWhiteSpace(run.Output));
+        if (implementation is not null)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Implementation Summary");
+            builder.AppendLine();
+            builder.AppendLine(implementation.Output!.Trim());
+        }
+
         return builder.ToString();
     }
-
     private static string BuildWorkflowSummary(Workflow workflow, IReadOnlyList<TaskRun> taskRuns)
     {
         var builder = new StringBuilder();
@@ -207,6 +231,21 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         }
 
         return builder.ToString();
+    }
+
+    private static (PullRequestCommentKind Kind, long Id) ParseCommentReference(string commentId)
+    {
+        var parts = commentId.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || !long.TryParse(parts[1], out var id))
+        {
+            throw new ArgumentException($"Unsupported pull request comment id '{commentId}'.", nameof(commentId));
+        }
+
+        return parts[0].Equals("issue", StringComparison.OrdinalIgnoreCase)
+            ? (PullRequestCommentKind.IssueComment, id)
+            : parts[0].Equals("review", StringComparison.OrdinalIgnoreCase)
+                ? (PullRequestCommentKind.ReviewComment, id)
+                : throw new ArgumentException($"Unsupported pull request comment id '{commentId}'.", nameof(commentId));
     }
 
     private void ConfigureClient()
@@ -262,6 +301,7 @@ public sealed class GitHubSourceControlProvider(HttpClient httpClient) : ISource
         [property: JsonPropertyName("user")] GitHubUserDto? User);
     private sealed record GitHubContentDto([property: JsonPropertyName("sha")] string Sha);
     private sealed record UpsertIssueCommentRequest([property: JsonPropertyName("body")] string Body);
+    private sealed record CreateReactionRequest([property: JsonPropertyName("content")] string Content);
     private sealed record PutContentRequest(
         [property: JsonPropertyName("message")] string Message,
         [property: JsonPropertyName("content")] string Content,

@@ -2,15 +2,15 @@ using hhnl.Formicae.Application.Workflows;
 
 namespace hhnl.Formicae.Api;
 
-public sealed class WorkflowBackgroundService(IServiceScopeFactory scopeFactory, ILogger<WorkflowBackgroundService> logger) : BackgroundService
+public sealed class WorkflowBackgroundService(IServiceScopeFactory scopeFactory, WorkflowTickNotifier notifier, ILogger<WorkflowBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                await notifier.WaitForSignalOrDelayAsync(TimeSpan.FromSeconds(5), stoppingToken);
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var discovery = scope.ServiceProvider.GetRequiredService<WorkflowDiscoveryService>();
                 var orchestrator = scope.ServiceProvider.GetRequiredService<WorkflowOrchestrator>();

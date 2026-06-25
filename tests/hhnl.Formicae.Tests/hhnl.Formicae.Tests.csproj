@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\hhnl.Formicae.Api\hhnl.Formicae.Api.csproj" />
     <ProjectReference Include="..\..\src\hhnl.Formicae.Application\hhnl.Formicae.Application.csproj" />
     <ProjectReference Include="..\..\src\hhnl.Formicae.Infrastructure\hhnl.Formicae.Infrastructure.csproj" />
   </ItemGroup>

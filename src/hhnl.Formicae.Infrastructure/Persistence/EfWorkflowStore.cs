@@ -25,6 +25,9 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    public Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken)
+        => dbContext.Workflows.SingleOrDefaultAsync(workflow => workflow.PullRequestUrl == pullRequestUrl, cancellationToken);
+
     public async Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken)
         => await dbContext.Workflows
             .Where(workflow => workflow.Status == WorkflowStatus.Queued

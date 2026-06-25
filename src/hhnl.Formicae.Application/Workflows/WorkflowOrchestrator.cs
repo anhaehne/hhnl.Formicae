@@ -106,6 +106,7 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
@@ -162,6 +163,7 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
@@ -216,7 +218,17 @@ public sealed class WorkflowOrchestrator(
     private async Task<bool> AddressPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, cancellationToken);
-        if (existing?.Status == TaskRunStatus.Succeeded)
+        var previousAddressedAt = existing?.Status == TaskRunStatus.Succeeded ? existing.UpdatedAt : (DateTimeOffset?)null;
+        var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
+        if (comments.Count == 0)
+        {
+            return false;
+        }
+
+        var commentsToAddress = previousAddressedAt is null
+            ? comments
+            : comments.Where(comment => comment.UpdatedAt > previousAddressedAt.Value).ToArray();
+        if (commentsToAddress.Count == 0)
         {
             workflow.Status = WorkflowStatus.Completed;
             workflow.CurrentStep = WorkflowStep.Done;
@@ -225,17 +237,16 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
-        if (comments.Count == 0)
-        {
-            return false;
-        }
-
-        var prompt = await promptRenderer.RenderAsync(TaskRunKind.AddressComments, workflow, null, comments, cancellationToken);
+        var prompt = await promptRenderer.RenderAsync(TaskRunKind.AddressComments, workflow, null, commentsToAddress, cancellationToken);
         var branch = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before addressing pull request comments.");
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
         run.Status = TaskRunStatus.Running;
+        run.UpdatedAt = DateTimeOffset.UtcNow;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        foreach (var comment in commentsToAddress)
+        {
+            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
+        }
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);

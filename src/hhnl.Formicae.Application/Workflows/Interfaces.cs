@@ -14,6 +14,11 @@ public interface IWorkItemProvider
         string marker,
         string body,
         CancellationToken cancellationToken);
+
+    Task ReactToIssueAsync(
+        string issueUrl,
+        string reaction,
+        CancellationToken cancellationToken);
 }
 
 public interface ISourceControlProvider
@@ -33,6 +38,12 @@ public interface ISourceControlProvider
         Workflow workflow,
         string body,
         CancellationToken cancellationToken);
+
+    Task ReactToPullRequestCommentAsync(
+        Workflow workflow,
+        PullRequestComment comment,
+        string reaction,
+        CancellationToken cancellationToken);
 }
 
 public interface IAgentRunner
@@ -46,6 +57,7 @@ public interface IWorkflowStore
     Task<Workflow?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowByIssueUrlAsync(string issueUrl, CancellationToken cancellationToken);
     Task<IReadOnlyList<Workflow>> ListRecentWorkflowsAsync(int limit, CancellationToken cancellationToken);
+    Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken);
     Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken);
     Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<TaskRun> UpsertTaskRunAsync(TaskRun taskRun, CancellationToken cancellationToken);
