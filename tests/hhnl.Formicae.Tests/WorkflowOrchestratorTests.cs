@@ -389,6 +389,60 @@ public sealed class WorkflowOrchestratorTests
         });
     }
 
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Reruns_address_comments_for_newer_comments_after_completed_pass()
+    {
+        var store = new InMemoryWorkflowStore();
+        var previousAddressedAt = DateTimeOffset.Parse("2026-06-25T16:01:41Z");
+        var devOps = new MockDevOpsAdapter();
+        devOps.DefaultPullRequestUrl = "https://github.com/acme/widgets/pull/23";
+        devOps
+            .AddPullRequestComment("old", "reviewer", "Already addressed.", PullRequestCommentKind.IssueComment, previousAddressedAt.AddMinutes(-5))
+            .AddPullRequestComment("new", "reviewer", "Anything else to add?", PullRequestCommentKind.IssueComment, previousAddressedAt.AddMinutes(95));
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/2",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            BranchName = "formicae/comment-follow-up",
+            PullRequestUrl = devOps.DefaultPullRequestUrl,
+            Status = WorkflowStatus.Reviewing,
+            CurrentStep = WorkflowStep.AddressComments
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.AddressComments,
+            Status = TaskRunStatus.Succeeded,
+            Output = "Previous address-comments output",
+            UpdatedAt = previousAddressedAt
+        }, CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, CancellationToken.None);
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Completed, updated.Status);
+        Assert.Equal(WorkflowStep.Done, updated.CurrentStep);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Succeeded, run.Status);
+        Assert.Contains("Fake AddressComments output", run.Output);
+        Assert.Collection(devOps.ReactToPullRequestCommentCalls, call =>
+        {
+            Assert.Equal(workflow.Id, call.WorkflowId);
+            Assert.Equal("new", call.CommentId);
+            Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+        });
+        Assert.Collection(devOps.UpsertPullRequestCommentCalls, call =>
+        {
+            Assert.Equal(workflow.Id, call.WorkflowId);
+            Assert.Contains("Fake AddressComments output", call.Body);
+        });
+    }
+
     [Fact]
     public async Task AdvanceRunnableWorkflows_Fails_workflow_when_address_comments_agent_fails()
     {

@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Workflows;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,7 @@ public sealed class GitHubWebhookOptions
 
 public sealed class GitHubWebhookHandler(
     WorkflowTickNotifier notifier,
+    IWorkflowStore store,
     IOptions<GitHubWebhookOptions> options,
     ILogger<GitHubWebhookHandler> logger)
 {
@@ -58,9 +60,59 @@ public sealed class GitHubWebhookHandler(
             return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId });
         }
 
+        var requeuedWorkflowId = await RequeueCompletedPullRequestWorkflowAsync(envelope, eventName, cancellationToken);
         notifier.Signal();
-        logger.LogInformation("Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled.", deliveryId, eventName, action);
-        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId });
+        logger.LogInformation(
+            "Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled. Requeued workflow: {WorkflowId}",
+            deliveryId,
+            eventName,
+            action,
+            requeuedWorkflowId);
+        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, requeuedWorkflowId });
+    }
+
+    private async Task<Guid?> RequeueCompletedPullRequestWorkflowAsync(
+        GitHubWebhookEnvelope? envelope,
+        string eventName,
+        CancellationToken cancellationToken)
+    {
+        var pullRequestUrl = GetPullRequestUrl(envelope, eventName);
+        if (string.IsNullOrWhiteSpace(pullRequestUrl))
+        {
+            return null;
+        }
+
+        var workflow = await store.GetWorkflowByPullRequestUrlAsync(pullRequestUrl, cancellationToken);
+        if (workflow?.Status != WorkflowStatus.Completed)
+        {
+            return null;
+        }
+
+        workflow.Status = WorkflowStatus.Reviewing;
+        workflow.CurrentStep = WorkflowStep.AddressComments;
+        workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await store.AddLogAsync(new WorkflowLog
+        {
+            WorkflowId = workflow.Id,
+            Message = $"Workflow requeued from GitHub {eventName} webhook for pull request comments."
+        }, cancellationToken);
+        return workflow.Id;
+    }
+
+    private static string? GetPullRequestUrl(GitHubWebhookEnvelope? envelope, string eventName)
+    {
+        if (envelope is null)
+        {
+            return null;
+        }
+
+        return eventName switch
+        {
+            "issue_comment" => envelope.Issue?.PullRequest is null ? null : envelope.Issue.HtmlUrl,
+            "pull_request_review_comment" or "pull_request_review" => envelope.PullRequest?.HtmlUrl,
+            _ => null
+        };
     }
 
     public static bool VerifySignature(byte[] body, string signatureHeader, string secret)
@@ -104,6 +156,14 @@ public sealed class GitHubWebhookHandler(
         return false;
     }
 
-    private sealed record GitHubWebhookEnvelope(string? Action, GitHubWebhookIssue? Issue);
-    private sealed record GitHubWebhookIssue([property: JsonPropertyName("pull_request")] object? PullRequest);
+    private sealed record GitHubWebhookEnvelope(
+        string? Action,
+        GitHubWebhookIssue? Issue,
+        [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
+
+    private sealed record GitHubWebhookIssue(
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
+
+    private sealed record GitHubWebhookPullRequest([property: JsonPropertyName("html_url")] string? HtmlUrl);
 }

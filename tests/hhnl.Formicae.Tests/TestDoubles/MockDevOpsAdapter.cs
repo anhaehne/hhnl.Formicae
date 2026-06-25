@@ -30,9 +30,14 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return this;
     }
 
-    public MockDevOpsAdapter AddPullRequestComment(string id, string author, string body, PullRequestCommentKind kind = PullRequestCommentKind.IssueComment)
+    public MockDevOpsAdapter AddPullRequestComment(
+        string id,
+        string author,
+        string body,
+        PullRequestCommentKind kind = PullRequestCommentKind.IssueComment,
+        DateTimeOffset? updatedAt = null)
     {
-        pullRequestComments.Add(new PullRequestComment(id, author, body, $"{DefaultPullRequestUrl}#comment-{id}", DateTimeOffset.UtcNow, kind));
+        pullRequestComments.Add(new PullRequestComment(id, author, body, $"{DefaultPullRequestUrl}#comment-{id}", updatedAt ?? DateTimeOffset.UtcNow, kind));
         return this;
     }
 

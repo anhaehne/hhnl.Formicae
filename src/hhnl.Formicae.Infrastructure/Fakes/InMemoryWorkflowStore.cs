@@ -35,6 +35,14 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         }
     }
 
+    public Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(workflows.Values.SingleOrDefault(workflow => string.Equals(workflow.PullRequestUrl, pullRequestUrl, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
     public Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken)
     {
         lock (gate)

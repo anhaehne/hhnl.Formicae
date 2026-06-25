@@ -1,6 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using hhnl.Formicae.Api;
+using hhnl.Formicae.Application.Workflows;
+using hhnl.Formicae.Infrastructure.Fakes;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Tests;
 
@@ -23,6 +28,49 @@ public sealed class GitHubWebhookHandlerTests
 
         Assert.False(GitHubWebhookHandler.VerifySignature(body, "sha256=bad", "webhook-secret"));
         Assert.False(GitHubWebhookHandler.VerifySignature(body, string.Empty, "webhook-secret"));
+    }
+
+
+    [Fact]
+    public async Task HandleAsync_Requeues_completed_workflow_for_pull_request_issue_comment()
+    {
+        var store = new InMemoryWorkflowStore();
+        var pullRequestUrl = "https://github.com/acme/widgets/pull/23";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/2",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            PullRequestUrl = pullRequestUrl,
+            Status = WorkflowStatus.Completed,
+            CurrentStep = WorkflowStep.Done
+        }, CancellationToken.None);
+        var handler = new GitHubWebhookHandler(
+            new WorkflowTickNotifier(),
+            store,
+            Options.Create(new GitHubWebhookOptions()),
+            NullLogger<GitHubWebhookHandler>.Instance);
+        var body = Encoding.UTF8.GetBytes($$"""
+            {
+              "action": "created",
+              "issue": {
+                "html_url": "{{pullRequestUrl}}",
+                "pull_request": {}
+              }
+            }
+            """);
+        var context = new DefaultHttpContext();
+        context.Request.Headers["X-GitHub-Event"] = "issue_comment";
+        context.Request.Headers["X-GitHub-Delivery"] = "delivery-1";
+        context.Request.Body = new MemoryStream(body);
+
+        await handler.HandleAsync(context.Request, CancellationToken.None);
+
+        var requeued = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        Assert.NotNull(requeued);
+        Assert.Equal(WorkflowStatus.Reviewing, requeued.Status);
+        Assert.Equal(WorkflowStep.AddressComments, requeued.CurrentStep);
+        var logs = await store.ListLogsAsync(workflow.Id, CancellationToken.None);
+        Assert.Contains(logs, log => log.Message.Contains("requeued", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
