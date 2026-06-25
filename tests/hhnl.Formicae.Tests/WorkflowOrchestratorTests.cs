@@ -704,6 +704,40 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_extracts_final_agent_message_from_json_logs()
+    {
+        var jobRunner = new CapturingJobRunner
+        {
+            Result = new KubernetesJobResult(true, "formicae-plan-test", """
+                apiVersion: batch/v1
+                kind: Job
+                --- pod/formicae-plan-test-pod logs ---
+                {"type":"thread.started","thread_id":"thread-1"}
+                {"type":"item.completed","item":{"type":"agent_message","text":"I am inspecting the issue."}}
+                {"type":"item.completed","item":{"type":"command_execution","command":"rg TODO"}}
+                {"type":"item.completed","item":{"type":"agent_message","text":"Implementation plan:\n1. Add the management UI.\n2. Cover it with tests."}}
+                """, null)
+        };
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
+
+        var result = await runner.RunAsync(new AgentTask(
+            Guid.Parse("55555555-5555-5555-5555-555555555555"),
+            TaskRunKind.Plan,
+            "Plan this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("Implementation plan:\n1. Add the management UI.\n2. Cover it with tests.", result.Output);
+        Assert.DoesNotContain("apiVersion", result.Output);
+        Assert.DoesNotContain("command_execution", result.Output);
+    }
+
+    [Fact]
     public async Task OpenHands_runner_uses_codex_subscription_command_when_configured()
     {
         var jobRunner = new CapturingJobRunner();
@@ -948,11 +982,12 @@ public sealed class AdapterContractTests
     private sealed class CapturingJobRunner : IKubernetesJobRunner
     {
         public KubernetesJobSpec? LastSpec { get; private set; }
+        public KubernetesJobResult? Result { get; init; }
 
         public Task<KubernetesJobResult> RunJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
         {
             LastSpec = spec;
-            return Task.FromResult(new KubernetesJobResult(true, spec.Name, "ok", null));
+            return Task.FromResult(Result ?? new KubernetesJobResult(true, spec.Name, "ok", null));
         }
     }
 

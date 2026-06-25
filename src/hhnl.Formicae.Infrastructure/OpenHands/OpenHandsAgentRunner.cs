@@ -1,3 +1,4 @@
+using System.Text.Json;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,58 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
             command.AuthMethod);
 
         var result = await jobRunner.RunJobAsync(spec, cancellationToken);
-        return new AgentRunResult(result.Succeeded, result.JobName, result.Logs, result.FailureReason);
+        var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
+        return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
+    }
+
+    private static string ExtractAgentOutput(string logs)
+    {
+        var messages = new List<string>();
+        foreach (var line in logs.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!line.StartsWith('{'))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (!TryGetString(root, "type", out var eventType))
+                {
+                    continue;
+                }
+
+                if (string.Equals(eventType, "item.completed", StringComparison.OrdinalIgnoreCase)
+                    && root.TryGetProperty("item", out var item)
+                    && TryGetString(item, "type", out var itemType)
+                    && string.Equals(itemType, "agent_message", StringComparison.OrdinalIgnoreCase)
+                    && TryGetString(item, "text", out var text))
+                {
+                    messages.Add(text);
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore non-agent JSON produced by bootstrap tools or package managers.
+            }
+        }
+
+        var lastMessage = messages.LastOrDefault(message => !string.IsNullOrWhiteSpace(message));
+        return string.IsNullOrWhiteSpace(lastMessage) ? logs : lastMessage;
+    }
+
+    private static bool TryGetString(JsonElement element, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString() ?? string.Empty;
+        return true;
     }
 
     private static string ResolveModel(AgentTask task, OpenHandsOptions options, string authMethod)
