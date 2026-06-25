@@ -26,6 +26,12 @@ public sealed class GitHubWorkItemProvider(HttpClient httpClient) : IWorkItemPro
         {
             httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("hhnl-formicae", "0.1"));
         }
+
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        if (!string.IsNullOrWhiteSpace(token) && httpClient.DefaultRequestHeaders.Authorization is null)
+        {
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
     }
 
     private sealed record GitHubIssueDto([property: JsonPropertyName("title")] string Title, [property: JsonPropertyName("body")] string? Body);

@@ -154,6 +154,7 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("openhands:test", jobRunner.LastSpec.Image);
+        Assert.Equal(KubernetesJobAuthMethods.ApiKey, jobRunner.LastSpec.AuthMethod);
         Assert.Equal(["/bin/sh", "-lc", "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\""], jobRunner.LastSpec.Command);
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
         Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
@@ -172,7 +173,8 @@ public sealed class AdapterContractTests
                 AuthMethod = OpenHandsAuthMethods.CodexSubscription,
                 DefaultModel = "gpt-5.2-codex",
                 CodexSubscriptionImage = "node:22-bookworm-slim",
-                CodexSubscriptionCommand = "npx -y @agentclientprotocol/codex-acp"
+                CodexSubscriptionBootstrapCommand = "install git",
+                CodexSubscriptionCommand = "run codex"
             }));
 
         var result = await runner.RunAsync(new AgentTask(
@@ -186,7 +188,8 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("node:22-bookworm-slim", jobRunner.LastSpec.Image);
-        Assert.Equal(["/bin/sh", "-lc", "npx -y @agentclientprotocol/codex-acp"], jobRunner.LastSpec.Command);
+        Assert.Equal(KubernetesJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(["/bin/sh", "-lc", "install git && run codex"], jobRunner.LastSpec.Command);
         Assert.Equal(OpenHandsAuthMethods.CodexSubscription, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
         Assert.Equal("gpt-5.2-codex", jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
         Assert.Equal("""{"model":"gpt-5.2-codex"}""", jobRunner.LastSpec.Environment["CODEX_CONFIG"]);
@@ -194,7 +197,56 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
-    public async Task Kubernetes_runner_creates_job_and_collects_pod_logs()
+    public async Task OpenHands_runner_allows_codex_subscription_without_configured_model()
+    {
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "python:3.12-slim" }),
+            Options.Create(new OpenHandsOptions
+            {
+                AuthMethod = OpenHandsAuthMethods.CodexSubscription,
+                DefaultModel = null,
+                CodexSubscriptionImage = "node:22-bookworm-slim",
+                CodexSubscriptionCommand = "run codex"
+            }));
+
+        var result = await runner.RunAsync(new AgentTask(
+            Guid.Parse("44444444-4444-4444-4444-444444444444"),
+            TaskRunKind.Plan,
+            "Plan this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal(string.Empty, jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
+        Assert.False(jobRunner.LastSpec.Environment.ContainsKey("CODEX_CONFIG"));
+        Assert.False(jobRunner.LastSpec.Environment.ContainsKey("LLM_MODEL"));
+    }
+
+    [Fact]
+    public async Task OpenHands_runner_rejects_unknown_auth_method()
+    {
+        var runner = new OpenHandsAgentRunner(
+            new CapturingJobRunner(),
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { AuthMethod = "Unknown" }));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(new AgentTask(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            TaskRunKind.Plan,
+            "Plan this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None));
+
+        Assert.Contains("Unsupported OpenHands auth method", exception.Message);
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_creates_api_key_job_and_collects_pod_logs()
     {
         var api = new CapturingKubernetesJobApi
         {
@@ -243,6 +295,60 @@ public sealed class AdapterContractTests
         Assert.Contains(container.Env, env => env.Name == "LLM_MODEL" && env.Value == "test-model");
         Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "formicae-runtime-secrets");
         Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
+        Assert.Null(container.VolumeMounts);
+        Assert.Null(api.CreatedJob.Spec.Template.Spec.Volumes);
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_creates_codex_subscription_job_with_codex_auth_only()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Statuses = new Queue<k8s.Models.V1Job>([
+                new k8s.Models.V1Job
+                {
+                    Status = new k8s.Models.V1JobStatus { Succeeded = 1 }
+                }
+            ]),
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta
+                    {
+                        Name = "formicae-plan-test-pod",
+                        CreationTimestamp = DateTime.UtcNow
+                    }
+                }
+            ],
+            PodLogs = "agent output"
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5,
+            RuntimeSecretName = "formicae-runtime-secrets",
+            LlmApiKeySecretName = "openhands-llm-api-key",
+            CodexAuthSecretName = "formicae-codex-auth"
+        }));
+
+        var result = await runner.RunJobAsync(new KubernetesJobSpec(
+            "formicae-plan-test",
+            "node:22-bookworm-slim",
+            new Dictionary<string, string> { ["CODEX_HOME"] = "/tmp/codex-home" },
+            ["/bin/sh", "-lc", "run codex"],
+            KubernetesJobAuthMethods.CodexSubscription), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.FailureReason);
+        Assert.Contains("agent output", result.Logs);
+        Assert.NotNull(api.CreatedJob);
+        var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
+        Assert.Equal("node:22-bookworm-slim", container.Image);
+        Assert.Contains(container.Env, env => env.Name == "CODEX_HOME" && env.Value == "/tmp/codex-home");
+        Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "formicae-runtime-secrets");
+        Assert.DoesNotContain(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
         Assert.Contains(container.VolumeMounts, mount => mount.Name == "codex-auth" && mount.MountPath == "/root/.codex");
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
     }

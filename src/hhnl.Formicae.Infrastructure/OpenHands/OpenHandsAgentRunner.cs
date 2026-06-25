@@ -13,8 +13,8 @@ public sealed class OpenHandsOptions
     public string BootstrapCommand { get; set; } = string.Empty;
     public string Command { get; set; } = "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\"";
     public string CodexSubscriptionImage { get; set; } = "node:22-bookworm-slim";
-    public string CodexSubscriptionBootstrapCommand { get; set; } = string.Empty;
-    public string CodexSubscriptionCommand { get; set; } = "npx -y @agentclientprotocol/codex-acp";
+    public string CodexSubscriptionBootstrapCommand { get; set; } = "apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*";
+    public string CodexSubscriptionCommand { get; set; } = "mkdir -p \"$CODEX_HOME\" /workspace && if [ -f /root/.codex/auth.json ]; then cp /root/.codex/auth.json \"$CODEX_HOME/auth.json\" && chmod 600 \"$CODEX_HOME/auth.json\"; fi && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ]; then repo=\"${FORMICAE_REPOSITORY_URL#https://}\" && git clone \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" /workspace/repo && cd /workspace/repo && git checkout \"$FORMICAE_BRANCH\" && git config user.email \"formicae@example.invalid\" && git config user.name \"Formicae Agent\"; else cd /workspace; fi && codex_model_args=\"\" && if [ -n \"$FORMICAE_MODEL\" ]; then codex_model_args=\"-m $FORMICAE_MODEL\"; fi && npx -y @openai/codex exec $codex_model_args -C \"$PWD\" --skip-git-repo-check --json --dangerously-bypass-approvals-and-sandbox \"$FORMICAE_TASK_PROMPT\" && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ]; then git add -A && if git diff --cached --quiet; then echo \"Codex completed without file changes.\"; else git commit -m \"Implement Formicae workflow ${FORMICAE_WORKFLOW_ID}\" && git push origin \"$FORMICAE_BRANCH\"; fi; fi";
 }
 
 public static class OpenHandsAuthMethods
@@ -27,19 +27,37 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
 {
     public async Task<AgentRunResult> RunAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        var model = task.Model ?? openHandsOptions.Value.DefaultModel ?? "openhands/claude-sonnet-4";
+        var command = ResolveCommand(openHandsOptions.Value);
+        var model = ResolveModel(task, openHandsOptions.Value, command.AuthMethod);
         var rawName = $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}";
         var jobName = rawName[..Math.Min(63, rawName.Length)];
-        var command = ResolveCommand(openHandsOptions.Value);
         var environment = BuildEnvironment(task, model, command.AuthMethod);
         var spec = new KubernetesJobSpec(
             jobName,
             command.Image ?? jobOptions.Value.Image,
             environment,
-            [openHandsOptions.Value.Shell, "-lc", BuildShellCommand(command.BootstrapCommand, command.Command)]);
+            [openHandsOptions.Value.Shell, "-lc", BuildShellCommand(command.BootstrapCommand, command.Command)],
+            command.AuthMethod);
 
         var result = await jobRunner.RunJobAsync(spec, cancellationToken);
         return new AgentRunResult(result.Succeeded, result.JobName, result.Logs, result.FailureReason);
+    }
+
+    private static string ResolveModel(AgentTask task, OpenHandsOptions options, string authMethod)
+    {
+        if (!string.IsNullOrWhiteSpace(task.Model))
+        {
+            return task.Model;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.DefaultModel))
+        {
+            return options.DefaultModel;
+        }
+
+        return IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey)
+            ? "openhands/claude-sonnet-4"
+            : string.Empty;
     }
 
     private static Dictionary<string, string> BuildEnvironment(AgentTask task, string model, string authMethod)
@@ -61,7 +79,11 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         }
         else if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
-            environment["CODEX_CONFIG"] = $$"""{"model":"{{model}}"}""";
+            environment["CODEX_HOME"] = "/tmp/codex-home";
+            if (!string.IsNullOrWhiteSpace(model))
+            {
+                environment["CODEX_CONFIG"] = $$"""{"model":"{{model}}"}""";
+            }
         }
 
         return environment;
@@ -72,17 +94,22 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         if (IsAuthMethod(options.AuthMethod, OpenHandsAuthMethods.CodexSubscription))
         {
             return new SelectedOpenHandsCommand(
-                OpenHandsAuthMethods.CodexSubscription,
+                KubernetesJobAuthMethods.CodexSubscription,
                 options.CodexSubscriptionImage,
                 options.CodexSubscriptionBootstrapCommand,
                 options.CodexSubscriptionCommand);
         }
 
-        return new SelectedOpenHandsCommand(
-            OpenHandsAuthMethods.ApiKey,
-            null,
-            options.BootstrapCommand,
-            options.Command);
+        if (IsAuthMethod(options.AuthMethod, OpenHandsAuthMethods.ApiKey))
+        {
+            return new SelectedOpenHandsCommand(
+                KubernetesJobAuthMethods.ApiKey,
+                null,
+                options.BootstrapCommand,
+                options.Command);
+        }
+
+        throw new InvalidOperationException($"Unsupported OpenHands auth method '{options.AuthMethod}'. Supported values are '{OpenHandsAuthMethods.ApiKey}' and '{OpenHandsAuthMethods.CodexSubscription}'.");
     }
 
     private static bool IsAuthMethod(string? actual, string expected)

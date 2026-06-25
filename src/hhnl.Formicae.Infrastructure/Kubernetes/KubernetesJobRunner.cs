@@ -9,8 +9,19 @@ public interface IKubernetesJobRunner
     Task<KubernetesJobResult> RunJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
 }
 
-public sealed record KubernetesJobSpec(string Name, string Image, IReadOnlyDictionary<string, string> Environment, IReadOnlyList<string> Command);
+public sealed record KubernetesJobSpec(
+    string Name,
+    string Image,
+    IReadOnlyDictionary<string, string> Environment,
+    IReadOnlyList<string> Command,
+    string AuthMethod = KubernetesJobAuthMethods.ApiKey);
 public sealed record KubernetesJobResult(bool Succeeded, string JobName, string Logs, string? FailureReason);
+
+public static class KubernetesJobAuthMethods
+{
+    public const string ApiKey = "ApiKey";
+    public const string CodexSubscription = "CodexSubscription";
+}
 
 public sealed class KubernetesJobOptions
 {
@@ -94,7 +105,7 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         {
             await jobApi.CreateJobAsync(job, namespaceName, cancellationToken);
         }
-        catch (KubernetesException exception) when (exception.Status.Code == 409)
+        catch (Exception exception) when (IsAlreadyExistsConflict(exception))
         {
             // A retry should attach to the existing deterministic Job rather than duplicate work.
         }
@@ -142,11 +153,16 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
 
         var envFrom = new List<V1EnvFromSource>();
         AddOptionalSecretEnvFrom(envFrom, options.Value.RuntimeSecretName);
-        AddOptionalSecretEnvFrom(envFrom, options.Value.LlmApiKeySecretName);
+
+        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.ApiKey))
+        {
+            AddOptionalSecretEnvFrom(envFrom, options.Value.LlmApiKeySecretName);
+        }
 
         var volumes = new List<V1Volume>();
         var volumeMounts = new List<V1VolumeMount>();
-        if (!string.IsNullOrWhiteSpace(options.Value.CodexAuthSecretName))
+        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.CodexSubscription)
+            && !string.IsNullOrWhiteSpace(options.Value.CodexAuthSecretName))
         {
             volumes.Add(new V1Volume
             {
@@ -219,6 +235,9 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         envFrom.Add(new V1EnvFromSource { SecretRef = new V1SecretEnvSource { Name = secretName, Optional = true } });
     }
 
+    private static bool IsAuthMethod(string? actual, string expected)
+        => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+
     private static bool IsComplete(V1Job job)
         => job.Status?.Succeeded > 0 || HasCondition(job, "Complete");
 
@@ -247,6 +266,18 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         => job.Status?.Conditions?.Any(condition =>
             string.Equals(condition.Type, type, StringComparison.OrdinalIgnoreCase)
             && string.Equals(condition.Status, "True", StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static bool IsAlreadyExistsConflict(Exception exception)
+    {
+        if (exception is KubernetesException kubernetesException && kubernetesException.Status.Code == 409)
+        {
+            return true;
+        }
+
+        return exception.Message.Contains("AlreadyExists", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("status code 'Conflict'", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("\"code\":409", StringComparison.OrdinalIgnoreCase);
+    }
 
     private async Task<string> ReadLogsAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
