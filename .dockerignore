@@ -1,5 +1,7 @@
 **/bin/
 **/obj/
+**/node_modules/
+**/*.tsbuildinfo
 .git/
 .vs/
 .vscode/

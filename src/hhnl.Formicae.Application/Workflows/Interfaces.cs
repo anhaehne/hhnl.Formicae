@@ -56,6 +56,7 @@ public interface IWorkflowStore
     Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowByIssueUrlAsync(string issueUrl, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Workflow>> ListRecentWorkflowsAsync(int limit, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken);
     Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken);
     Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);

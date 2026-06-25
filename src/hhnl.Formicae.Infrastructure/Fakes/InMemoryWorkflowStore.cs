@@ -35,6 +35,17 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         }
     }
 
+    public Task<IReadOnlyList<Workflow>> ListRecentWorkflowsAsync(int limit, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
+                .OrderByDescending(workflow => workflow.CreatedAt)
+                .Take(limit)
+                .ToArray());
+        }
+    }
+
     public Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken)
     {
         lock (gate)

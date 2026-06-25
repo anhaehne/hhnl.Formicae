@@ -86,6 +86,8 @@ public sealed record StartGitHubIssueWorkflowRequest(
 
 public sealed record WorkflowSummaryResponse(
     Guid WorkflowId,
+    string IssueUrl,
+    string RepositoryUrl,
     WorkflowStatus Status,
     WorkflowStep CurrentStep,
     DateTimeOffset CreatedAt,

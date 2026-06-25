@@ -27,6 +27,15 @@ if (usesPostgresPersistence)
 
 app.MapHealthChecks("/healthz");
 
+app.MapGet("/api/workflows", async (
+    int? limit,
+    WorkflowService workflowService,
+    CancellationToken cancellationToken) =>
+{
+    var clampedLimit = Math.Clamp(limit ?? 25, 1, 100);
+    return Results.Ok(await workflowService.ListRecentWorkflowsAsync(clampedLimit, cancellationToken));
+});
+
 app.MapPost("/api/webhooks/github", async (
     HttpRequest request,
     GitHubWebhookHandler handler,
@@ -66,5 +75,9 @@ app.MapGet("/api/workflows/{workflowId:guid}/logs", async (
     Guid workflowId,
     WorkflowService workflowService,
     CancellationToken cancellationToken) => Results.Ok(await workflowService.ListLogsAsync(workflowId, cancellationToken)));
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
 
 app.Run();

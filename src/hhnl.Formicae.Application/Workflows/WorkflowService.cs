@@ -39,6 +39,11 @@ public sealed class WorkflowService(IWorkflowStore store)
     public async Task<WorkflowSummaryResponse?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
         => (await store.GetWorkflowAsync(workflowId, cancellationToken))?.ToSummary();
 
+    public async Task<WorkflowSummaryResponse[]> ListRecentWorkflowsAsync(int limit, CancellationToken cancellationToken)
+        => (await store.ListRecentWorkflowsAsync(limit, cancellationToken))
+            .Select(workflow => workflow.ToSummary())
+            .ToArray();
+
     public Task<IReadOnlyList<TaskRun>> ListRunsAsync(Guid workflowId, CancellationToken cancellationToken)
         => store.ListTaskRunsAsync(workflowId, cancellationToken);
 
