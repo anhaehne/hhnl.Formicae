@@ -311,7 +311,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal("develop", call.BaseBranch);
             Assert.Equal(started.WorkflowId, call.WorkflowId);
         });
-        Assert.Collection(devOps.CreateDraftPullRequestCalls, call =>
+        Assert.Collection(devOps.CreatePullRequestCalls, call =>
         {
             Assert.Equal(started.WorkflowId, call.WorkflowId);
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
@@ -539,9 +539,10 @@ public sealed class WorkflowOrchestratorTests
                 new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement, Status = TaskRunStatus.Succeeded, Output = "Implemented the management UI and recent workflow API." }
             };
 
-            var result = await provider.CreateDraftPullRequestAsync(workflow, runs, CancellationToken.None);
+            var result = await provider.CreatePullRequestAsync(workflow, runs, CancellationToken.None);
 
             Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
+            Assert.False(handler.CreatedPullRequestDraft);
             Assert.Contains("## Implementation Summary", handler.CreatedPullRequestBody);
             Assert.Contains("Implemented the management UI and recent workflow API.", handler.CreatedPullRequestBody);
         }
@@ -740,6 +741,7 @@ public sealed class WorkflowOrchestratorTests
     private sealed class CreatePullRequestGitHubHandler : HttpMessageHandler
     {
         public string CreatedPullRequestBody { get; private set; } = string.Empty;
+        public bool? CreatedPullRequestDraft { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -773,6 +775,7 @@ public sealed class WorkflowOrchestratorTests
                 var requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
                 using var document = System.Text.Json.JsonDocument.Parse(requestJson);
                 CreatedPullRequestBody = document.RootElement.GetProperty("body").GetString() ?? string.Empty;
+                CreatedPullRequestDraft = document.RootElement.GetProperty("draft").GetBoolean();
                 return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
                 {
                     Content = new StringContent("""

@@ -203,7 +203,7 @@ public sealed class WorkflowOrchestrator(
         await store.UpsertTaskRunAsync(run, cancellationToken);
 
         var taskRuns = await store.ListTaskRunsAsync(workflow.Id, cancellationToken);
-        var pullRequest = await sourceControl.CreateDraftPullRequestAsync(workflow, taskRuns, cancellationToken);
+        var pullRequest = await sourceControl.CreatePullRequestAsync(workflow, taskRuns, cancellationToken);
         run.Status = TaskRunStatus.Succeeded;
         run.Output = pullRequest.Url;
         run.UpdatedAt = DateTimeOffset.UtcNow;

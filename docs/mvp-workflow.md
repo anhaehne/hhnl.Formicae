@@ -23,7 +23,7 @@ stateDiagram-v2
     Planning --> Failed: plan failed
     Implementing --> CreatingPullRequest: ready-to-implement label and implementation succeeded
     Implementing --> Failed: implementation failed
-    CreatingPullRequest --> Reviewing: draft PR created
+    CreatingPullRequest --> Reviewing: PR created
     CreatingPullRequest --> Failed: PR creation failed
     Reviewing --> AddressingComments: PR comments found
     AddressingComments --> Completed: comments addressed
@@ -39,7 +39,7 @@ Each agent or integration step is stored as a task run:
 
 - `Plan`: fetches GitHub issue context and asks OpenHands to produce an implementation plan.
 - `Implement`: creates or reuses a branch and asks OpenHands to apply the plan.
-- `CreatePullRequest`: opens a draft pull request for the branch.
+- `CreatePullRequest`: opens a pull request for the branch.
 - `AddressComments`: once the pull request has comments, asks the agent to address issue comments and review comments from the PR. For Codex subscription jobs, Formicae checks out the workflow branch first and performs the authenticated commit/push after the agent finishes. On success, Formicae posts a new marked top-level PR summary comment.
 
 Completed task runs are reused on retry. This makes workflow advancement idempotent at the step level. `AddressingComments` is shown as a diagram phase for readability; in persisted workflow state this is `Reviewing` with `CurrentStep = AddressComments`.

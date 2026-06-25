@@ -25,7 +25,7 @@ public interface ISourceControlProvider
 {
     Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken);
 
-    Task<PullRequestResult> CreateDraftPullRequestAsync(
+    Task<PullRequestResult> CreatePullRequestAsync(
         Workflow workflow,
         IReadOnlyList<TaskRun> taskRuns,
         CancellationToken cancellationToken);
