@@ -304,6 +304,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(PullRequestCommentMarkers.Plan(started.WorkflowId), call.Marker);
             Assert.Contains("Fake Plan output", call.Body);
         });
+
         Assert.Collection(devOps.CreateBranchCalls, call =>
         {
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
@@ -318,11 +319,29 @@ public sealed class WorkflowOrchestratorTests
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Plan);
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Implement);
         });
+        Assert.Collection(devOps.ReactToIssueCalls,
+            call =>
+            {
+                Assert.Equal(issueUrl, call.IssueUrl);
+                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+            },
+            call =>
+            {
+                Assert.Equal(issueUrl, call.IssueUrl);
+                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+            });
         Assert.Contains(runs, run => run.Kind == TaskRunKind.AddressComments && run.Status == TaskRunStatus.Succeeded);
         Assert.Collection(devOps.ListPullRequestCommentsCalls, call =>
         {
             Assert.Equal(started.WorkflowId, call.WorkflowId);
             Assert.Equal("https://github.com/acme/widgets/pull/123", call.PullRequestUrl);
+        });
+        Assert.Collection(devOps.ReactToPullRequestCommentCalls, call =>
+        {
+            Assert.Equal(started.WorkflowId, call.WorkflowId);
+            Assert.Equal("1", call.CommentId);
+            Assert.Equal(PullRequestCommentKind.ReviewComment, call.Kind);
+            Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
         });
         Assert.Collection(devOps.UpsertPullRequestCommentCalls, call =>
         {
@@ -330,6 +349,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal("https://github.com/acme/widgets/pull/123", call.PullRequestUrl);
             Assert.Contains(PullRequestCommentMarkers.AddressComments(started.WorkflowId), call.Body);
             Assert.Contains("Fake AddressComments output", call.Body);
+            Assert.DoesNotContain("```text", call.Body);
         });
     }
 
@@ -430,6 +450,63 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task GitHubSourceControlProvider_Adds_implementation_summary_to_created_pull_request_body()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new CreatePullRequestGitHubHandler();
+            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
+            var workflow = new Workflow
+            {
+                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                RepositoryUrl = "https://github.com/acme/widgets",
+                IssueUrl = "https://github.com/acme/widgets/issues/42",
+                BaseBranch = "main",
+                BranchName = "formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            };
+            var runs = new[]
+            {
+                new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan, Status = TaskRunStatus.Succeeded, Output = "Plan output" },
+                new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement, Status = TaskRunStatus.Succeeded, Output = "Implemented the management UI and recent workflow API." }
+            };
+
+            var result = await provider.CreateDraftPullRequestAsync(workflow, runs, CancellationToken.None);
+
+            Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
+            Assert.Contains("## Implementation Summary", handler.CreatedPullRequestBody);
+            Assert.Contains("Implemented the management UI and recent workflow API.", handler.CreatedPullRequestBody);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+    [Fact]
+    public async Task GitHubWorkItemProvider_Reacts_to_issue()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new ReactionGitHubHandler();
+            var provider = new GitHubWorkItemProvider(new HttpClient(handler));
+
+            await provider.ReactToIssueAsync(
+                "https://github.com/acme/widgets/issues/42",
+                WorkflowReactionContent.Started,
+                CancellationToken.None);
+
+            Assert.Equal(["POST https://api.github.com/repos/acme/widgets/issues/42/reactions"], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Equal([WorkflowReactionContent.Started], handler.Reactions);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+    [Fact]
     public async Task GitHubSourceControlProvider_Lists_issue_and_review_comments_for_pull_request()
     {
         var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
@@ -512,6 +589,45 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task GitHubSourceControlProvider_Reacts_to_issue_and_review_comments()
+    {
+        var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", "test-token");
+        try
+        {
+            var handler = new ReactionGitHubHandler();
+            var provider = new GitHubSourceControlProvider(new HttpClient(handler));
+            var workflow = new Workflow
+            {
+                Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                RepositoryUrl = "https://github.com/acme/widgets",
+                IssueUrl = "https://github.com/acme/widgets/issues/42",
+                PullRequestUrl = "https://github.com/acme/widgets/pull/123"
+            };
+
+            await provider.ReactToPullRequestCommentAsync(
+                workflow,
+                new PullRequestComment("issue:10", "maintainer", "Please update docs.", "https://github.com/acme/widgets/pull/123#issuecomment-10", DateTimeOffset.UtcNow, PullRequestCommentKind.IssueComment),
+                WorkflowReactionContent.Started,
+                CancellationToken.None);
+            await provider.ReactToPullRequestCommentAsync(
+                workflow,
+                new PullRequestComment("review:20", "reviewer", "Please add a test.", "https://github.com/acme/widgets/pull/123#discussion_r20", DateTimeOffset.UtcNow, PullRequestCommentKind.ReviewComment),
+                WorkflowReactionContent.Started,
+                CancellationToken.None);
+
+            Assert.Equal([
+                "POST https://api.github.com/repos/acme/widgets/issues/comments/10/reactions",
+                "POST https://api.github.com/repos/acme/widgets/pulls/comments/20/reactions"
+            ], handler.Requests.Select(request => $"{request.Method} {request.RequestUri}"));
+            Assert.Equal([WorkflowReactionContent.Started, WorkflowReactionContent.Started], handler.Reactions);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousToken);
+        }
+    }
+    [Fact]
     public async Task GitHubSourceControlProvider_Updates_marked_pull_request_comment_when_present()
     {
         var previousToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
@@ -559,6 +675,74 @@ public sealed class WorkflowOrchestratorTests
         }
     }
 
+    private sealed class CreatePullRequestGitHubHandler : HttpMessageHandler
+    {
+        public string CreatedPullRequestBody { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/contents/.formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md")
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("{}")
+                };
+            }
+
+            if (request.Method == HttpMethod.Put && path == "/repos/acme/widgets/contents/.formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md")
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+            }
+
+            if (request.Method == HttpMethod.Get && path == "/repos/acme/widgets/pulls")
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/repos/acme/widgets/pulls")
+            {
+                var requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
+                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
+                CreatedPullRequestBody = document.RootElement.GetProperty("body").GetString() ?? string.Empty;
+                return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""
+                        { "html_url": "https://github.com/acme/widgets/pull/123" }
+                        """)
+                };
+            }
+
+            throw new InvalidOperationException($"Unexpected GitHub request: {request.Method} {path}");
+        }
+    }
+    private sealed class ReactionGitHubHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+        public List<string> Reactions { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            if (request.Content is not null)
+            {
+                var requestJson = await request.Content.ReadAsStringAsync(cancellationToken);
+                using var document = System.Text.Json.JsonDocument.Parse(requestJson);
+                Reactions.Add(document.RootElement.GetProperty("content").GetString() ?? string.Empty);
+            }
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
+            {
+                Content = new StringContent("{}")
+            };
+        }
+    }
     private sealed class UpsertGitHubCommentHandler(long? existingMarkedCommentId) : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];

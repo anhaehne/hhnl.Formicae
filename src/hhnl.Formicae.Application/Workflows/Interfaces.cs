@@ -14,6 +14,11 @@ public interface IWorkItemProvider
         string marker,
         string body,
         CancellationToken cancellationToken);
+
+    Task ReactToIssueAsync(
+        string issueUrl,
+        string reaction,
+        CancellationToken cancellationToken);
 }
 
 public interface ISourceControlProvider
@@ -32,6 +37,12 @@ public interface ISourceControlProvider
     Task UpsertPullRequestCommentAsync(
         Workflow workflow,
         string body,
+        CancellationToken cancellationToken);
+
+    Task ReactToPullRequestCommentAsync(
+        Workflow workflow,
+        PullRequestComment comment,
+        string reaction,
         CancellationToken cancellationToken);
 }
 

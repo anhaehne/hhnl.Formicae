@@ -32,6 +32,9 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
         IssueComments.Add(body);
         return Task.CompletedTask;
     }
+
+    public Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 }
 
 public sealed class FakeSourceControlProvider : ISourceControlProvider
@@ -54,6 +57,9 @@ public sealed class FakeSourceControlProvider : ISourceControlProvider
         ]);
 
     public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    public Task ReactToPullRequestCommentAsync(Workflow workflow, PullRequestComment comment, string reaction, CancellationToken cancellationToken)
         => Task.CompletedTask;
 }
 

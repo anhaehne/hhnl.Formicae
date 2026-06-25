@@ -99,6 +99,11 @@ public static class WorkItemWorkflowLabels
     public const string ReadyToImplement = "ready-to-implement";
 }
 
+public static class WorkflowReactionContent
+{
+    public const string Started = "eyes";
+}
+
 public static class PullRequestCommentMarkers
 {
     private const string Prefix = "<!-- formicae:";
@@ -134,9 +139,7 @@ public static class PullRequestCommentMarkers
             {marker}
             Formicae addressed the pull request comments for workflow `{workflow.Id:N}`.
 
-            ```text
             {output}
-            ```
             """;
     }
 

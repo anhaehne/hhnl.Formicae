@@ -11,10 +11,12 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<GetIssueCall> GetIssueCalls { get; } = [];
     public List<ListIssuesWithLabelCall> ListIssuesWithLabelCalls { get; } = [];
     public List<UpsertIssueCommentCall> UpsertIssueCommentCalls { get; } = [];
+    public List<ReactToIssueCall> ReactToIssueCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreateDraftPullRequestCall> CreateDraftPullRequestCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
     public List<UpsertPullRequestCommentCall> UpsertPullRequestCommentCalls { get; } = [];
+    public List<ReactToPullRequestCommentCall> ReactToPullRequestCommentCalls { get; } = [];
 
     public string DefaultBranchName { get; set; } = "formicae/mock-branch";
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
@@ -69,6 +71,12 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.CompletedTask;
     }
 
+    public Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
+    {
+        ReactToIssueCalls.Add(new ReactToIssueCall(issueUrl, reaction));
+        return Task.CompletedTask;
+    }
+
     public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, Guid workflowId, CancellationToken cancellationToken)
     {
         CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, workflowId));
@@ -100,6 +108,12 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
             PullRequestCommentKind.IssueComment));
         return Task.CompletedTask;
     }
+
+    public Task ReactToPullRequestCommentAsync(Workflow workflow, PullRequestComment comment, string reaction, CancellationToken cancellationToken)
+    {
+        ReactToPullRequestCommentCalls.Add(new ReactToPullRequestCommentCall(workflow.Id, comment.Id, comment.Kind, reaction));
+        return Task.CompletedTask;
+    }
 }
 
 public sealed record GetIssueCall(string IssueUrl);
@@ -107,6 +121,8 @@ public sealed record GetIssueCall(string IssueUrl);
 public sealed record ListIssuesWithLabelCall(string RepositoryUrl, string Label);
 
 public sealed record UpsertIssueCommentCall(string IssueUrl, string Marker, string Body);
+
+public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
 
 public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, Guid WorkflowId);
 
@@ -119,3 +135,5 @@ public sealed record CreateDraftPullRequestCall(
 public sealed record ListPullRequestCommentsCall(Guid WorkflowId, string? PullRequestUrl);
 
 public sealed record UpsertPullRequestCommentCall(Guid WorkflowId, string? PullRequestUrl, string Body);
+
+public sealed record ReactToPullRequestCommentCall(Guid WorkflowId, string CommentId, PullRequestCommentKind Kind, string Reaction);

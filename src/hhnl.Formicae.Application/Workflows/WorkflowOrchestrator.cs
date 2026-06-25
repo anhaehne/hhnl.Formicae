@@ -106,6 +106,7 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
@@ -162,6 +163,7 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
@@ -236,6 +238,10 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
         run.Status = TaskRunStatus.Running;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+        foreach (var comment in comments)
+        {
+            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
+        }
 
         var result = await agentRunner.RunAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         CompleteTaskRun(run, result);
