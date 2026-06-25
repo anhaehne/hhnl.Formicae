@@ -38,7 +38,8 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
             command.Image ?? jobOptions.Value.Image,
             environment,
             [openHandsOptions.Value.Shell, "-lc", BuildShellCommand(command.BootstrapCommand, command.Command)],
-            command.AuthMethod);
+            command.AuthMethod,
+            task.ContextFiles?.Select(file => new KubernetesJobContextFile(file.FileName, file.Content)).ToArray());
 
         var result = await jobRunner.RunJobAsync(spec, cancellationToken);
         var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;

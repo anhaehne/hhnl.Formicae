@@ -46,7 +46,7 @@ Completed task runs are reused on retry. This makes workflow advancement idempot
 
 After PR creation, the workflow remains in `Reviewing` until pull request comments exist. Comment monitoring reads both top-level PR issue comments and inline review comments, but ignores comments containing the hidden `<!-- formicae:... -->` marker so automation comments are not treated as user feedback even when the same account is used. When comments are found, the API orchestrator runs `AddressComments`; a successful run completes the workflow, and a failed run marks the workflow `Failed`.
 
-Later pull request comment or review webhooks requeue the completed workflow for another `AddressComments` pass when there are comments newer than the previous successful pass. Only those newer comments are reacted to and included in the agent prompt for the follow-up pass.
+Later pull request comment or review webhooks requeue the completed workflow for another `AddressComments` pass when there are comments newer than the previous successful pass. Only those newer comments are reacted to as started and listed as comments to address. The full pull request conversation is written to `pull-request-conversation.md`, mounted in the agent container at `/workspace/formicae/context/pull-request-conversation.md`, and referenced from the prompt so the agent can pull in more context when needed.
 
 ## Local Iteration
 

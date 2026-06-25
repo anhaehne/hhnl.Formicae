@@ -58,7 +58,7 @@ public sealed class FilePromptRenderer : IPromptRenderer
             TaskRunKind.Plan => "Create an implementation plan for {{issue_url}} in {{repository_url}}.",
             TaskRunKind.Implement => "Implement this plan on {{branch_name}}:\n{{plan_artifact}}",
             TaskRunKind.CreatePullRequest => "Create a draft pull request for {{branch_name}}.",
-            TaskRunKind.AddressComments => "Address these pull request comments on {{branch_name}}:\n{{pull_request_comments}}",
+            TaskRunKind.AddressComments => "Address these pull request comments on {{branch_name}}:\n{{pull_request_comments}}\n\nFull pull request conversation is mounted at /workspace/formicae/context/pull-request-conversation.md.",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         };
 }

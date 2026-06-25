@@ -14,7 +14,10 @@ public sealed record KubernetesJobSpec(
     string Image,
     IReadOnlyDictionary<string, string> Environment,
     IReadOnlyList<string> Command,
-    string AuthMethod = KubernetesJobAuthMethods.ApiKey);
+    string AuthMethod = KubernetesJobAuthMethods.ApiKey,
+    IReadOnlyList<KubernetesJobContextFile>? ContextFiles = null,
+    string ContextFilesMountPath = "/workspace/formicae/context");
+public sealed record KubernetesJobContextFile(string FileName, string Content);
 public sealed record KubernetesJobResult(bool Succeeded, string JobName, string Logs, string? FailureReason);
 
 public static class KubernetesJobAuthMethods
@@ -40,11 +43,13 @@ public sealed class KubernetesJobOptions
 
 public interface IKubernetesJobApi
 {
-    Task CreateJobAsync(V1Job job, string namespaceName, CancellationToken cancellationToken);
+    Task<V1Job> CreateJobAsync(V1Job job, string namespaceName, CancellationToken cancellationToken);
+    Task CreateConfigMapAsync(V1ConfigMap configMap, string namespaceName, CancellationToken cancellationToken);
     Task<V1Job> ReadJobStatusAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task<IReadOnlyList<V1Pod>> ListPodsAsync(string namespaceName, string labelSelector, CancellationToken cancellationToken);
     Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken);
     Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken);
+    Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken);
 }
 
 public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
@@ -59,8 +64,11 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
         client = new Kubernetes(configuration);
     }
 
-    public Task CreateJobAsync(V1Job job, string namespaceName, CancellationToken cancellationToken)
+    public Task<V1Job> CreateJobAsync(V1Job job, string namespaceName, CancellationToken cancellationToken)
         => client.BatchV1.CreateNamespacedJobAsync(job, namespaceName, cancellationToken: cancellationToken);
+
+    public Task CreateConfigMapAsync(V1ConfigMap configMap, string namespaceName, CancellationToken cancellationToken)
+        => client.CoreV1.CreateNamespacedConfigMapAsync(configMap, namespaceName, cancellationToken: cancellationToken);
 
     public Task<V1Job> ReadJobStatusAsync(string name, string namespaceName, CancellationToken cancellationToken)
         => client.BatchV1.ReadNamespacedJobStatusAsync(name, namespaceName, cancellationToken: cancellationToken);
@@ -85,6 +93,13 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
             new V1DeleteOptions { PropagationPolicy = "Background" },
             cancellationToken: cancellationToken);
 
+    public Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        => client.CoreV1.DeleteNamespacedConfigMapAsync(
+            name,
+            namespaceName,
+            new V1DeleteOptions { PropagationPolicy = "Background" },
+            cancellationToken: cancellationToken);
+
     public void Dispose()
         => client.Dispose();
 }
@@ -100,14 +115,29 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         var namespaceName = string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
         var manifest = KubernetesJobManifest.Render(spec);
         var job = BuildJob(spec);
+        V1Job createdJob;
 
         try
         {
-            await jobApi.CreateJobAsync(job, namespaceName, cancellationToken);
+            createdJob = await jobApi.CreateJobAsync(job, namespaceName, cancellationToken);
         }
         catch (Exception exception) when (IsAlreadyExistsConflict(exception))
         {
             // A retry should attach to the existing deterministic Job rather than duplicate work.
+            createdJob = await jobApi.ReadJobStatusAsync(spec.Name, namespaceName, cancellationToken);
+        }
+
+        var contextConfigMap = BuildContextConfigMap(spec, createdJob);
+        if (contextConfigMap is not null)
+        {
+            try
+            {
+                await jobApi.CreateConfigMapAsync(contextConfigMap, namespaceName, cancellationToken);
+            }
+            catch (Exception exception) when (IsAlreadyExistsConflict(exception))
+            {
+                // A retry can reuse the existing deterministic context ConfigMap.
+            }
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -121,14 +151,14 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
                 if (IsComplete(current))
                 {
                     var logs = await ReadLogsAsync(spec.Name, namespaceName, timeout.Token);
-                    await DeleteIfConfiguredAsync(spec.Name, namespaceName, cancellationToken);
+                    await DeleteIfConfiguredAsync(spec, namespaceName, cancellationToken);
                     return new KubernetesJobResult(true, spec.Name, Combine(manifest, logs), null);
                 }
 
                 if (IsFailed(current, out var failureReason))
                 {
                     var logs = await ReadLogsAsync(spec.Name, namespaceName, timeout.Token);
-                    await DeleteIfConfiguredAsync(spec.Name, namespaceName, cancellationToken);
+                    await DeleteIfConfiguredAsync(spec, namespaceName, cancellationToken);
                     return new KubernetesJobResult(false, spec.Name, Combine(manifest, logs), failureReason);
                 }
 
@@ -138,6 +168,7 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             var logs = await ReadLogsAsync(spec.Name, namespaceName, CancellationToken.None);
+            await DeleteIfConfiguredAsync(spec, namespaceName, CancellationToken.None);
             return new KubernetesJobResult(false, spec.Name, Combine(manifest, logs), $"Kubernetes job '{spec.Name}' timed out after {options.Value.TimeoutSeconds} seconds.");
         }
     }
@@ -188,6 +219,27 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
             });
         }
 
+        if (spec.ContextFiles?.Count > 0)
+        {
+            volumes.Add(new V1Volume
+            {
+                Name = "formicae-context",
+                ConfigMap = new V1ConfigMapVolumeSource
+                {
+                    Name = ContextConfigMapName(spec.Name),
+                    Items = spec.ContextFiles
+                        .Select(file => new V1KeyToPath { Key = file.FileName, Path = file.FileName })
+                        .ToList()
+                }
+            });
+            volumeMounts.Add(new V1VolumeMount
+            {
+                Name = "formicae-context",
+                MountPath = spec.ContextFilesMountPath,
+                ReadOnlyProperty = true
+            });
+        }
+
         return new V1Job
         {
             ApiVersion = "batch/v1",
@@ -223,6 +275,72 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
                 }
             }
         };
+    }
+
+    private static V1ConfigMap? BuildContextConfigMap(KubernetesJobSpec spec, V1Job job)
+    {
+        if (spec.ContextFiles is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        return new V1ConfigMap
+        {
+            ApiVersion = "v1",
+            Kind = "ConfigMap",
+            Metadata = new V1ObjectMeta
+            {
+                Name = ContextConfigMapName(spec.Name),
+                Labels = new Dictionary<string, string>
+                {
+                    [ManagedByLabel] = ManagedByValue,
+                    ["app.kubernetes.io/name"] = "formicae-agent-context",
+                    ["formicae.hhnl.de/task"] = spec.Name
+                },
+                OwnerReferences = BuildOwnerReferences(job)
+            },
+            Data = spec.ContextFiles.ToDictionary(file => file.FileName, file => file.Content)
+        };
+    }
+
+    private static IList<V1OwnerReference>? BuildOwnerReferences(V1Job job)
+    {
+        if (string.IsNullOrWhiteSpace(job.Metadata?.Name) || string.IsNullOrWhiteSpace(job.Metadata?.Uid))
+        {
+            return null;
+        }
+
+        return
+        [
+            new V1OwnerReference
+            {
+                ApiVersion = "batch/v1",
+                Kind = "Job",
+                Name = job.Metadata.Name,
+                Uid = job.Metadata.Uid,
+                Controller = false,
+                BlockOwnerDeletion = false
+            }
+        ];
+    }
+
+    private static string ContextConfigMapName(string jobName)
+        => $"{jobName}-context";
+
+    private async Task DeleteContextConfigMapAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
+    {
+        if (spec.ContextFiles is not { Count: > 0 })
+        {
+            return;
+        }
+
+        try
+        {
+            await jobApi.DeleteConfigMapAsync(ContextConfigMapName(spec.Name), namespaceName, cancellationToken);
+        }
+        catch (Exception exception) when (IsNotFound(exception))
+        {
+        }
     }
 
     private static void AddOptionalSecretEnvFrom(List<V1EnvFromSource> envFrom, string secretName)
@@ -267,6 +385,18 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
             string.Equals(condition.Type, type, StringComparison.OrdinalIgnoreCase)
             && string.Equals(condition.Status, "True", StringComparison.OrdinalIgnoreCase)) == true;
 
+    private static bool IsNotFound(Exception exception)
+    {
+        if (exception is KubernetesException kubernetesException && kubernetesException.Status.Code == 404)
+        {
+            return true;
+        }
+
+        return exception.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("status code 'NotFound'", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("\"code\":404", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsAlreadyExistsConflict(Exception exception)
     {
         if (exception is KubernetesException kubernetesException && kubernetesException.Status.Code == 409)
@@ -305,12 +435,15 @@ public sealed class KubernetesJobRunner(IKubernetesJobApi jobApi, Microsoft.Exte
         return builder.ToString();
     }
 
-    private async Task DeleteIfConfiguredAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
+    private async Task DeleteIfConfiguredAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
     {
-        if (options.Value.DeleteFinishedJobs)
+        if (!options.Value.DeleteFinishedJobs)
         {
-            await jobApi.DeleteJobAsync(jobName, namespaceName, cancellationToken);
+            return;
         }
+
+        await jobApi.DeleteJobAsync(spec.Name, namespaceName, cancellationToken);
+        await DeleteContextConfigMapAsync(spec, namespaceName, cancellationToken);
     }
 
     private static string Combine(string manifest, string logs)
