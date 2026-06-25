@@ -21,9 +21,17 @@ Build and test:
 
 ```powershell
 dotnet build hhnl.Formicae.slnx
-dotnet test hhnl.Formicae.slnx
+dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj
 ```
 
+
+Run Kubernetes E2E tests separately:
+
+```powershell
+scripts/run-k8s-e2e.ps1 -ContainerCli docker
+```
+
+The E2E project creates a local kind cluster using a temp kubeconfig, deploys the Kubernetes overlay, and does not change the machine-wide kubectl context.
 Run the API with fake adapters:
 
 ```powershell
@@ -72,4 +80,5 @@ Important settings:
 - `hhnl.Formicae.Api` owns HTTP endpoints and the background orchestration loop.
 - `hhnl.Formicae.Worker` owns one-shot workflow advancement for scheduled or agent-driven execution.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
+
 

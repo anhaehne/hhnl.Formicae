@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: ConfigMap
+      name: formicae-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: formicae-config
+      data:
+        UseFakeAdapters: "false"
+        PersistenceMode: "Postgres"
+        WorkItemMode: "Fake"
+        SourceControlMode: "Fake"
+        AgentMode: "Fake"
+        ApplyDatabaseMigrations: "true"
+  - target:
+      kind: Secret
+      name: formicae-secrets
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: formicae-secrets
+      stringData:
+        ConnectionStrings__Formicae: "Host=formicae-postgres;Port=5432;Database=formicae;Username=formicae;Password=formicae-e2e"
+        POSTGRES_DB: "formicae"
+        POSTGRES_USER: "formicae"
+        POSTGRES_PASSWORD: "formicae-e2e"
+        LLM_API_KEY: "e2e-unused"
+        GITHUB_TOKEN: "e2e-unused"
+images:
+  - name: ghcr.io/anhaehne/hhnl-formicae-api
+    newName: hhnl-formicae-api
+    newTag: e2e
+  - name: ghcr.io/anhaehne/hhnl-formicae-worker
+    newName: hhnl-formicae-worker
+    newTag: e2e

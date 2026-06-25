@@ -30,12 +30,47 @@ public static class DependencyInjection
             return services;
         }
 
-        services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
-        services.AddScoped<IWorkflowStore, EfWorkflowStore>();
-        services.AddHttpClient<IWorkItemProvider, GitHubWorkItemProvider>();
-        services.AddHttpClient<ISourceControlProvider, GitHubSourceControlProvider>();
-        services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
-        services.AddSingleton<IAgentRunner, OpenHandsAgentRunner>();
+        if (IsMode(configuration, "PersistenceMode", "InMemory"))
+        {
+            services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
+        }
+        else
+        {
+            services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
+            services.AddScoped<IWorkflowStore, EfWorkflowStore>();
+        }
+
+        if (IsMode(configuration, "WorkItemMode", "Fake"))
+        {
+            services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
+        }
+        else
+        {
+            services.AddHttpClient<IWorkItemProvider, GitHubWorkItemProvider>();
+        }
+
+        if (IsMode(configuration, "SourceControlMode", "Fake"))
+        {
+            services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
+        }
+        else
+        {
+            services.AddHttpClient<ISourceControlProvider, GitHubSourceControlProvider>();
+        }
+
+        if (IsMode(configuration, "AgentMode", "Fake"))
+        {
+            services.AddSingleton<IAgentRunner, FakeAgentRunner>();
+        }
+        else
+        {
+            services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
+            services.AddSingleton<IAgentRunner, OpenHandsAgentRunner>();
+        }
+
         return services;
     }
+
+    private static bool IsMode(IConfiguration configuration, string key, string expected)
+        => string.Equals(configuration[key], expected, StringComparison.OrdinalIgnoreCase);
 }

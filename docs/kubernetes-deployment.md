@@ -74,6 +74,27 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/workflows/github-issue -ContentType application/json -Body $body
 ```
 
+
+## Kubernetes E2E Tests
+
+Kubernetes E2E tests live in a separate project and are not part of the normal solution test path.
+
+Run them with:
+
+```powershell
+scripts/run-k8s-e2e.ps1 -ContainerCli docker
+```
+
+For Podman-backed kind:
+
+```powershell
+scripts/run-k8s-e2e.ps1 -ContainerCli podman
+```
+
+The test harness verifies `kind`, `kubectl`, and the selected container CLI before starting. It creates or uses a local kind cluster named `formicae-e2e`, writes kubeconfig to a temp file, and passes that file to every `kubectl --kubeconfig ...` command. It does not call `kubectl config use-context` and does not write to the default kubeconfig.
+
+Set `FORMICAE_E2E_KEEP_CLUSTER=true` or pass `-KeepCluster` to preserve the cluster for debugging.
 ## Notes
 
 The current Kubernetes runner seam renders Job manifests in-process. The included RBAC already grants the API/worker service account namespace-scoped access needed when the runner is upgraded to create and watch Jobs directly.
+
