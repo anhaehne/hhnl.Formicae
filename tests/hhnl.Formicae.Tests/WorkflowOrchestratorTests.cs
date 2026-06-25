@@ -960,6 +960,57 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_uses_prompt_hash_in_job_name()
+    {
+        var workflowId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var firstJobRunner = new CapturingJobRunner();
+        var secondJobRunner = new CapturingJobRunner();
+        var repeatedJobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            firstJobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
+
+        await runner.RunAsync(new AgentTask(
+            workflowId,
+            TaskRunKind.AddressComments,
+            "Address first comment",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+        runner = new OpenHandsAgentRunner(
+            secondJobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
+        await runner.RunAsync(new AgentTask(
+            workflowId,
+            TaskRunKind.AddressComments,
+            "Address second comment",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+        runner = new OpenHandsAgentRunner(
+            repeatedJobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
+        await runner.RunAsync(new AgentTask(
+            workflowId,
+            TaskRunKind.AddressComments,
+            "Address first comment",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(firstJobRunner.LastSpec);
+        Assert.NotNull(secondJobRunner.LastSpec);
+        Assert.NotNull(repeatedJobRunner.LastSpec);
+        Assert.NotEqual(firstJobRunner.LastSpec.Name, secondJobRunner.LastSpec.Name);
+        Assert.Equal(firstJobRunner.LastSpec.Name, repeatedJobRunner.LastSpec.Name);
+        Assert.True(firstJobRunner.LastSpec.Name.Length <= 63);
+        Assert.StartsWith("formicae-addresscomments-1111111111111111111111111111", firstJobRunner.LastSpec.Name);
+    }
+
+    [Fact]
     public async Task OpenHands_runner_extracts_final_agent_message_from_json_logs()
     {
         var jobRunner = new CapturingJobRunner
