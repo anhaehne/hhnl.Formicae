@@ -150,9 +150,15 @@ By default, agent Jobs use `python:3.12-slim`, install the current OpenHands CLI
 
 ### Codex Subscription Auth
 
-Codex subscription auth is different from an OpenAI API key. The default OpenHands CLI command does not use `~/.codex/auth.json` as an `LLM_API_KEY` replacement.
+Codex subscription auth is different from an OpenAI API key. It is supported by Codex's own CLI/ACP agent, which reuses the `codex login` file at `~/.codex/auth.json`.
 
-Mount Codex auth only when you use an agent image or command that reads the Codex auth file directly:
+The default OpenHands headless command above does not use `~/.codex/auth.json` as an `LLM_API_KEY` replacement. Mount Codex auth only when the selected agent command reads the Codex auth file directly, for example a Codex ACP based runner using:
+
+```text
+npx -y @zed-industries/codex-acp
+```
+
+Create the Codex auth Secret:
 
 1. On a trusted machine, sign in with Codex:
 
