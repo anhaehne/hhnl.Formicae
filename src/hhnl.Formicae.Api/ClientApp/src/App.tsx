@@ -111,6 +111,7 @@ export default function App() {
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [retryingRunId, setRetryingRunId] = useState<string>();
+  const [retryingWorkflowId, setRetryingWorkflowId] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
@@ -318,6 +319,32 @@ export default function App() {
       }));
     } finally {
       setRetryingRunId(undefined);
+    }
+  }
+
+  async function handleRetryWorkflow(workflow: WorkflowSummary) {
+    setSelectedWorkflowId(workflow.workflowId);
+    setRetryingWorkflowId(workflow.workflowId);
+    setListError(undefined);
+    setDetail(current => ({ ...current, error: undefined }));
+    try {
+      const runs = await listRuns(workflow.workflowId);
+      const failedRun = [...runs].reverse().find(run => formatEnum(run.status, taskRunStatuses) === "Failed");
+      if (!failedRun) {
+        setListError("No failed task run found for this workflow.");
+        return;
+      }
+
+      setRetryingRunId(failedRun.id);
+      const retriedWorkflow = await retryTaskRun(workflow.workflowId, failedRun.id);
+      setDetail(current => ({ ...current, workflow: retriedWorkflow, runs, loading: false }));
+      await refreshWorkflowDetail(workflow.workflowId);
+      await refreshWorkflows();
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : "Could not retry workflow.");
+    } finally {
+      setRetryingRunId(undefined);
+      setRetryingWorkflowId(undefined);
     }
   }
 
@@ -673,6 +700,7 @@ export default function App() {
                   <th>Issue</th>
                   <th>Pull Request</th>
                   <th>Failure</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -688,11 +716,26 @@ export default function App() {
                     <td><ExternalLink href={workflow.issueUrl}>{shortUrl(workflow.issueUrl)}</ExternalLink></td>
                     <td>{workflow.pullRequestUrl ? <ExternalLink href={workflow.pullRequestUrl}>Open</ExternalLink> : <span className="muted">None</span>}</td>
                     <td>{workflow.failureReason ? <span className="failure-cell">{workflow.failureReason}</span> : <span className="muted">None</span>}</td>
+                    <td>
+                      {formatEnum(workflow.status, workflowStatuses) === "Failed" ? (
+                        <button
+                          type="button"
+                          className="secondary-button table-action-button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            void handleRetryWorkflow(workflow);
+                          }}
+                          disabled={retryingWorkflowId === workflow.workflowId}
+                        >
+                          {retryingWorkflowId === workflow.workflowId ? "Retrying" : "Retry"}
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
                 {workflows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="empty-cell">{loadingWorkflows ? "Loading workflows" : "No workflows yet"}</td>
+                    <td colSpan={7} className="empty-cell">{loadingWorkflows ? "Loading workflows" : "No workflows yet"}</td>
                   </tr>
                 ) : null}
               </tbody>

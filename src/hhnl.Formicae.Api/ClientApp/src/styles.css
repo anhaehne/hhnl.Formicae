@@ -238,6 +238,11 @@ select:focus {
   padding: 5px 10px;
 }
 
+.table-action-button {
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
