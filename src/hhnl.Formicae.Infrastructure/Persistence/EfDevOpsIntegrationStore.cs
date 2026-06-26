@@ -56,6 +56,13 @@ public sealed class EfDevOpsIntegrationStore(FormicaeDbContext dbContext) : IDev
             .ThenBy(repository => repository.Name)
             .ToArrayAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ConnectedRepository>> ListAllRepositoriesAsync(CancellationToken cancellationToken)
+        => await dbContext.ConnectedRepositories
+            .AsNoTracking()
+            .OrderBy(repository => repository.Owner)
+            .ThenBy(repository => repository.Name)
+            .ToArrayAsync(cancellationToken);
+
     public async Task<ConnectedRepository?> GetRepositoryByUrlAsync(Guid integrationId, string repositoryUrl, CancellationToken cancellationToken)
         => await dbContext.ConnectedRepositories
             .AsNoTracking()

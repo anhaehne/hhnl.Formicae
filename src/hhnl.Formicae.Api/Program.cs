@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Octokit;
 using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -103,6 +104,43 @@ app.MapGet("/api/auth/external-challenge", (HttpContext context) =>
 });
 
 app.MapGet("/api/auth/external-callback", () => Results.Redirect("/"));
+
+app.MapGet("/api/auth/github/repositories", async (
+    HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        return Results.Unauthorized();
+    }
+
+    var accessToken = await context.GetTokenAsync("access_token");
+    if (string.IsNullOrWhiteSpace(accessToken))
+    {
+        return Results.Unauthorized();
+    }
+
+    var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"))
+    {
+        Credentials = new Credentials(accessToken)
+    };
+
+    var repositories = await client.Repository.GetAllForCurrent(new RepositoryRequest
+    {
+        Affiliation = RepositoryAffiliation.Owner | RepositoryAffiliation.Collaborator | RepositoryAffiliation.OrganizationMember,
+        Sort = RepositorySort.FullName,
+        Direction = SortDirection.Ascending
+    });
+
+    return Results.Ok(repositories
+        .Select(repository => new GitHubUserRepositoryResponse(
+            repository.Owner.Login,
+            repository.Name,
+            repository.HtmlUrl,
+            repository.DefaultBranch,
+            repository.Private))
+        .ToArray());
+});
 
 app.MapGet("/api/workflows", async (
     int? limit,
@@ -246,15 +284,9 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     Guid integrationId,
     UpdateIdentityProviderRequest request,
     HttpRequest httpRequest,
-    ClaimsPrincipal user,
     DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
-    if (request.Enabled && user.Identity?.IsAuthenticated != true)
-    {
-        return Results.Unauthorized();
-    }
-
     var integration = await integrations.SetIdentityProviderEnabledAsync(integrationId, request.Enabled, GetRequestBaseUri(httpRequest), cancellationToken);
     return integration is null ? Results.NotFound() : Results.Ok(integration);
 });

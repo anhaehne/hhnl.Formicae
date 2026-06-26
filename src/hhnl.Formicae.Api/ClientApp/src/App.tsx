@@ -8,10 +8,12 @@ import {
   getAiSettings,
   getIntegration,
   getWorkflow,
+  GitHubUserRepository,
   IntegrationDetail,
   IntegrationSummary,
   listChatMessages,
   listEvents,
+  listGitHubUserRepositories,
   listIntegrations,
   listLogs,
   listRuns,
@@ -49,19 +51,12 @@ type AiSettingsFormState = {
   endpointUrl: string;
 };
 
-type Page = "workflows" | "integrations" | "settings";
+type Page = "workflows" | "integrations" | "repositories" | "settings";
 
 type GitHubIntegrationFormState = {
   displayName: string;
   clientId: string;
   clientSecretReference: string;
-};
-
-type RepositoryFormState = {
-  repositoryUrl: string;
-  defaultBranch: string;
-  installationId: string;
-  installationAccount: string;
 };
 
 type DetailState = {
@@ -96,13 +91,6 @@ const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
   clientSecretReference: ""
 };
 
-const initialRepositoryForm: RepositoryFormState = {
-  repositoryUrl: "",
-  defaultBranch: "main",
-  installationId: "",
-  installationAccount: ""
-};
-
 export default function App() {
   const [activePage, setActivePage] = useState<Page>("workflows");
   const [form, setForm] = useState<FormState>(initialForm);
@@ -128,7 +116,13 @@ export default function App() {
   const [integrationSaved, setIntegrationSaved] = useState<string>();
   const [creatingIntegration, setCreatingIntegration] = useState(false);
   const [githubIntegrationForm, setGitHubIntegrationForm] = useState<GitHubIntegrationFormState>(initialGitHubIntegrationForm);
-  const [repositoryForm, setRepositoryForm] = useState<RepositoryFormState>(initialRepositoryForm);
+  const [availableRepositories, setAvailableRepositories] = useState<GitHubUserRepository[]>([]);
+  const [repositorySearch, setRepositorySearch] = useState("");
+  const [connectedRepositorySearch, setConnectedRepositorySearch] = useState("");
+  const [repositoryError, setRepositoryError] = useState<string>();
+  const [repositorySaved, setRepositorySaved] = useState<string>();
+  const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
+  const [addingRepositoryUrl, setAddingRepositoryUrl] = useState<string>();
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -212,11 +206,26 @@ export default function App() {
     }
   }, [selectedIntegrationId]);
 
+  const refreshAvailableRepositories = useCallback(async () => {
+    setLoadingAvailableRepositories(true);
+    setRepositoryError(undefined);
+    try {
+      setAvailableRepositories(await listGitHubUserRepositories());
+    } catch (error) {
+      setRepositoryError(error instanceof Error ? error.message : "Could not load GitHub repositories.");
+    } finally {
+      setLoadingAvailableRepositories(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (activePage === "integrations") {
+    if (activePage === "integrations" || activePage === "repositories") {
       void refreshIntegrations();
     }
-  }, [activePage, refreshIntegrations]);
+    if (activePage === "repositories") {
+      void refreshAvailableRepositories();
+    }
+  }, [activePage, refreshAvailableRepositories, refreshIntegrations]);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -376,27 +385,34 @@ export default function App() {
     }
   }
 
-  async function handleAddRepository(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleAddRepository(repository: GitHubUserRepository) {
     if (!selectedIntegrationId) {
+      setRepositoryError("Select a GitHub integration before adding repositories.");
       return;
     }
 
-    setIntegrationError(undefined);
-    setIntegrationSaved(undefined);
+    setRepositoryError(undefined);
+    setRepositorySaved(undefined);
+    setAddingRepositoryUrl(repository.repositoryUrl);
     try {
       await addConnectedRepository(selectedIntegrationId, {
-        repositoryUrl: repositoryForm.repositoryUrl.trim(),
-        defaultBranch: repositoryForm.defaultBranch.trim() || "main",
-        installationId: repositoryForm.installationId.trim() ? Number(repositoryForm.installationId) : null,
-        installationAccount: repositoryForm.installationAccount.trim() || null
+        repositoryUrl: repository.repositoryUrl,
+        defaultBranch: repository.defaultBranch || "main",
+        installationId: null,
+        installationAccount: repository.owner
       });
-      setRepositoryForm(initialRepositoryForm);
       setIntegrationDetail(await getIntegration(selectedIntegrationId));
-      setIntegrationSaved("Repository connected.");
+      setRepositorySaved(`${repository.owner}/${repository.name} added.`);
+      await refreshIntegrations();
     } catch (error) {
-      setIntegrationError(error instanceof Error ? error.message : "Could not connect repository.");
+      setRepositoryError(error instanceof Error ? error.message : "Could not connect repository.");
+    } finally {
+      setAddingRepositoryUrl(undefined);
     }
+  }
+
+  function handleGitHubRepositoryLogin() {
+    window.location.href = `/api/auth/external-challenge?returnUrl=${encodeURIComponent("/")}`;
   }
 
   async function handleIdentityToggle(enabled: boolean) {
@@ -420,7 +436,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Formicae</p>
-          <h1>{activePage === "workflows" ? "Workflow Management" : activePage === "integrations" ? "Integrations" : "Settings"}</h1>
+          <h1>{activePage === "workflows" ? "Workflow Management" : activePage === "integrations" ? "Integrations" : activePage === "repositories" ? "Repositories" : "Settings"}</h1>
         </div>
         <div className="topbar-actions">
           <nav className="app-menu" aria-label="Primary navigation">
@@ -440,6 +456,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`menu-button${activePage === "repositories" ? " active" : ""}`}
+              onClick={() => setActivePage("repositories")}
+            >
+              Repositories
+            </button>
+            <button
+              type="button"
               className={`menu-button${activePage === "settings" ? " active" : ""}`}
               onClick={() => setActivePage("settings")}
             >
@@ -453,6 +476,10 @@ export default function App() {
           ) : activePage === "integrations" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
               {loadingIntegrations ? "Refreshing" : "Refresh"}
+            </button>
+          ) : activePage === "repositories" ? (
+            <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
+              {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
             </button>
           ) : null}
         </div>
@@ -679,15 +706,30 @@ export default function App() {
           integrationError={integrationError}
           integrationSaved={integrationSaved}
           githubIntegrationForm={githubIntegrationForm}
-          repositoryForm={repositoryForm}
           creatingIntegration={creatingIntegration}
           setGitHubIntegrationForm={setGitHubIntegrationForm}
-          setRepositoryForm={setRepositoryForm}
           onCreateIntegration={handleCreateIntegration}
           onSelectIntegration={handleSelectIntegration}
           onRotateWebhookSecret={handleRotateWebhookSecret}
-          onAddRepository={handleAddRepository}
           onIdentityToggle={handleIdentityToggle}
+        />
+      ) : activePage === "repositories" ? (
+        <RepositoriesPage
+          integrations={integrations}
+          integrationDetail={integrationDetail}
+          selectedIntegrationId={selectedIntegrationId}
+          availableRepositories={availableRepositories}
+          repositorySearch={repositorySearch}
+          connectedRepositorySearch={connectedRepositorySearch}
+          repositoryError={repositoryError}
+          repositorySaved={repositorySaved}
+          loadingAvailableRepositories={loadingAvailableRepositories}
+          addingRepositoryUrl={addingRepositoryUrl}
+          setRepositorySearch={setRepositorySearch}
+          setConnectedRepositorySearch={setConnectedRepositorySearch}
+          onSelectIntegration={handleSelectIntegration}
+          onAuthenticate={handleGitHubRepositoryLogin}
+          onAddRepository={handleAddRepository}
         />
       ) : (
         <SettingsPage
@@ -712,14 +754,11 @@ function IntegrationsPage({
   integrationError,
   integrationSaved,
   githubIntegrationForm,
-  repositoryForm,
   creatingIntegration,
   setGitHubIntegrationForm,
-  setRepositoryForm,
   onCreateIntegration,
   onSelectIntegration,
   onRotateWebhookSecret,
-  onAddRepository,
   onIdentityToggle
 }: {
   integrations: IntegrationSummary[];
@@ -728,14 +767,11 @@ function IntegrationsPage({
   integrationError?: string;
   integrationSaved?: string;
   githubIntegrationForm: GitHubIntegrationFormState;
-  repositoryForm: RepositoryFormState;
   creatingIntegration: boolean;
   setGitHubIntegrationForm: Dispatch<SetStateAction<GitHubIntegrationFormState>>;
-  setRepositoryForm: Dispatch<SetStateAction<RepositoryFormState>>;
   onCreateIntegration: (event: FormEvent<HTMLFormElement>) => void;
   onSelectIntegration: (integrationId: string) => void;
   onRotateWebhookSecret: () => void;
-  onAddRepository: (event: FormEvent<HTMLFormElement>) => void;
   onIdentityToggle: (enabled: boolean) => void;
 }) {
   return (
@@ -813,6 +849,10 @@ function IntegrationsPage({
 
               <div className="button-row">
                 <button type="button" className="secondary-button" onClick={onRotateWebhookSecret}>Rotate Webhook Secret</button>
+              </div>
+
+              <section className="settings-section">
+                <h3>Identity Provider</h3>
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -821,10 +861,10 @@ function IntegrationsPage({
                   />
                   <span>Use as identity provider</span>
                 </label>
-              </div>
-              {integrationDetail.requiresRestart ? (
-                <p className="warning-text">Restart required before GitHub login uses this integration.</p>
-              ) : null}
+                {integrationDetail.requiresRestart ? (
+                  <p className="warning-text">Restart required before GitHub login uses this integration.</p>
+                ) : null}
+              </section>
 
               <section>
                 <h3>GitHub App Setup</h3>
@@ -843,39 +883,6 @@ function IntegrationsPage({
                   </div>
                 </div>
               </section>
-
-              <section>
-                <h3>Connected Repositories</h3>
-                <form className="repository-form" onSubmit={onAddRepository}>
-                  <input
-                    value={repositoryForm.repositoryUrl}
-                    onChange={event => setRepositoryForm(current => ({ ...current, repositoryUrl: event.target.value }))}
-                    placeholder="https://github.com/org/repo"
-                    type="url"
-                  />
-                  <input
-                    value={repositoryForm.defaultBranch}
-                    onChange={event => setRepositoryForm(current => ({ ...current, defaultBranch: event.target.value }))}
-                    placeholder="main"
-                  />
-                  <input
-                    value={repositoryForm.installationId}
-                    onChange={event => setRepositoryForm(current => ({ ...current, installationId: event.target.value }))}
-                    placeholder="installation id"
-                    type="number"
-                  />
-                  <input
-                    value={repositoryForm.installationAccount}
-                    onChange={event => setRepositoryForm(current => ({ ...current, installationAccount: event.target.value }))}
-                    placeholder="installation account"
-                  />
-                  <button type="submit" className="secondary-button">Add</button>
-                </form>
-                <div className="repository-list">
-                  {integrationDetail.repositories.map(repository => <RepositoryRow repository={repository} key={repository.id} />)}
-                  {integrationDetail.repositories.length === 0 ? <p className="muted">No repositories connected.</p> : null}
-                </div>
-              </section>
             </div>
           ) : (
             <p className="muted">Create or select an integration.</p>
@@ -884,6 +891,140 @@ function IntegrationsPage({
       </section>
     </section>
   );
+}
+
+function RepositoriesPage({
+  integrations,
+  integrationDetail,
+  selectedIntegrationId,
+  availableRepositories,
+  repositorySearch,
+  connectedRepositorySearch,
+  repositoryError,
+  repositorySaved,
+  loadingAvailableRepositories,
+  addingRepositoryUrl,
+  setRepositorySearch,
+  setConnectedRepositorySearch,
+  onSelectIntegration,
+  onAuthenticate,
+  onAddRepository
+}: {
+  integrations: IntegrationSummary[];
+  integrationDetail?: IntegrationDetail;
+  selectedIntegrationId?: string;
+  availableRepositories: GitHubUserRepository[];
+  repositorySearch: string;
+  connectedRepositorySearch: string;
+  repositoryError?: string;
+  repositorySaved?: string;
+  loadingAvailableRepositories: boolean;
+  addingRepositoryUrl?: string;
+  setRepositorySearch: Dispatch<SetStateAction<string>>;
+  setConnectedRepositorySearch: Dispatch<SetStateAction<string>>;
+  onSelectIntegration: (integrationId: string) => void;
+  onAuthenticate: () => void;
+  onAddRepository: (repository: GitHubUserRepository) => void;
+}) {
+  const connectedUrls = new Set((integrationDetail?.repositories ?? []).map(repository => repository.repositoryUrl.toLowerCase()));
+  const available = availableRepositories.filter(repository => matchesRepository(repository, repositorySearch));
+  const connected = (integrationDetail?.repositories ?? []).filter(repository => matchesRepository(repository, connectedRepositorySearch));
+
+  return (
+    <section className="repositories-page">
+      <section className="repository-toolbar panel">
+        <label>
+          <span>Integration</span>
+          <select value={selectedIntegrationId ?? ""} onChange={event => onSelectIntegration(event.target.value)}>
+            <option value="" disabled>Select integration</option>
+            {integrations.map(integration => <option key={integration.id} value={integration.id}>{integration.displayName}</option>)}
+          </select>
+        </label>
+        <button type="button" className="secondary-button" onClick={onAuthenticate}>Authenticate GitHub</button>
+      </section>
+
+      {repositoryError ? <p className="error-text repository-message">{repositoryError}</p> : null}
+      {repositorySaved ? <p className="success-text repository-message">{repositorySaved}</p> : null}
+
+      <section className="repository-management-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>Available Repositories</h2>
+            {loadingAvailableRepositories ? <span className="muted">Loading</span> : null}
+          </div>
+          <label>
+            <span>Search</span>
+            <input value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} placeholder="owner, repository, or URL" />
+          </label>
+          <div className="repository-list">
+            {available.map(repository => {
+              const alreadyConnected = connectedUrls.has(repository.repositoryUrl.toLowerCase());
+              return (
+                <RepositoryCandidateRow
+                  repository={repository}
+                  alreadyConnected={alreadyConnected}
+                  adding={addingRepositoryUrl === repository.repositoryUrl}
+                  onAdd={() => onAddRepository(repository)}
+                  key={repository.repositoryUrl}
+                />
+              );
+            })}
+            {available.length === 0 ? <p className="muted">No repositories available. Authenticate GitHub or adjust the search.</p> : null}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>Added Repositories</h2>
+            <StatusBadge value={`${connected.length}`} />
+          </div>
+          <label>
+            <span>Search</span>
+            <input value={connectedRepositorySearch} onChange={event => setConnectedRepositorySearch(event.target.value)} placeholder="owner, repository, or URL" />
+          </label>
+          <div className="repository-list">
+            {connected.map(repository => <RepositoryRow repository={repository} key={repository.id} />)}
+            {connected.length === 0 ? <p className="muted">No repositories added for this integration.</p> : null}
+          </div>
+        </section>
+      </section>
+    </section>
+  );
+}
+
+function RepositoryCandidateRow({
+  repository,
+  alreadyConnected,
+  adding,
+  onAdd
+}: {
+  repository: GitHubUserRepository;
+  alreadyConnected: boolean;
+  adding: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="repository-row">
+      <div>
+        <strong>{repository.owner}/{repository.name}</strong>
+        <span>{repository.defaultBranch} {repository.private ? "private" : "public"}</span>
+      </div>
+      {alreadyConnected ? (
+        <StatusBadge value="Added" />
+      ) : (
+        <button type="button" className="secondary-button" onClick={onAdd} disabled={adding}>{adding ? "Adding" : "Add"}</button>
+      )}
+    </div>
+  );
+}
+
+function matchesRepository(repository: { owner: string; name: string; repositoryUrl: string }, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return `${repository.owner}/${repository.name} ${repository.repositoryUrl}`.toLowerCase().includes(normalized);
 }
 
 function RepositoryRow({ repository }: { repository: ConnectedRepository }) {

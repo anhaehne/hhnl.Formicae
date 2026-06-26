@@ -94,6 +94,16 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
         }
     }
 
+    public Task<IReadOnlyList<ConnectedRepository>> ListAllRepositoriesAsync(CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<ConnectedRepository>>(repositories
+                .Select(Clone)
+                .ToArray());
+        }
+    }
+
     public Task<ConnectedRepository?> GetRepositoryByUrlAsync(Guid integrationId, string repositoryUrl, CancellationToken cancellationToken)
     {
         lock (gate)

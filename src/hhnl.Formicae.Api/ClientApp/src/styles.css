@@ -280,8 +280,33 @@ tbody tr:hover {
   max-width: 960px;
 }
 
-.integrations-page {
+.integrations-page,
+.repositories-page {
   margin: 0 auto;
+  max-width: 1440px;
+}
+
+.repository-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 420px) auto;
+  margin: 0 auto 16px;
+}
+
+.repository-toolbar label {
+  margin-bottom: 0;
+}
+
+.repository-management-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.repository-message {
+  margin-left: auto;
+  margin-right: auto;
   max-width: 1440px;
 }
 
@@ -677,7 +702,9 @@ pre.collapsed-content::after {
   .workspace-grid,
   .detail-grid,
   .checklist-grid,
-  .repository-form {
+  .repository-form,
+  .repository-toolbar,
+  .repository-management-grid {
     grid-template-columns: 1fr;
   }
 

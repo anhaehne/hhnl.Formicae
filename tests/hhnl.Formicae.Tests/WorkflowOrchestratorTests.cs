@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
@@ -45,6 +46,58 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
             Assert.Equal(WorkItemWorkflowLabels.ReadyToPlan, call.Label);
         });
+    }
+
+
+    [Fact]
+    public async Task DiscoverReadyToPlanWorkflows_Queues_labeled_issues_from_connected_repositories()
+    {
+        var store = new InMemoryWorkflowStore();
+        var integrationStore = new InMemoryDevOpsIntegrationStore();
+        var integration = await integrationStore.CreateAsync(new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.GitHub,
+            DisplayName = "GitHub",
+            GitHubAppClientId = "client-id",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "widgets",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            DefaultBranch = "develop",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "tools",
+            RepositoryUrl = "https://github.com/acme/tools",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels("https://github.com/acme/widgets/issues/42", "Widgets", "Widgets body", [WorkItemWorkflowLabels.ReadyToPlan])
+            .AddIssueWithLabels("https://github.com/acme/tools/issues/7", "Tools", "Tools body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var discovery = new WorkflowDiscoveryService(store, devOps, Options.Create(new WorkflowDiscoveryOptions
+        {
+            Enabled = true
+        }), integrationStore: integrationStore);
+
+        var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflows = await store.ListRunnableWorkflowsAsync(CancellationToken.None);
+        Assert.Equal(2, discovered);
+        Assert.Contains(workflows, workflow => workflow.RepositoryUrl == "https://github.com/acme/widgets" && workflow.BaseBranch == "develop");
+        Assert.Contains(workflows, workflow => workflow.RepositoryUrl == "https://github.com/acme/tools" && workflow.BaseBranch == "main");
+        Assert.Contains(devOps.ListIssuesWithLabelCalls, call => call.RepositoryUrl == "https://github.com/acme/widgets");
+        Assert.Contains(devOps.ListIssuesWithLabelCalls, call => call.RepositoryUrl == "https://github.com/acme/tools");
     }
 
     [Fact]

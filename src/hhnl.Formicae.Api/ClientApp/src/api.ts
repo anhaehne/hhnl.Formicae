@@ -112,6 +112,14 @@ export type GitHubSetupInstructions = {
   requiredWebhookEvents: string[];
 };
 
+export type GitHubUserRepository = {
+  owner: string;
+  name: string;
+  repositoryUrl: string;
+  defaultBranch: string;
+  private: boolean;
+};
+
 export type ConnectedRepository = {
   id: string;
   owner: string;
@@ -175,6 +183,10 @@ export async function getIntegration(integrationId: string): Promise<Integration
 
 export async function rotateWebhookSecret(integrationId: string): Promise<IntegrationDetail> {
   return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
+}
+
+export async function listGitHubUserRepositories(): Promise<GitHubUserRepository[]> {
+  return send<GitHubUserRepository[]>("/api/auth/github/repositories");
 }
 
 export async function addConnectedRepository(integrationId: string, request: AddConnectedRepositoryRequest): Promise<ConnectedRepository> {
