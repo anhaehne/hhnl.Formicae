@@ -1,7 +1,18 @@
 namespace hhnl.Formicae.Application.Workflows;
 
-public sealed class WorkflowService(IWorkflowStore store)
+public sealed class WorkflowService
 {
+    private readonly IWorkflowStore store;
+    private readonly IWorkItemProvider? workItems;
+    private readonly IClock clock;
+
+    public WorkflowService(IWorkflowStore store, IWorkItemProvider? workItems = null, IClock? clock = null)
+    {
+        this.store = store;
+        this.workItems = workItems;
+        this.clock = clock ?? new SystemClock();
+    }
+
     public async Task<WorkflowSummaryResponse> StartGitHubIssueWorkflowAsync(
         StartGitHubIssueWorkflowRequest request,
         CancellationToken cancellationToken)
@@ -27,6 +38,13 @@ public sealed class WorkflowService(IWorkflowStore store)
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
+        await store.AddEventAsync(new WorkflowEvent
+        {
+            WorkflowId = workflow.Id,
+            Type = WorkflowEventTypes.WorkflowQueued,
+            Message = "Workflow queued from manual GitHub issue trigger.",
+            CreatedAt = clock.UtcNow
+        }, cancellationToken);
         await store.AddLogAsync(new WorkflowLog
         {
             WorkflowId = workflow.Id,
@@ -44,8 +62,35 @@ public sealed class WorkflowService(IWorkflowStore store)
             .Select(workflow => workflow.ToSummary())
             .ToArray();
 
-    public Task<IReadOnlyList<TaskRun>> ListRunsAsync(Guid workflowId, CancellationToken cancellationToken)
-        => store.ListTaskRunsAsync(workflowId, cancellationToken);
+    public async Task<TaskRunResponse[]> ListRunsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => (await store.ListTaskRunsAsync(workflowId, cancellationToken))
+            .Select(run => run.ToResponse())
+            .ToArray();
+
+    public async Task<WorkflowEventResponse[]> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => (await store.ListEventsAsync(workflowId, cancellationToken))
+            .Select(evt => evt.ToResponse())
+            .ToArray();
+
+    public async Task<WorkflowChatMessageResponse[]> ListChatMessagesAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        if (workItems is null)
+        {
+            return [];
+        }
+
+        var workflow = await store.GetWorkflowAsync(workflowId, cancellationToken);
+        if (workflow is null)
+        {
+            return [];
+        }
+
+        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        return issue.UserComments
+            .OrderBy(comment => comment.UpdatedAt)
+            .Select(comment => new WorkflowChatMessageResponse(comment.Id, comment.Author, comment.Body, comment.Url, comment.UpdatedAt))
+            .ToArray();
+    }
 
     public Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken)
         => store.ListLogsAsync(workflowId, cancellationToken);

@@ -38,6 +38,14 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
             .OrderBy(workflow => workflow.CreatedAt)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Workflow>> ListNonTerminalWorkflowsAsync(CancellationToken cancellationToken)
+        => await dbContext.Workflows
+            .Where(workflow => workflow.Status != WorkflowStatus.Completed
+                && workflow.Status != WorkflowStatus.Failed
+                && workflow.Status != WorkflowStatus.Canceled)
+            .OrderBy(workflow => workflow.CreatedAt)
+            .ToListAsync(cancellationToken);
+
     public async Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         dbContext.Workflows.Update(workflow);
@@ -65,6 +73,19 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
 
     public async Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken)
         => await dbContext.TaskRuns.Where(run => run.WorkflowId == workflowId).OrderBy(run => run.CreatedAt).ToListAsync(cancellationToken);
+
+    public async Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)
+    {
+        dbContext.WorkflowEvents.Add(evt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => await dbContext.WorkflowEvents
+            .Where(evt => evt.WorkflowId == workflowId)
+            .OrderBy(evt => evt.CreatedAt)
+            .ThenBy(evt => evt.Id)
+            .ToListAsync(cancellationToken);
 
     public async Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken)
     {

@@ -120,6 +120,32 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_records_ordered_transition_and_task_events()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            "https://github.com/acme/widgets/issues/42",
+            "https://github.com/acme/widgets",
+            null,
+            "test-model"), CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), new FakeAgentRunner(), new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var events = await store.ListEventsAsync(started.WorkflowId, CancellationToken.None);
+        Assert.Equal(WorkflowEventTypes.WorkflowQueued, events[0].Type);
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.WorkflowTransitioned && evt.Message.Contains("Planning started", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.TaskStarted && evt.Message.Contains("Plan", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.TaskSucceeded && evt.Message.Contains("Plan", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.PullRequestCreated);
+        Assert.Equal(WorkflowEventTypes.WorkflowCompleted, events[^1].Type);
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_plan_label()
     {
         var store = new InMemoryWorkflowStore();
@@ -184,6 +210,40 @@ public sealed class WorkflowOrchestratorTests
         Assert.Equal(agentRunner.StartedExternalIds[0], firstRun.ExternalId);
         Assert.Equal(agentRunner.StartedExternalIds[1], secondRun.ExternalId);
     }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_preserves_started_at_for_deferred_run_and_sets_completed_at_later()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/44";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets"
+        }, CancellationToken.None);
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z"));
+        var agentRunner = new DeferredAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer(), clock);
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(run);
+        Assert.Equal(clock.UtcNow, run.StartedAt);
+        Assert.Null(run.CompletedAt);
+
+        clock.UtcNow = DateTimeOffset.Parse("2026-06-26T12:10:00Z");
+        agentRunner.Results[run.ExternalId!] = new AgentRunResult(true, run.ExternalId!, "Deferred plan output", null);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(run);
+        Assert.Equal(DateTimeOffset.Parse("2026-06-26T12:00:00Z"), run.StartedAt);
+        Assert.Equal(clock.UtcNow, run.CompletedAt);
+    }
+
     [Fact]
     public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_implement_label_after_planning()
     {
@@ -587,11 +647,19 @@ public sealed class WorkflowOrchestratorTests
 
         var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
         var runs = await store.ListTaskRunsAsync(started.WorkflowId, CancellationToken.None);
+        var events = await store.ListEventsAsync(started.WorkflowId, CancellationToken.None);
 
         Assert.NotNull(workflow);
         Assert.Equal(WorkflowStatus.Failed, workflow.Status);
         Assert.Equal("address comments failed", workflow.FailureReason);
         Assert.Contains(runs, run => run.Kind == TaskRunKind.AddressComments && run.Status == TaskRunStatus.Failed);
+        var taskFailed = Assert.Single(events, evt => evt.Type == WorkflowEventTypes.TaskFailed);
+        var detailsJson = taskFailed.DetailsJson ?? string.Empty;
+        Assert.Contains("\"taskKind\":\"AddressComments\"", detailsJson);
+        Assert.Contains("\"externalId\":\"address-comments-run\"", detailsJson);
+        Assert.Contains("\"failureReason\":\"address comments failed\"", detailsJson);
+        Assert.Contains("\"outputExcerpt\":\"failed\"", detailsJson);
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.WorkflowFailed && evt.Message == "address comments failed");
     }
 
     [Fact]
@@ -985,6 +1053,11 @@ public sealed class WorkflowOrchestratorTests
     private sealed record CreatedIssueComment(string Owner, string Repository, int Number, string Body);
     private sealed record CreatedFile(string Path, string Content, string Branch);
     private sealed record ReactionCall(string Kind, string Owner, string Repository, long SubjectId, string Reaction);
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
 
     private sealed class CapturingAgentRunner : IAgentRunner
     {

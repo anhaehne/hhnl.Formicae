@@ -64,8 +64,22 @@ public sealed class TaskRun
     public string? ExternalId { get; set; }
     public string? Output { get; set; }
     public string? FailureReason { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class WorkflowEvent
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid WorkflowId { get; init; }
+    public Guid? TaskRunId { get; init; }
+    public required string Type { get; init; }
+    public string Level { get; init; } = "Information";
+    public required string Message { get; init; }
+    public string? DetailsJson { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class WorkflowLog
@@ -94,6 +108,64 @@ public sealed record WorkflowSummaryResponse(
     DateTimeOffset UpdatedAt,
     string? PullRequestUrl,
     string? FailureReason);
+
+public sealed record WorkflowEventResponse(
+    Guid Id,
+    Guid WorkflowId,
+    Guid? TaskRunId,
+    string Type,
+    string Level,
+    string Message,
+    string? DetailsJson,
+    DateTimeOffset CreatedAt);
+
+public sealed record AgentMessageResponse(
+    int Sequence,
+    string? Role,
+    string Content,
+    DateTimeOffset? CreatedAt);
+
+public sealed record TaskRunResponse(
+    Guid Id,
+    Guid WorkflowId,
+    TaskRunKind Kind,
+    TaskRunStatus Status,
+    string? ExternalId,
+    string? Output,
+    string? FailureReason,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<AgentMessageResponse> AgentMessages);
+
+public sealed record WorkflowSignalResponse(
+    string Severity,
+    string Reason,
+    Guid WorkflowId,
+    Guid? TaskRunId,
+    DateTimeOffset ObservedAt);
+
+public sealed record WorkflowChatMessageResponse(
+    string Id,
+    string Author,
+    string Body,
+    string Url,
+    DateTimeOffset UpdatedAt);
+
+public static class WorkflowEventTypes
+{
+    public const string WorkflowQueued = "WorkflowQueued";
+    public const string WorkflowTransitioned = "WorkflowTransitioned";
+    public const string TaskStarted = "TaskStarted";
+    public const string TaskSucceeded = "TaskSucceeded";
+    public const string TaskFailed = "TaskFailed";
+    public const string ExternalJobAssigned = "ExternalJobAssigned";
+    public const string PullRequestCreated = "PullRequestCreated";
+    public const string WorkflowCompleted = "WorkflowCompleted";
+    public const string WorkflowFailed = "WorkflowFailed";
+    public const string ChatCaptured = "ChatCaptured";
+}
 
 public static class WorkItemWorkflowLabels
 {

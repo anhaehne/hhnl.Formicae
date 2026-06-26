@@ -7,6 +7,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
 {
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
+    public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -30,6 +31,17 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(run => run.Kind).HasConversion<string>();
             entity.Property(run => run.Status).HasConversion<string>();
             entity.HasIndex(run => new { run.WorkflowId, run.Kind }).IsUnique();
+        });
+
+        modelBuilder.Entity<WorkflowEvent>(entity =>
+        {
+            entity.ToTable("workflow_events");
+            entity.HasKey(evt => evt.Id);
+            entity.Property(evt => evt.Type).IsRequired();
+            entity.Property(evt => evt.Level).IsRequired();
+            entity.Property(evt => evt.Message).IsRequired();
+            entity.HasIndex(evt => evt.WorkflowId);
+            entity.HasIndex(evt => new { evt.WorkflowId, evt.CreatedAt });
         });
 
         modelBuilder.Entity<WorkflowLog>(entity =>
