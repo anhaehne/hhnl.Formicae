@@ -92,6 +92,59 @@ export type UpdateAiSettingsRequest = {
   llmApiKeySecretName?: string | null;
 };
 
+export type IntegrationSummary = {
+  id: string;
+  providerType: string;
+  displayName: string;
+  gitHubAppClientId: string;
+  webhookUrl: string;
+  identityProviderEnabled: boolean;
+  requiresRestart: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GitHubSetupInstructions = {
+  callbackUrl: string;
+  webhookUrl: string;
+  webhookSecret: string;
+  requiredRepositoryPermissions: string[];
+  requiredWebhookEvents: string[];
+};
+
+export type ConnectedRepository = {
+  id: string;
+  owner: string;
+  name: string;
+  repositoryUrl: string;
+  defaultBranch: string;
+  installationId?: number | null;
+  installationAccount?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IntegrationDetail = IntegrationSummary & {
+  webhookSecret: string;
+  capabilities: string[];
+  setupInstructions: GitHubSetupInstructions;
+  repositories: ConnectedRepository[];
+};
+
+export type CreateGitHubIntegrationRequest = {
+  displayName: string;
+  clientId: string;
+  clientSecretReference: string;
+  webhookSecret?: string | null;
+};
+
+export type AddConnectedRepositoryRequest = {
+  repositoryUrl: string;
+  defaultBranch?: string | null;
+  installationId?: number | null;
+  installationAccount?: string | null;
+};
+
 export async function getAiSettings(): Promise<AiSettings> {
   return send<AiSettings>("/api/ai-settings");
 }
@@ -101,6 +154,42 @@ export async function updateAiSettings(request: UpdateAiSettingsRequest): Promis
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)
+  });
+}
+
+export async function listIntegrations(): Promise<IntegrationSummary[]> {
+  return send<IntegrationSummary[]>("/api/integrations");
+}
+
+export async function createGitHubIntegration(request: CreateGitHubIntegrationRequest): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>("/api/integrations/github", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getIntegration(integrationId: string): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}`);
+}
+
+export async function rotateWebhookSecret(integrationId: string): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
+}
+
+export async function addConnectedRepository(integrationId: string, request: AddConnectedRepositoryRequest): Promise<ConnectedRepository> {
+  return send<ConnectedRepository>(`/api/integrations/${encodeURIComponent(integrationId)}/repositories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function setIdentityProviderEnabled(integrationId: string, enabled: boolean): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/identity-provider`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled })
   });
 }
 

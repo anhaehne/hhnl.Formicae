@@ -1,8 +1,14 @@
 using hhnl.Formicae.Api;
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure;
 using hhnl.Formicae.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +18,19 @@ builder.Services.AddSingleton<WorkflowTickNotifier>();
 builder.Services.AddSingleton<IWorkflowTickSignal>(serviceProvider => serviceProvider.GetRequiredService<WorkflowTickNotifier>());
 builder.Services.AddScoped<GitHubWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
+builder.Services
+    .AddIdentityCore<FormicaeUser>()
+    .AddEntityFrameworkStores<FormicaeDbContext>()
+    .AddSignInManager();
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = IdentityConstants.ApplicationScheme;
+        options.DefaultChallengeScheme = "GitHub";
+    })
+    .AddCookie(IdentityConstants.ApplicationScheme)
+    .AddOAuth("GitHub", _ => { });
+builder.Services.AddAuthorization();
+builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, GitHubOAuthOptionsConfiguration>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
 var app = builder.Build();
@@ -27,6 +46,63 @@ if (usesPostgresPersistence)
 }
 
 app.MapHealthChecks("/healthz");
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    if (IsAnonymousPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    var store = context.RequestServices.GetRequiredService<IDevOpsIntegrationStore>();
+    if (!await store.AnyIdentityProviderEnabledAsync(context.RequestAborted)
+        || context.User.Identity?.IsAuthenticated == true)
+    {
+        await next();
+        return;
+    }
+
+    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    await context.ChallengeAsync();
+});
+
+app.MapGet("/api/auth/current-user", (ClaimsPrincipal user) =>
+{
+    if (user.Identity?.IsAuthenticated != true)
+    {
+        return Results.Ok(new { authenticated = false });
+    }
+
+    return Results.Ok(new
+    {
+        authenticated = true,
+        name = user.Identity.Name,
+        claims = user.Claims.Select(claim => new { claim.Type, claim.Value }).ToArray()
+    });
+});
+
+app.MapPost("/api/auth/logout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(IdentityConstants.ApplicationScheme);
+    return Results.NoContent();
+});
+
+app.MapGet("/api/auth/external-challenge", (HttpContext context) =>
+{
+    var redirectUri = context.Request.Query["returnUrl"].FirstOrDefault();
+    redirectUri = string.IsNullOrWhiteSpace(redirectUri) ? "/" : redirectUri;
+    return Results.Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, ["GitHub"]);
+});
+
+app.MapGet("/api/auth/external-callback", () => Results.Redirect("/"));
 
 app.MapGet("/api/workflows", async (
     int? limit,
@@ -75,6 +151,112 @@ app.MapPut("/api/ai-settings", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
+});
+
+app.MapGet("/api/integrations", async (
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) => Results.Ok(await integrations.ListAsync(cancellationToken)));
+
+app.MapPost("/api/integrations/github", async (
+    CreateGitHubIntegrationRequest request,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var integration = await integrations.CreateGitHubIntegrationAsync(request, GetRequestBaseUri(httpRequest), cancellationToken);
+        return Results.Created($"/api/integrations/{integration.Id}", integration);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
+app.MapGet("/api/integrations/{integrationId:guid}", async (
+    Guid integrationId,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    var integration = await integrations.GetAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
+    return integration is null ? Results.NotFound() : Results.Ok(integration);
+});
+
+app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
+    Guid integrationId,
+    UpdateGitHubAppRequest request,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var integration = await integrations.UpdateGitHubAppAsync(integrationId, request, GetRequestBaseUri(httpRequest), cancellationToken);
+        return integration is null ? Results.NotFound() : Results.Ok(integration);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
+app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
+    Guid integrationId,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    var integration = await integrations.RotateWebhookSecretAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
+    return integration is null ? Results.NotFound() : Results.Ok(integration);
+});
+
+app.MapPost("/api/integrations/{integrationId:guid}/repositories", async (
+    Guid integrationId,
+    AddConnectedRepositoryRequest request,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var repository = await integrations.AddRepositoryAsync(integrationId, request, cancellationToken);
+        return repository is null ? Results.NotFound() : Results.Created($"/api/integrations/{integrationId}/repositories/{repository.Id}", repository);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
+app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
+    Guid integrationId,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    var repositories = await integrations.ListRepositoriesAsync(integrationId, cancellationToken);
+    return repositories is null ? Results.NotFound() : Results.Ok(repositories);
+});
+
+app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
+    Guid integrationId,
+    UpdateIdentityProviderRequest request,
+    HttpRequest httpRequest,
+    ClaimsPrincipal user,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (request.Enabled && user.Identity?.IsAuthenticated != true)
+    {
+        return Results.Unauthorized();
+    }
+
+    var integration = await integrations.SetIdentityProviderEnabledAsync(integrationId, request.Enabled, GetRequestBaseUri(httpRequest), cancellationToken);
+    return integration is null ? Results.NotFound() : Results.Ok(integration);
 });
 
 app.MapPost("/api/workflows/github-issue", async (
@@ -132,3 +314,13 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static Uri GetRequestBaseUri(HttpRequest request)
+    => new($"{request.Scheme}://{request.Host}");
+
+static bool IsAnonymousPath(PathString path)
+    => path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/api/webhooks", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase)
+        || path.Value is "/favicon.ico" or "/index.html";

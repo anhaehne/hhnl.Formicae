@@ -5,6 +5,7 @@ hhnl.Formicae is a Kubernetes-native MVP for running agent workflows from DevOps
 ## Current MVP
 
 - ASP.NET Core API for manual workflow triggers and workflow reads.
+- Management UI for workflows, AI settings, and GitHub integration setup.
 - Background orchestration loop that advances queued workflows.
 - PostgreSQL-ready EF Core persistence with an initial migration.
 - Worker-based agent execution: the API schedules Kubernetes worker Jobs, workers run OpenHands/Codex inside the worker container, and live agent messages stream back to the API.
@@ -126,6 +127,20 @@ Important settings:
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the Formicae worker image used by agent Jobs.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
+
+## GitHub Integrations
+
+The Integrations page creates GitHub App configuration records, generates the webhook secret, displays the public webhook and callback URLs, and stores connected repositories after the GitHub App is installed or granted access. Client secrets are represented by a secure reference and are not returned by the API as clear text.
+
+For a GitHub App, configure:
+
+- Callback URL: `<public Formicae URL>/api/auth/external-callback`
+- Webhook URL: `<public Formicae URL>/api/webhooks/github`
+- Webhook content type: `application/json`
+- Repository permissions: issues, pull requests, contents, and metadata
+- Webhook events: issues, issue comments, pull requests, pull request reviews, and pull request review comments
+
+GitHub can be enabled as an external identity provider from an integration detail page. Enabling currently persists `requiresRestart=true`; restart the API so the GitHub OAuth scheme uses the persisted integration. Once any integration has identity-provider mode enabled, Formicae requires authenticated access for app/API routes except health checks, static assets, auth endpoints, and webhooks.
 
 ## Architecture
 
