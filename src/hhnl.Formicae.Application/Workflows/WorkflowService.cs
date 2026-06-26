@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace hhnl.Formicae.Application.Workflows;
 
 public sealed class WorkflowService
@@ -73,6 +75,69 @@ public sealed class WorkflowService
             .Select(run => run.ToResponse())
             .ToArray();
 
+    public async Task<WorkflowSummaryResponse?> RetryTaskRunAsync(Guid workflowId, Guid taskRunId, CancellationToken cancellationToken)
+    {
+        var workflow = await store.GetWorkflowAsync(workflowId, cancellationToken);
+        if (workflow is null)
+        {
+            return null;
+        }
+
+        var runs = await store.ListTaskRunsAsync(workflowId, cancellationToken);
+        var run = runs.FirstOrDefault(candidate => candidate.Id == taskRunId);
+        if (run is null)
+        {
+            return null;
+        }
+
+        if (run.Status != TaskRunStatus.Failed)
+        {
+            throw new InvalidOperationException("Only failed task runs can be retried.");
+        }
+
+        var retryState = GetRetryWorkflowState(run.Kind);
+        var now = clock.UtcNow;
+
+        run.Status = TaskRunStatus.Queued;
+        run.ExternalId = null;
+        run.Output = null;
+        run.FailureReason = null;
+        run.StartedAt = null;
+        run.CompletedAt = null;
+        run.UpdatedAt = now;
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+
+        workflow.Status = retryState.Status;
+        workflow.CurrentStep = retryState.Step;
+        workflow.FailureReason = null;
+        workflow.UpdatedAt = now;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+
+        var message = $"{run.Kind} task queued for retry.";
+        await store.AddEventAsync(new WorkflowEvent
+        {
+            WorkflowId = workflow.Id,
+            TaskRunId = run.Id,
+            Type = WorkflowEventTypes.WorkflowTransitioned,
+            Message = message,
+            DetailsJson = JsonSerializer.Serialize(new
+            {
+                taskRunId = run.Id,
+                taskKind = run.Kind.ToString()
+            }),
+            CreatedAt = now
+        }, cancellationToken);
+        await store.AddLogAsync(new WorkflowLog
+        {
+            WorkflowId = workflow.Id,
+            TaskRunId = run.Id,
+            Message = message,
+            CreatedAt = now
+        }, cancellationToken);
+
+        return workflow.ToSummary();
+    }
+
     public async Task<WorkflowEventResponse[]> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
         => (await store.ListEventsAsync(workflowId, cancellationToken))
             .Select(evt => evt.ToResponse())
@@ -100,4 +165,14 @@ public sealed class WorkflowService
 
     public Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken)
         => store.ListLogsAsync(workflowId, cancellationToken);
+
+    private static (WorkflowStatus Status, WorkflowStep Step) GetRetryWorkflowState(TaskRunKind kind)
+        => kind switch
+        {
+            TaskRunKind.Plan => (WorkflowStatus.Planning, WorkflowStep.Plan),
+            TaskRunKind.Implement => (WorkflowStatus.Implementing, WorkflowStep.Implement),
+            TaskRunKind.CreatePullRequest => (WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest),
+            TaskRunKind.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
+        };
 }

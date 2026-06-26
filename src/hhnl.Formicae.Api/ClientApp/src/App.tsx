@@ -20,6 +20,7 @@ import {
   listSignals,
   listWorkflows,
   restartIdentityProvider,
+  retryTaskRun,
   rotateWebhookSecret,
   setIdentityProviderEnabled,
   startWorkflow,
@@ -107,6 +108,7 @@ export default function App() {
   const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [retryingRunId, setRetryingRunId] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
@@ -278,6 +280,42 @@ export default function App() {
       window.clearInterval(refreshInterval);
     };
   }, [selectedWorkflowId, workflows]);
+
+  async function refreshWorkflowDetail(workflowId: string) {
+    const [workflow, runs, logs, events, signals, chatMessages] = await Promise.all([
+      getWorkflow(workflowId),
+      listRuns(workflowId),
+      listLogs(workflowId),
+      listEvents(workflowId),
+      listSignals(workflowId),
+      listChatMessages(workflowId)
+    ]);
+    setDetail({ workflow, runs, logs, events, signals, chatMessages, loading: false });
+  }
+
+  async function handleRetryRun(run: TaskRun) {
+    const workflowId = detail.workflow?.workflowId ?? selectedWorkflowId;
+    if (!workflowId) {
+      return;
+    }
+
+    setRetryingRunId(run.id);
+    setDetail(current => ({ ...current, error: undefined }));
+    try {
+      const workflow = await retryTaskRun(workflowId, run.id);
+      setDetail(current => ({ ...current, workflow, loading: false }));
+      await refreshWorkflowDetail(workflowId);
+      await refreshWorkflows();
+    } catch (error) {
+      setDetail(current => ({
+        ...current,
+        loading: false,
+        error: error instanceof Error ? error.message : "Could not retry task run."
+      }));
+    } finally {
+      setRetryingRunId(undefined);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -660,13 +698,26 @@ export default function App() {
               <section>
                 <h3>Task Runs</h3>
                 <div className="run-list">
-                  {detail.runs.map(run => (
+                  {detail.runs.map(run => {
+                    const runStatus = formatEnum(run.status, taskRunStatuses);
+                    const retrying = retryingRunId === run.id;
+                    return (
                     <article className="run-card" key={run.id}>
                       <div className="run-meta">
                         <strong>{formatEnum(run.kind, taskRunKinds)}</strong>
-                        <StatusBadge value={formatEnum(run.status, taskRunStatuses)} />
+                        <StatusBadge value={runStatus} />
                         <span>{formatDate(run.updatedAt)}</span>
                         <span>{formatDuration(run.startedAt, run.completedAt)}</span>
+                        {runStatus === "Failed" ? (
+                          <button
+                            type="button"
+                            className="secondary-button run-action-button"
+                            onClick={() => void handleRetryRun(run)}
+                            disabled={retrying}
+                          >
+                            {retrying ? "Retrying" : "Retry"}
+                          </button>
+                        ) : null}
                       </div>
                       {run.failureReason ? <p className="error-text">{run.failureReason}</p> : null}
                       {run.agentMessages.length > 0 ? (
@@ -682,7 +733,8 @@ export default function App() {
                       ) : null}
                       {run.output ? <Expandable title="Raw Output" content={run.output} pre /> : <p className="muted">No output recorded.</p>}
                     </article>
-                  ))}
+                    );
+                  })}
                   {detail.runs.length === 0 ? <p className="muted">No task runs recorded.</p> : null}
                 </div>
               </section>

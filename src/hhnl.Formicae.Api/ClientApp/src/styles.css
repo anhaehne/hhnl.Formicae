@@ -227,6 +227,12 @@ select:focus {
   color: #202124;
 }
 
+.run-action-button {
+  margin-left: auto;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.62;

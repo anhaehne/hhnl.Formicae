@@ -450,6 +450,30 @@ app.MapGet("/api/workflows/{workflowId:guid}/runs", async (
     WorkflowService workflowService,
     CancellationToken cancellationToken) => Results.Ok(await workflowService.ListRunsAsync(workflowId, cancellationToken)));
 
+app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", async (
+    Guid workflowId,
+    Guid taskRunId,
+    WorkflowService workflowService,
+    WorkflowTickNotifier notifier,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var workflow = await workflowService.RetryTaskRunAsync(workflowId, taskRunId, cancellationToken);
+        if (workflow is null)
+        {
+            return Results.NotFound();
+        }
+
+        notifier.Signal();
+        return Results.Ok(workflow);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
 app.MapGet("/api/workflows/{workflowId:guid}/events", async (
     Guid workflowId,
     WorkflowService workflowService,

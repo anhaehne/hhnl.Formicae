@@ -229,6 +229,10 @@ export async function listRuns(workflowId: string): Promise<TaskRun[]> {
   return send<TaskRun[]>(`/api/workflows/${encodeURIComponent(workflowId)}/runs`);
 }
 
+export async function retryTaskRun(workflowId: string, taskRunId: string): Promise<WorkflowSummary> {
+  return send<WorkflowSummary>(`/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(taskRunId)}/retry`, { method: "POST" });
+}
+
 export async function listLogs(workflowId: string): Promise<WorkflowLog[]> {
   return send<WorkflowLog[]>(`/api/workflows/${encodeURIComponent(workflowId)}/logs`);
 }
