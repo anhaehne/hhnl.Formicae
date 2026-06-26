@@ -31,7 +31,8 @@ internal sealed record WorkerEnvironment(
     string ExternalId,
     Uri? CallbackUrl,
     string? CallbackSecret,
-    string ContextPath)
+    string ContextPath,
+    string? GitAccessToken)
 {
     public static WorkerEnvironment Load()
     {
@@ -47,7 +48,8 @@ internal sealed record WorkerEnvironment(
             Optional("FORMICAE_EXTERNAL_ID") ?? Environment.MachineName,
             Uri.TryCreate(Optional("FORMICAE_WORKER_CALLBACK_URL"), UriKind.Absolute, out var callbackUrl) ? callbackUrl : null,
             Optional("FORMICAE_WORKER_CALLBACK_SECRET"),
-            Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context");
+            Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context",
+            Optional("FORMICAE_GIT_ACCESS_TOKEN"));
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
@@ -85,7 +87,8 @@ internal static class WorkerCommand
         if (environment.RequiresRepositoryCheckout)
         {
             workingDirectory = "/workspace/repo";
-            var cloneExit = await RunProcessAsync("git", ["clone", environment.RepositoryUrl, workingDirectory], null, reporter, cancellationToken);
+            var repositoryUrl = BuildAuthenticatedRepositoryUrl(environment.RepositoryUrl, environment.GitAccessToken);
+            var cloneExit = await RunProcessAsync("git", ["clone", repositoryUrl, workingDirectory], null, reporter, cancellationToken, environment.GitAccessToken);
             if (cloneExit != 0)
             {
                 return cloneExit;
@@ -98,7 +101,7 @@ internal static class WorkerCommand
                 new[] { "config", "user.name", "Formicae Agent" }
             })
             {
-                var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken);
+                var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
                 if (exit != 0)
                 {
                     return exit;
@@ -114,7 +117,7 @@ internal static class WorkerCommand
         }
 
         args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
-        var codexExit = await RunProcessAsync("npx", args, workingDirectory, reporter, cancellationToken);
+        var codexExit = await RunProcessAsync("npx", args, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
         if (codexExit != 0 || !environment.RequiresRepositoryCheckout)
         {
             return codexExit;
@@ -127,7 +130,7 @@ internal static class WorkerCommand
             return 0;
         }
 
-        var addExit = await RunProcessAsync("git", ["add", "-A"], workingDirectory, reporter, cancellationToken);
+        var addExit = await RunProcessAsync("git", ["add", "-A"], workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
         if (addExit != 0)
         {
             return addExit;
@@ -136,13 +139,45 @@ internal static class WorkerCommand
         var subject = environment.TaskKind == "AddressComments"
             ? $"Address comments for Formicae workflow {environment.WorkflowId:N}"
             : $"Implement Formicae workflow {environment.WorkflowId:N}";
-        var commitExit = await RunProcessAsync("git", ["commit", "-m", subject], workingDirectory, reporter, cancellationToken);
+        var commitExit = await RunProcessAsync("git", ["commit", "-m", subject], workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
         if (commitExit != 0)
         {
             return commitExit;
         }
 
-        return await RunProcessAsync("git", ["push", "origin", environment.Branch], workingDirectory, reporter, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(environment.GitAccessToken))
+        {
+            var remoteExit = await RunProcessAsync(
+                "git",
+                ["remote", "set-url", "origin", BuildAuthenticatedRepositoryUrl(environment.RepositoryUrl, environment.GitAccessToken)],
+                workingDirectory,
+                reporter,
+                cancellationToken,
+                environment.GitAccessToken);
+            if (remoteExit != 0)
+            {
+                return remoteExit;
+            }
+        }
+
+        return await RunProcessAsync("git", ["push", "origin", environment.Branch], workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
+    }
+
+    private static string BuildAuthenticatedRepositoryUrl(string repositoryUrl, string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)
+            || !Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return repositoryUrl;
+        }
+
+        var builder = new UriBuilder(uri)
+        {
+            UserName = "x-access-token",
+            Password = token
+        };
+        return builder.Uri.ToString();
     }
 
     private static void CopyCodexAuthIfMounted()
