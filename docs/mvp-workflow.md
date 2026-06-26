@@ -25,9 +25,12 @@ stateDiagram-v2
     Implementing --> Failed: implementation failed
     CreatingPullRequest --> Reviewing: PR created
     CreatingPullRequest --> Failed: PR creation failed
-    Reviewing --> AddressingComments: PR comments found
+    Reviewing --> Completed: PR merged
+    Reviewing --> Canceled: PR closed without merge
+    Reviewing --> AddressingComments: open PR has comments
     AddressingComments --> Completed: comments addressed
     AddressingComments --> Failed: comment-addressing failed
+    Completed --> Reviewing: new PR feedback webhook
     Completed --> [*]
     Failed --> [*]
     Canceled --> [*]
@@ -40,16 +43,16 @@ Each agent or integration step is stored as a task run:
 - `Plan`: fetches GitHub issue context and asks OpenHands to produce an implementation plan.
 - `Implement`: creates or reuses a branch and asks OpenHands to apply the plan.
 - `CreatePullRequest`: opens a pull request for the branch.
-- `AddressComments`: once the pull request has comments, asks the agent to address issue comments and review comments from the PR. For Codex subscription jobs, Formicae checks out the workflow branch first and performs the authenticated commit/push after the agent finishes. On success, Formicae posts a new marked top-level PR summary comment.
+- `AddressComments`: for an open pull request with comments, asks the agent to address issue comments and review comments from the PR. For Codex subscription jobs, Formicae checks out the workflow branch first and performs the authenticated commit/push after the agent finishes. On success, Formicae posts a new marked top-level PR summary comment.
 
 Completed task runs are reused on retry. This makes workflow advancement idempotent at the step level.
 Agent tasks are scheduled asynchronously. Starting a planning, implementation, or comment-addressing task creates or reuses the external Kubernetes Job, records its external id on the task run, and lets the orchestration loop continue processing other runnable workflows instead of waiting for that Job to finish. The API polls running task runs on later ticks, and the Kubernetes job runner also signals the orchestrator when a watched Job completes, fails, or times out so completion is picked up promptly. `AddressingComments` is shown as a diagram phase for readability; in persisted workflow state this is `Reviewing` with `CurrentStep = AddressComments`.
 
 
 If users respond to the issue plan before implementation starts, Formicae treats non-automation issue comments newer than the last successful plan as plan feedback. The workflow schedules another planning run before implementation, includes the previous plan and the newer issue comments in the prompt, updates the existing marked plan comment, and posts a separate marked summary comment describing that the plan was revised.
-After PR creation, the workflow remains in `Reviewing` until pull request comments exist. Comment monitoring reads both top-level PR issue comments and inline review comments, but ignores comments containing the hidden `<!-- formicae:... -->` marker so automation comments are not treated as user feedback even when the same account is used. When comments are found, the API orchestrator runs `AddressComments`; a successful run completes the workflow, and a failed run marks the workflow `Failed`.
+After PR creation, the workflow remains in `Reviewing` while the pull request is open. On each review tick, Formicae first reads the pull request status: a merged PR transitions the workflow to `Completed`, and a closed-unmerged PR transitions it to `Canceled`. Open pull requests continue through comment monitoring. Comment monitoring reads both top-level PR issue comments and inline review comments, but ignores comments containing the hidden `<!-- formicae:... -->` marker so automation comments are not treated as user feedback even when the same account is used. When comments are found, the API orchestrator runs `AddressComments`; a successful run posts the summary comment and completes the workflow, and a failed run marks the workflow `Failed`. Completed workflows can be requeued to `Reviewing` by later PR feedback webhooks, so additional review rounds are still processed without keeping an idle open PR permanently runnable.
 
-Later pull request comment or review webhooks requeue the completed workflow for another `AddressComments` pass when there are comments newer than the previous successful pass. Only those newer comments are reacted to as started and listed as comments to address. The full pull request conversation is written to `pull-request-conversation.md`, mounted in the agent container at `/workspace/formicae/context/pull-request-conversation.md`, and referenced from the prompt so the agent can pull in more context when needed.
+Later pull request comment or review webhooks requeue a completed workflow for another `AddressComments` pass when there are comments newer than the previous successful pass and the PR is still active. Pull request webhooks also wake the workflow loop promptly when a PR is closed. Merged PR webhooks can complete the workflow immediately; closed-unmerged PRs are canceled by the next review tick after Formicae reads the PR status. Only newer comments are reacted to as started and listed as comments to address. The full pull request conversation is written to `pull-request-conversation.md`, mounted in the agent container at `/workspace/formicae/context/pull-request-conversation.md`, and referenced from the prompt so the agent can pull in more context when needed.
 
 ## Local Iteration
 
