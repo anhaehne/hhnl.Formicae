@@ -38,7 +38,6 @@ public sealed class KubernetesJobOptions
     public int TimeoutSeconds { get; set; } = 1800;
     public int PollIntervalSeconds { get; set; } = 5;
     public bool DeleteFinishedJobs { get; set; }
-    public string RuntimeSecretName { get; set; } = "formicae-runtime-secrets";
     public string LlmApiKeySecretName { get; set; } = "openhands-llm-api-key";
     public string CodexAuthSecretName { get; set; } = string.Empty;
     public string CodexAuthSecretKey { get; set; } = "auth.json";
@@ -254,8 +253,6 @@ public sealed class KubernetesJobRunner(
         };
 
         var envFrom = new List<V1EnvFromSource>();
-        AddOptionalSecretEnvFrom(envFrom, options.Value.RuntimeSecretName);
-
         if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.ApiKey))
         {
             AddOptionalSecretEnvFrom(envFrom, options.Value.LlmApiKeySecretName);

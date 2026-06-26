@@ -33,7 +33,6 @@ data:
   KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
   KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
   KubernetesJobs__WorkerCallbackUrl: {{ default (printf "http://%s-api.%s.svc.cluster.local/api/worker/agent-messages" (include "formicae.fullname" .) .Release.Namespace) .Values.config.kubernetesJobsWorkerCallbackUrl | quote }}
-  KubernetesJobs__RuntimeSecretName: {{ .Values.secrets.runtimeSecretName | quote }}
   KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
   KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.agentJobs.codexAuth.secretName "" .Values.agentJobs.codexAuth.enabled | quote }}
   KubernetesJobs__CodexAuthSecretKey: {{ .Values.agentJobs.codexAuth.secretKey | quote }}

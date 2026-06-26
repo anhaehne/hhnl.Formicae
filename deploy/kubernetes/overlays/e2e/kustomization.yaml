@@ -31,7 +31,6 @@ patches:
         POSTGRES_USER: "formicae"
         POSTGRES_PASSWORD: "formicae-e2e"
         LLM_API_KEY: "e2e-unused"
-        GITHUB_TOKEN: "e2e-unused"
 images:
   - name: docker.io/limeray/hhnl-formicae-api
     newName: localhost/hhnl-formicae-api

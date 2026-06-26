@@ -82,19 +82,8 @@ internal static class WorkerCommand
         var workingDirectory = "/workspace";
         if (environment.RequiresRepositoryCheckout)
         {
-            var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                await reporter.ReportAsync("worker-error", "GITHUB_TOKEN is required to push workflow changes.", cancellationToken);
-                return 1;
-            }
-
             workingDirectory = "/workspace/repo";
-            var repo = environment.RepositoryUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                ? environment.RepositoryUrl["https://".Length..]
-                : environment.RepositoryUrl;
-            var cloneUrl = $"https://x-access-token:{token}@{repo}";
-            var cloneExit = await RunProcessAsync("git", ["clone", cloneUrl, workingDirectory], null, reporter, cancellationToken, redact: token);
+            var cloneExit = await RunProcessAsync("git", ["clone", environment.RepositoryUrl, workingDirectory], null, reporter, cancellationToken);
             if (cloneExit != 0)
             {
                 return cloneExit;
@@ -103,12 +92,11 @@ internal static class WorkerCommand
             foreach (var command in new[]
             {
                 new[] { "checkout", environment.Branch },
-                new[] { "remote", "set-url", "origin", cloneUrl },
                 new[] { "config", "user.email", "formicae@example.invalid" },
                 new[] { "config", "user.name", "Formicae Agent" }
             })
             {
-                var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken, redact: token);
+                var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken);
                 if (exit != 0)
                 {
                     return exit;

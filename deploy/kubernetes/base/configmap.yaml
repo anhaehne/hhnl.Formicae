@@ -33,7 +33,6 @@ data:
   KubernetesJobs__PollIntervalSeconds: "5"
   KubernetesJobs__DeleteFinishedJobs: "false"
   KubernetesJobs__WorkerCallbackUrl: "http://formicae-api.formicae.svc.cluster.local/api/worker/agent-messages"
-  KubernetesJobs__RuntimeSecretName: "formicae-runtime-secrets"
   KubernetesJobs__LlmApiKeySecretName: "openhands-llm-api-key"
   KubernetesJobs__CodexAuthSecretName: ""
   KubernetesJobs__CodexAuthSecretKey: "auth.json"

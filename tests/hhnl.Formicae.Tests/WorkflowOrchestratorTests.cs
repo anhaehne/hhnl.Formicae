@@ -1607,7 +1607,6 @@ public sealed class AdapterContractTests
             Namespace = "formicae",
             PollIntervalSeconds = 1,
             TimeoutSeconds = 5,
-            RuntimeSecretName = "formicae-runtime-secrets",
             LlmApiKeySecretName = "openhands-llm-api-key",
             CodexAuthSecretName = "formicae-codex-auth"
         }), []);
@@ -1628,7 +1627,6 @@ public sealed class AdapterContractTests
         var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
         Assert.Equal("worker:test", container.Image);
         Assert.Contains(container.Env, env => env.Name == "FORMICAE_TASK_KIND" && env.Value == "Plan");
-        Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "formicae-runtime-secrets");
         Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
         Assert.Null(container.VolumeMounts);
         Assert.Null(api.CreatedJob.Spec.Template.Spec.Volumes);
@@ -1663,7 +1661,6 @@ public sealed class AdapterContractTests
             Namespace = "formicae",
             PollIntervalSeconds = 1,
             TimeoutSeconds = 5,
-            RuntimeSecretName = "formicae-runtime-secrets",
             LlmApiKeySecretName = "openhands-llm-api-key",
             CodexAuthSecretName = "formicae-codex-auth"
         }), []);
@@ -1684,8 +1681,7 @@ public sealed class AdapterContractTests
         var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
         Assert.Equal("node:22-bookworm-slim", container.Image);
         Assert.Contains(container.Env, env => env.Name == "CODEX_HOME" && env.Value == "/tmp/codex-home");
-        Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "formicae-runtime-secrets");
-        Assert.DoesNotContain(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
+        Assert.Null(container.EnvFrom);
         Assert.Contains(container.VolumeMounts, mount => mount.Name == "codex-auth" && mount.MountPath == "/root/.codex");
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
     }
