@@ -65,6 +65,7 @@ internal static class WorkerCommand
 {
     public static async Task<int> RunAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
     {
+        Directory.CreateDirectory("/workspace");
         if (environment.UsesCodexSubscription)
         {
             return await RunCodexAsync(environment, reporter, cancellationToken);
