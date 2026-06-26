@@ -43,6 +43,7 @@ public sealed class KubernetesJobOptions
     public string CodexAuthSecretKey { get; set; } = "auth.json";
     public string CodexAuthMountPath { get; set; } = "/root/.codex";
     public string WorkerCallbackUrl { get; set; } = string.Empty;
+    public string WorkerCallbackSecret { get; set; } = string.Empty;
 }
 
 public interface IKubernetesJobApi

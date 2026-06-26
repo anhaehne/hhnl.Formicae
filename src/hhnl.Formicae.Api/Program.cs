@@ -1,10 +1,14 @@
 using hhnl.Formicae.Api;
+using hhnl.Formicae.Application.Management;
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure;
+using hhnl.Formicae.Infrastructure.Identity;
+using hhnl.Formicae.Infrastructure.Kubernetes;
 using hhnl.Formicae.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -24,16 +28,46 @@ builder.Services.AddScoped<GitHubWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 builder.Services
     .AddIdentityCore<FormicaeUser>()
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<FormicaeDbContext>()
     .AddSignInManager();
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = IdentityConstants.ApplicationScheme;
-        options.DefaultChallengeScheme = "GitHub";
+        options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme;
     })
-    .AddCookie(IdentityConstants.ApplicationScheme)
+    .AddCookie(IdentityConstants.ApplicationScheme, options =>
+    {
+        options.Events.OnRedirectToLogin = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            }
+
+            context.Response.Redirect(BuildGitHubChallengeUrl(context.Request));
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            }
+
+            context.Response.Redirect("/?auth=unauthorized");
+            return Task.CompletedTask;
+        };
+    })
     .AddOAuth("GitHub", _ => { });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(ManagementAuthorization.PolicyName, policy =>
+        policy.Requirements.Add(new ManagementAuthorizedRequirement()));
+});
+builder.Services.AddScoped<IAuthorizationHandler, ManagementAuthorizedHandler>();
 builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, GitHubOAuthOptionsConfiguration>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
@@ -53,43 +87,26 @@ app.MapHealthChecks("/healthz");
 
 app.UseAuthentication();
 app.UseAuthorization();
-app.Use(async (context, next) =>
+
+app.MapGet("/api/auth/current-user", async (
+    ClaimsPrincipal principal,
+    ManagementUserService users,
+    UserManager<FormicaeUser> userManager) =>
 {
-    if (IsAnonymousPath(context.Request.Path))
+    if (principal.Identity?.IsAuthenticated != true)
     {
-        await next();
-        return;
+        return Results.Ok(new { authenticated = false, authorized = false });
     }
 
-    var store = context.RequestServices.GetRequiredService<IDevOpsIntegrationStore>();
-    if (!await store.AnyIdentityProviderEnabledAsync(context.RequestAborted)
-        || context.User.Identity?.IsAuthenticated == true)
-    {
-        await next();
-        return;
-    }
-
-    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-    {
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return;
-    }
-
-    context.Response.Redirect(BuildGitHubChallengeUrl(context.Request));
-});
-
-app.MapGet("/api/auth/current-user", (ClaimsPrincipal user) =>
-{
-    if (user.Identity?.IsAuthenticated != true)
-    {
-        return Results.Ok(new { authenticated = false });
-    }
-
+    var user = await users.GetCurrentUserAsync(principal);
+    var logins = user is null ? Array.Empty<UserLoginInfo>() : await userManager.GetLoginsAsync(user);
     return Results.Ok(new
     {
         authenticated = true,
-        name = user.Identity.Name,
-        claims = user.Claims.Select(claim => new { claim.Type, claim.Value }).ToArray()
+        authorized = await users.IsAuthorizedAsync(principal),
+        name = user?.DisplayName ?? principal.Identity.Name,
+        email = user?.Email,
+        provider = logins.FirstOrDefault()?.LoginProvider
     });
 });
 
@@ -155,6 +172,8 @@ app.MapGet("/api/auth/github/callback", async (
     string? setup_action,
     HttpContext context,
     DevOpsIntegrationService integrations,
+    ManagementUserService managementUsers,
+    SignInManager<FormicaeUser> signInManager,
     CancellationToken cancellationToken) =>
 {
     if (installation_id.HasValue || !string.IsNullOrWhiteSpace(setup_action))
@@ -193,24 +212,21 @@ app.MapGet("/api/auth/github/callback", async (
     integration.UpdatedAt = DateTimeOffset.UtcNow;
     await context.RequestServices.GetRequiredService<IDevOpsIntegrationStore>().UpdateAsync(integration, cancellationToken);
 
-    var user = await client.User.Current();
+    var gitHubUser = await client.User.Current();
+    var displayName = string.IsNullOrWhiteSpace(gitHubUser.Name) ? gitHubUser.Login : gitHubUser.Name;
+    var user = await managementUsers.FindOrCreateExternalUserAsync(new ExternalUserProfile(
+        "GitHub",
+        gitHubUser.Id.ToString(),
+        "GitHub",
+        gitHubUser.Login,
+        displayName,
+        gitHubUser.Email), cancellationToken);
 
-    var claims = new List<Claim>
-    {
-        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new(ClaimTypes.Name, user.Login)
-    };
-    if (!string.IsNullOrWhiteSpace(user.Email))
-    {
-        claims.Add(new Claim(ClaimTypes.Email, user.Email));
-    }
-
-    var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, IdentityConstants.ApplicationScheme));
     var properties = new AuthenticationProperties { IsPersistent = false };
     properties.StoreTokens([
         new AuthenticationToken { Name = "access_token", Value = token.AccessToken }
     ]);
-    await context.SignInAsync(IdentityConstants.ApplicationScheme, principal, properties);
+    await signInManager.SignInAsync(user, properties);
 
     return Results.Redirect(parts[2]);
 });
@@ -261,7 +277,58 @@ app.MapGet("/api/auth/github/repositories", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
+
+app.MapPost("/api/auth/invites", async (
+    ClaimsPrincipal user,
+    InviteService invites,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Created("/api/auth/invites", await invites.CreateInviteAsync(user, cancellationToken));
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.Forbid();
+    }
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
+
+app.MapGet("/api/auth/invites", async (
+    ClaimsPrincipal user,
+    InviteService invites,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await invites.ListInvitesAsync(user, cancellationToken));
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.Forbid();
+    }
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
+
+app.MapPost("/api/auth/invites/redeem", async (
+    RedeemInviteRequest request,
+    ClaimsPrincipal user,
+    InviteService invites,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        await invites.RedeemInviteAsync(user, request.Code, cancellationToken);
+        return Results.NoContent();
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+}).RequireAuthorization();
 
 app.MapGet("/api/workflows", async (
     int? limit,
@@ -274,10 +341,19 @@ app.MapGet("/api/workflows", async (
 
 app.MapPost("/api/worker/agent-messages", async (
     WorkerAgentMessageRequest request,
+    HttpRequest httpRequest,
     WorkerAgentMessageService workerMessages,
     WorkflowTickNotifier notifier,
+    IOptions<KubernetesJobOptions> kubernetesJobOptions,
     CancellationToken cancellationToken) =>
 {
+    var callbackSecret = kubernetesJobOptions.Value.WorkerCallbackSecret;
+    if (!string.IsNullOrWhiteSpace(callbackSecret)
+        && !string.Equals(httpRequest.Headers["X-Formicae-Worker-Callback-Secret"].FirstOrDefault(), callbackSecret, StringComparison.Ordinal))
+    {
+        return Results.Unauthorized();
+    }
+
     var accepted = await workerMessages.RecordAsync(request, cancellationToken);
     if (!accepted)
     {
@@ -310,7 +386,7 @@ app.MapPut("/api/ai-settings", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapGet("/api/integrations", async (
     DevOpsIntegrationService integrations,
@@ -339,7 +415,7 @@ app.MapPost("/api/integrations/github", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapGet("/api/integrations/{integrationId:guid}", async (
     Guid integrationId,
@@ -359,7 +435,7 @@ app.MapDelete("/api/integrations/{integrationId:guid}", async (
     return await integrations.DeleteAsync(integrationId, cancellationToken)
         ? Results.NoContent()
         : Results.NotFound();
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     Guid integrationId,
@@ -385,7 +461,7 @@ app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
     Guid integrationId,
     HttpRequest httpRequest,
@@ -394,7 +470,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
 {
     var integration = await integrations.RotateWebhookSecretAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
     return integration is null ? Results.NotFound() : Results.Ok(integration);
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapPost("/api/integrations/{integrationId:guid}/repositories", async (
     Guid integrationId,
@@ -415,7 +491,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/repositories", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
     Guid integrationId,
@@ -439,17 +515,45 @@ app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId
         true => Results.NoContent(),
         false => Results.NotFound()
     };
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     Guid integrationId,
     UpdateIdentityProviderRequest request,
     HttpRequest httpRequest,
+    ClaimsPrincipal user,
     DevOpsIntegrationService integrations,
+    ManagementUserService managementUsers,
+    IAuthorizationService authorization,
+    IOptions<ManagementAuthOptions> authOptions,
+    IHostEnvironment environment,
     CancellationToken cancellationToken) =>
 {
     try
     {
+        if (authOptions.Value.Enabled
+            && !(authOptions.Value.BypassForLocalDevelopment && environment.IsDevelopment()))
+        {
+            if (request.Enabled)
+            {
+                var currentUser = await managementUsers.GetCurrentUserAsync(user);
+                if (currentUser is null)
+                {
+                    return Results.Unauthorized();
+                }
+
+                await managementUsers.GrantAuthorizedUserAsync(currentUser, cancellationToken);
+            }
+            else
+            {
+                var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.PolicyName);
+                if (!authResult.Succeeded)
+                {
+                    return user.Identity?.IsAuthenticated == true ? Results.Forbid() : Results.Unauthorized();
+                }
+            }
+        }
+
         var integration = await integrations.SetIdentityProviderEnabledAsync(integrationId, request.Enabled, GetRequestBaseUri(httpRequest), cancellationToken);
         return integration is null ? Results.NotFound() : Results.Ok(integration);
     }
@@ -485,7 +589,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/identity-provider/restart", 
     }, CancellationToken.None);
 
     return integration is null ? Results.NotFound() : Results.Ok(integration);
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
@@ -501,7 +605,7 @@ app.MapPost("/api/workflows/github-issue", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapGet("/api/workflows/{workflowId:guid}", async (
     Guid workflowId,
@@ -539,7 +643,7 @@ app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", asyn
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
     Guid workflowId,
@@ -562,7 +666,7 @@ app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(ManagementAuthorization.PolicyName);
 
 app.MapGet("/api/workflows/{workflowId:guid}/events", async (
     Guid workflowId,
@@ -657,14 +761,4 @@ static Uri GetPublicBaseUri(HttpRequest request)
     return new Uri($"{scheme}://{host}");
 }
 
-static bool IsAnonymousPath(PathString path)
-    => IsIdentityProviderRestartPath(path)
-        || path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/api/webhooks", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase)
-        || path.Value is "/favicon.ico" or "/index.html";
-
-static bool IsIdentityProviderRestartPath(PathString path)
-    => path.Value?.Contains("/identity-provider/restart", StringComparison.OrdinalIgnoreCase) == true
-        && path.StartsWithSegments("/api/integrations", StringComparison.OrdinalIgnoreCase);
+public partial class Program;

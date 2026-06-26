@@ -4,10 +4,13 @@ import {
   addConnectedRepository,
   AiSettings,
   ConnectedRepository,
+  createInvite,
   createGitHubIntegration,
+  CurrentUser,
   deleteConnectedRepository,
   deleteIntegration,
   getAiSettings,
+  getCurrentUser,
   getIntegration,
   getWorkflow,
   GitHubUserRepository,
@@ -21,6 +24,8 @@ import {
   listRuns,
   listSignals,
   listWorkflows,
+  logout,
+  redeemInvite,
   restartIdentityProvider,
   retryTaskRun,
   retryWorkflow,
@@ -136,11 +141,31 @@ export default function App() {
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [addingRepositoryUrl, setAddingRepositoryUrl] = useState<string>();
   const [removingRepositoryId, setRemovingRepositoryId] = useState<string>();
+  const [currentUser, setCurrentUser] = useState<CurrentUser>();
+  const [authError, setAuthError] = useState<string>();
+  const [inviteCode, setInviteCode] = useState<string>();
+  const [redeemCode, setRedeemCode] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+
+  const canMutate = !currentUser?.authenticated || currentUser.authorized;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
     [detail.workflow, selectedWorkflowId, workflows]
   );
+
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      setCurrentUser(await getCurrentUser());
+      setAuthError(undefined);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not load current user.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCurrentUser();
+  }, [refreshCurrentUser]);
 
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
@@ -570,6 +595,10 @@ export default function App() {
     if (!selectedIntegrationId) {
       return;
     }
+    if (enabled && currentUser?.authenticated === false) {
+      handleLogin();
+      return;
+    }
 
     setIntegrationError(undefined);
     setIntegrationSaved(undefined);
@@ -601,6 +630,56 @@ export default function App() {
     }
   }
 
+  function handleLogin() {
+    window.location.href = `/api/auth/github/challenge?returnUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
+
+  async function handleLogout() {
+    setAuthBusy(true);
+    setAuthError(undefined);
+    try {
+      await logout();
+      setCurrentUser({ authenticated: false, authorized: false });
+      setInviteCode(undefined);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not log out.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleCreateInvite() {
+    setAuthBusy(true);
+    setAuthError(undefined);
+    try {
+      const invite = await createInvite();
+      setInviteCode(invite.code ?? undefined);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not create invite.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleRedeemInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!redeemCode.trim()) {
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthError(undefined);
+    try {
+      await redeemInvite(redeemCode.trim());
+      setRedeemCode("");
+      await refreshCurrentUser();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not redeem invite.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -609,6 +688,18 @@ export default function App() {
           <h1>{activePage === "workflows" ? "Workflow Management" : activePage === "integrations" ? "Integrations" : activePage === "repositories" ? "Repositories" : "Settings"}</h1>
         </div>
         <div className="topbar-actions">
+          <AuthControls
+            currentUser={currentUser}
+            authError={authError}
+            inviteCode={inviteCode}
+            redeemCode={redeemCode}
+            busy={authBusy}
+            setRedeemCode={setRedeemCode}
+            onLogin={handleLogin}
+            onLogout={handleLogout}
+            onCreateInvite={handleCreateInvite}
+            onRedeemInvite={handleRedeemInvite}
+          />
           <nav className="app-menu" aria-label="Primary navigation">
             <button
               type="button"
@@ -701,7 +792,7 @@ export default function App() {
               </label>
             </div>
             {formError ? <p className="error-text">{formError}</p> : null}
-            <button type="submit" className="primary-button" disabled={submitting}>
+            <button type="submit" className="primary-button" disabled={submitting || !canMutate}>
               {submitting ? "Starting" : "Start Workflow"}
             </button>
           </form>
@@ -747,7 +838,7 @@ export default function App() {
                             event.stopPropagation();
                             void handleRetryWorkflow(workflow);
                           }}
-                          disabled={retryingWorkflowId === workflow.workflowId}
+                          disabled={retryingWorkflowId === workflow.workflowId || !canMutate}
                         >
                           {retryingWorkflowId === workflow.workflowId ? "Retrying" : "Retry"}
                         </button>
@@ -835,7 +926,7 @@ export default function App() {
                             type="button"
                             className="secondary-button run-action-button"
                             onClick={() => void handleRetryRun(run)}
-                            disabled={retrying}
+                            disabled={retrying || !canMutate}
                           >
                             {retrying ? "Retrying" : "Retry"}
                           </button>
@@ -916,6 +1007,7 @@ export default function App() {
           onDeleteIntegration={handleDeleteIntegration}
           onIdentityToggle={handleIdentityToggle}
           onIdentityRestart={handleIdentityRestart}
+          canMutate={canMutate}
         />
       ) : activePage === "repositories" ? (
         <RepositoriesPage
@@ -936,6 +1028,7 @@ export default function App() {
           onInstallGitHubApp={handleInstallGitHubApp}
           onAddRepository={handleAddRepository}
           onRemoveRepository={handleRemoveRepository}
+          canMutate={canMutate}
         />
       ) : (
         <SettingsPage
@@ -947,9 +1040,63 @@ export default function App() {
           aiSettingsSaved={aiSettingsSaved}
           setAiSettingsForm={setAiSettingsForm}
           onSubmit={handleAiSettingsSubmit}
+          canMutate={canMutate}
         />
       )}
     </main>
+  );
+}
+
+function AuthControls({
+  currentUser,
+  authError,
+  inviteCode,
+  redeemCode,
+  busy,
+  setRedeemCode,
+  onLogin,
+  onLogout,
+  onCreateInvite,
+  onRedeemInvite
+}: {
+  currentUser?: CurrentUser;
+  authError?: string;
+  inviteCode?: string;
+  redeemCode: string;
+  busy: boolean;
+  setRedeemCode: Dispatch<SetStateAction<string>>;
+  onLogin: () => void;
+  onLogout: () => void;
+  onCreateInvite: () => void;
+  onRedeemInvite: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="auth-controls">
+      <div className="auth-line">
+        {currentUser?.authenticated ? (
+          <>
+            <span className="auth-user">{currentUser.name ?? currentUser.email ?? currentUser.provider ?? "Signed in"}</span>
+            <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} />
+            <button type="button" className="secondary-button compact-button" onClick={onLogout} disabled={busy}>Logout</button>
+          </>
+        ) : (
+          <button type="button" className="secondary-button compact-button" onClick={onLogin} disabled={busy}>Login</button>
+        )}
+      </div>
+      {currentUser?.authorized ? (
+        <div className="auth-line">
+          <button type="button" className="secondary-button compact-button" onClick={onCreateInvite} disabled={busy}>Create Invite</button>
+          {inviteCode ? <code className="invite-code">{inviteCode}</code> : null}
+        </div>
+      ) : null}
+      {currentUser?.authenticated && !currentUser.authorized ? (
+        <form className="auth-line" onSubmit={onRedeemInvite}>
+          <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Invite code" />
+          <button type="submit" className="secondary-button compact-button" disabled={busy || !redeemCode.trim()}>Redeem</button>
+        </form>
+      ) : null}
+      {authError ? <span className="error-text auth-error">{authError}</span> : null}
+    </div>
   );
 }
 
@@ -969,7 +1116,8 @@ function IntegrationsPage({
   onRotateWebhookSecret,
   onDeleteIntegration,
   onIdentityToggle,
-  onIdentityRestart
+  onIdentityRestart,
+  canMutate
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -987,6 +1135,7 @@ function IntegrationsPage({
   onDeleteIntegration: () => void;
   onIdentityToggle: (enabled: boolean) => void;
   onIdentityRestart: () => void;
+  canMutate: boolean;
 }) {
   return (
     <section className="integrations-page">
@@ -1027,7 +1176,7 @@ function IntegrationsPage({
                 placeholder="-----BEGIN RSA PRIVATE KEY-----"
               />
             </label>
-            <button type="submit" className="primary-button" disabled={creatingIntegration}>
+            <button type="submit" className="primary-button" disabled={creatingIntegration || !canMutate}>
               {creatingIntegration ? "Creating" : "Create Integration"}
             </button>
           </form>
@@ -1069,12 +1218,13 @@ function IntegrationsPage({
                 <SummaryItem label="Install URL" value={integrationDetail.setupInstructions.installationUrl || "Not available"} mono />
                 <SummaryItem label="Webhook URL" value={integrationDetail.webhookUrl} mono />
                 <SummaryItem label="Webhook Secret" value={integrationDetail.webhookSecret} mono />
-                <SummaryItem label="Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
+                <SummaryItem label="OAuth Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
+                <SummaryItem label="Setup Callback URL" value={integrationDetail.setupInstructions.installationCallbackUrl} mono />
               </div>
 
               <div className="button-row">
-                <button type="button" className="secondary-button" onClick={onRotateWebhookSecret}>Rotate Webhook Secret</button>
-                <button type="button" className="secondary-button danger-button" onClick={onDeleteIntegration} disabled={deletingIntegration}>
+                <button type="button" className="secondary-button" onClick={onRotateWebhookSecret} disabled={!canMutate}>Rotate Webhook Secret</button>
+                <button type="button" className="secondary-button danger-button" onClick={onDeleteIntegration} disabled={deletingIntegration || !canMutate}>
                   {deletingIntegration ? "Removing" : "Remove Integration"}
                 </button>
               </div>
@@ -1086,6 +1236,7 @@ function IntegrationsPage({
                     type="checkbox"
                     checked={integrationDetail.identityProviderEnabled}
                     onChange={event => onIdentityToggle(event.target.checked)}
+                    disabled={!canMutate && integrationDetail.identityProviderEnabled}
                   />
                   <span>Use as identity provider</span>
                 </label>
@@ -1096,7 +1247,7 @@ function IntegrationsPage({
                       type="button"
                       className="secondary-button"
                       onClick={onIdentityRestart}
-                      disabled={restartingIdentityProvider}
+                      disabled={restartingIdentityProvider || !canMutate}
                     >
                       {restartingIdentityProvider ? "Restarting" : "Restart"}
                     </button>
@@ -1148,7 +1299,8 @@ function RepositoriesPage({
   onSelectIntegration,
   onInstallGitHubApp,
   onAddRepository,
-  onRemoveRepository
+  onRemoveRepository,
+  canMutate
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -1167,6 +1319,7 @@ function RepositoriesPage({
   onInstallGitHubApp: () => void;
   onAddRepository: (repository: GitHubUserRepository) => void;
   onRemoveRepository: (repository: ConnectedRepository) => void;
+  canMutate: boolean;
 }) {
   const connectedUrls = new Set((integrationDetail?.repositories ?? []).map(repository => repository.repositoryUrl.toLowerCase()));
   const available = availableRepositories.filter(repository => matchesRepository(repository, repositorySearch));
@@ -1182,7 +1335,7 @@ function RepositoriesPage({
             {integrations.map(integration => <option key={integration.id} value={integration.id}>{integration.displayName}</option>)}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl}>Install GitHub App</button>
+        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl || !canMutate}>Install GitHub App</button>
       </section>
 
       {repositoryError ? <p className="error-text repository-message">{repositoryError}</p> : null}
@@ -1206,6 +1359,7 @@ function RepositoriesPage({
                   repository={repository}
                   alreadyConnected={alreadyConnected}
                   adding={addingRepositoryUrl === repository.repositoryUrl}
+                  canMutate={canMutate}
                   onAdd={() => onAddRepository(repository)}
                   key={repository.repositoryUrl}
                 />
@@ -1229,6 +1383,7 @@ function RepositoriesPage({
               <RepositoryRow
                 repository={repository}
                 removing={removingRepositoryId === repository.id}
+                canMutate={canMutate}
                 onRemove={() => onRemoveRepository(repository)}
                 key={repository.id}
               />
@@ -1245,11 +1400,13 @@ function RepositoryCandidateRow({
   repository,
   alreadyConnected,
   adding,
+  canMutate,
   onAdd
 }: {
   repository: GitHubUserRepository;
   alreadyConnected: boolean;
   adding: boolean;
+  canMutate: boolean;
   onAdd: () => void;
 }) {
   return (
@@ -1261,7 +1418,7 @@ function RepositoryCandidateRow({
       {alreadyConnected ? (
         <StatusBadge value="Added" />
       ) : (
-        <button type="button" className="secondary-button" onClick={onAdd} disabled={adding}>{adding ? "Adding" : "Add"}</button>
+        <button type="button" className="secondary-button" onClick={onAdd} disabled={adding || !canMutate}>{adding ? "Adding" : "Add"}</button>
       )}
     </div>
   );
@@ -1279,10 +1436,12 @@ function matchesRepository(repository: { owner: string; name: string; repository
 function RepositoryRow({
   repository,
   removing,
+  canMutate,
   onRemove
 }: {
   repository: ConnectedRepository;
   removing: boolean;
+  canMutate: boolean;
   onRemove: () => void;
 }) {
   return (
@@ -1293,7 +1452,7 @@ function RepositoryRow({
       </div>
       <div className="repository-actions">
         <ExternalLink href={repository.repositoryUrl}>Open</ExternalLink>
-        <button type="button" className="secondary-button danger-button" onClick={onRemove} disabled={removing}>
+        <button type="button" className="secondary-button danger-button" onClick={onRemove} disabled={removing || !canMutate}>
           {removing ? "Removing" : "Remove"}
         </button>
       </div>
@@ -1309,7 +1468,8 @@ function SettingsPage({
   aiSettingsError,
   aiSettingsSaved,
   setAiSettingsForm,
-  onSubmit
+  onSubmit,
+  canMutate
 }: {
   aiSettings?: AiSettings;
   aiSettingsForm: AiSettingsFormState;
@@ -1319,6 +1479,7 @@ function SettingsPage({
   aiSettingsSaved?: string;
   setAiSettingsForm: Dispatch<SetStateAction<AiSettingsFormState>>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  canMutate: boolean;
 }) {
   return (
     <section className="settings-page">
@@ -1385,7 +1546,7 @@ function SettingsPage({
           </div>
           {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
           {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
-          <button type="submit" className="primary-button" disabled={savingAiSettings}>
+          <button type="submit" className="primary-button" disabled={savingAiSettings || !canMutate}>
             {savingAiSettings ? "Saving" : "Save AI Settings"}
           </button>
         </form>

@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 
 var environment = WorkerEnvironment.Load();
-using var reporter = new WorkerReporter(environment.CallbackUrl, environment.WorkflowId, environment.TaskKind, environment.ExternalId);
+using var reporter = new WorkerReporter(environment.CallbackUrl, environment.CallbackSecret, environment.WorkflowId, environment.TaskKind, environment.ExternalId);
 
 try
 {
@@ -30,6 +30,7 @@ internal sealed record WorkerEnvironment(
     string AuthMethod,
     string ExternalId,
     Uri? CallbackUrl,
+    string? CallbackSecret,
     string ContextPath,
     string? GitAccessToken)
 {
@@ -46,6 +47,7 @@ internal sealed record WorkerEnvironment(
             Optional("FORMICAE_OPENHANDS_AUTH_METHOD") ?? "ApiKey",
             Optional("FORMICAE_EXTERNAL_ID") ?? Environment.MachineName,
             Uri.TryCreate(Optional("FORMICAE_WORKER_CALLBACK_URL"), UriKind.Absolute, out var callbackUrl) ? callbackUrl : null,
+            Optional("FORMICAE_WORKER_CALLBACK_SECRET"),
             Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context",
             Optional("FORMICAE_GIT_ACCESS_TOKEN"));
     }
@@ -266,7 +268,7 @@ internal static class WorkerCommand
         => string.IsNullOrWhiteSpace(secret) ? value : value.Replace(secret, "***", StringComparison.Ordinal);
 }
 
-internal sealed class WorkerReporter(Uri? callbackUrl, Guid workflowId, string taskKind, string externalId) : IDisposable
+internal sealed class WorkerReporter(Uri? callbackUrl, string? callbackSecret, Guid workflowId, string taskKind, string externalId) : IDisposable
 {
     private readonly HttpClient http = new();
 
@@ -279,7 +281,16 @@ internal sealed class WorkerReporter(Uri? callbackUrl, Guid workflowId, string t
 
         try
         {
-            await http.PostAsJsonAsync(callbackUrl, new WorkerAgentMessage(workflowId, taskKind, externalId, stream, line, DateTimeOffset.UtcNow), JsonSerializerOptions.Web, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Post, callbackUrl)
+            {
+                Content = JsonContent.Create(new WorkerAgentMessage(workflowId, taskKind, externalId, stream, line, DateTimeOffset.UtcNow), options: JsonSerializerOptions.Web)
+            };
+            if (!string.IsNullOrWhiteSpace(callbackSecret))
+            {
+                request.Headers.Add("X-Formicae-Worker-Callback-Secret", callbackSecret);
+            }
+
+            await http.SendAsync(request, cancellationToken);
         }
         catch
         {

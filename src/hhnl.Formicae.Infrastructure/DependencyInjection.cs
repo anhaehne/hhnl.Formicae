@@ -2,6 +2,7 @@ using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
+using hhnl.Formicae.Infrastructure.Identity;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using hhnl.Formicae.Infrastructure.OpenHands;
 using hhnl.Formicae.Infrastructure.Persistence;
@@ -25,12 +26,17 @@ public static class DependencyInjection
         services.AddScoped<WorkerAgentMessageService>();
         services.AddScoped<AiSettingsService>();
         services.AddScoped<DevOpsIntegrationService>();
+        services.AddScoped<ManagementUserService>();
+        services.AddScoped<InviteService>();
         services.AddSingleton<IClock, SystemClock>();
+        services.Configure<ManagementAuthOptions>(configuration.GetSection("ManagementAuth"));
         services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
         services.Configure<OpenHandsOptions>(configuration.GetSection("OpenHands"));
         services.Configure<KubernetesJobOptions>(configuration.GetSection("KubernetesJobs"));
         services.AddSingleton<IPromptRenderer, FilePromptRenderer>();
+        services.AddScoped<IGitHubAppClient, GitHubAppClient>();
+        services.AddScoped<IGitHubClientFactory, GitHubClientFactory>();
 
         if (configuration.GetValue("UseFakeAdapters", true))
         {
@@ -61,9 +67,6 @@ public static class DependencyInjection
             services.AddScoped<IDevOpsIntegrationStore, EfDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
-
-        services.AddScoped<IGitHubAppClient, GitHubAppClient>();
-        services.AddScoped<IGitHubClientFactory, GitHubClientFactory>();
 
         if (IsMode(configuration, "WorkItemMode", "Fake"))
         {

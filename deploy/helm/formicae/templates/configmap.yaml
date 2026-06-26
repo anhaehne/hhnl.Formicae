@@ -19,6 +19,9 @@ data:
   WorkflowDiscovery__RepositoryUrl: {{ .Values.config.workflowDiscoveryRepositoryUrl | quote }}
   WorkflowDiscovery__BaseBranch: {{ .Values.config.workflowDiscoveryBaseBranch | quote }}
   WorkflowDiscovery__Model: {{ .Values.config.workflowDiscoveryModel | quote }}
+  ManagementAuth__Enabled: {{ .Values.config.managementAuthEnabled | quote }}
+  ManagementAuth__InviteCodeExpiration: {{ .Values.config.managementAuthInviteCodeExpiration | quote }}
+  ManagementAuth__BypassForLocalDevelopment: {{ .Values.config.managementAuthBypassForLocalDevelopment | quote }}
   OpenHands__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
   OpenHands__Shell: {{ .Values.config.openHandsShell | quote }}
   OpenHands__BootstrapCommand: {{ .Values.config.openHandsBootstrapCommand | quote }}

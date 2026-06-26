@@ -56,6 +56,56 @@ a:hover {
   justify-content: flex-end;
 }
 
+.auth-controls {
+  align-items: flex-end;
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.auth-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.auth-line input {
+  min-height: 32px;
+  width: min(220px, 44vw);
+}
+
+.auth-user {
+  color: #4a4f49;
+  font-size: 0.82rem;
+  font-weight: 650;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-button {
+  min-height: 32px;
+  padding: 5px 10px;
+}
+
+.invite-code {
+  background: #f3f5f1;
+  border: 1px solid #d7dbd2;
+  border-radius: 6px;
+  color: #202124;
+  font-size: 0.78rem;
+  max-width: min(380px, 70vw);
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+}
+
+.auth-error {
+  font-size: 0.78rem;
+}
+
 .app-menu {
   background: #eef1eb;
   border: 1px solid #d7dbd2;
