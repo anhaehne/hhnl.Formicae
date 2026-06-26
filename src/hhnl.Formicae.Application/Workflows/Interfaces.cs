@@ -66,12 +66,25 @@ public interface IWorkflowStore
     Task<IReadOnlyList<Workflow>> ListRecentWorkflowsAsync(int limit, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowByPullRequestUrlAsync(string pullRequestUrl, CancellationToken cancellationToken);
     Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<Workflow>> ListNonTerminalWorkflowsAsync(CancellationToken cancellationToken);
     Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<TaskRun> UpsertTaskRunAsync(TaskRun taskRun, CancellationToken cancellationToken);
     Task<TaskRun?> GetTaskRunAsync(Guid workflowId, TaskRunKind kind, CancellationToken cancellationToken);
     Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
+}
+
+public interface IClock
+{
+    DateTimeOffset UtcNow { get; }
+}
+
+public sealed class SystemClock : IClock
+{
+    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
 }
 
 public interface IWorkflowOrchestrationLock

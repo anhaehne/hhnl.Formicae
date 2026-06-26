@@ -2,12 +2,18 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   getWorkflow,
+  listChatMessages,
+  listEvents,
   listLogs,
   listRuns,
+  listSignals,
   listWorkflows,
   startWorkflow,
   TaskRun,
+  WorkflowChatMessage,
+  WorkflowEvent,
   WorkflowLog,
+  WorkflowSignal,
   WorkflowSummary
 } from "./api";
 
@@ -27,6 +33,9 @@ type DetailState = {
   workflow?: WorkflowSummary;
   runs: TaskRun[];
   logs: WorkflowLog[];
+  events: WorkflowEvent[];
+  signals: WorkflowSignal[];
+  chatMessages: WorkflowChatMessage[];
   loading: boolean;
   error?: string;
 };
@@ -42,7 +51,7 @@ export default function App() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
-  const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], loading: false });
+  const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>();
@@ -75,7 +84,7 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedWorkflowId) {
-      setDetail({ runs: [], logs: [], loading: false });
+      setDetail({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
       return;
     }
 
@@ -84,13 +93,16 @@ export default function App() {
     async function loadDetail() {
       setDetail(current => ({ ...current, loading: true, error: undefined }));
       try {
-        const [workflow, runs, logs] = await Promise.all([
+        const [workflow, runs, logs, events, signals, chatMessages] = await Promise.all([
           getWorkflow(workflowId),
           listRuns(workflowId),
-          listLogs(workflowId)
+          listLogs(workflowId),
+          listEvents(workflowId),
+          listSignals(workflowId),
+          listChatMessages(workflowId)
         ]);
         if (!ignore) {
-          setDetail({ workflow, runs, logs, loading: false });
+          setDetail({ workflow, runs, logs, events, signals, chatMessages, loading: false });
         }
       } catch (error) {
         if (!ignore) {
@@ -98,6 +110,9 @@ export default function App() {
             workflow: workflows.find(workflow => workflow.workflowId === workflowId),
             runs: [],
             logs: [],
+            events: [],
+            signals: [],
+            chatMessages: [],
             loading: false,
             error: error instanceof Error ? error.message : "Could not load workflow details."
           });
@@ -257,6 +272,39 @@ export default function App() {
 
             <div className="detail-stack">
               {detail.error ? <p className="error-text">{detail.error}</p> : null}
+              {detail.signals.length > 0 ? (
+                <section>
+                  <h3>Signals</h3>
+                  <div className="signal-list">
+                    {detail.signals.map(signal => (
+                      <div className={`signal-row signal-${signal.severity.toLowerCase()}`} key={`${signal.taskRunId ?? "workflow"}-${signal.reason}`}>
+                        <strong>{signal.severity}</strong>
+                        <span>{signal.reason}</span>
+                        <time>{formatDate(signal.observedAt)}</time>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              <section>
+                <h3>Timeline</h3>
+                <div className="timeline-list">
+                  {detail.events.map(event => (
+                    <article className="timeline-item" key={event.id}>
+                      <div className="timeline-meta">
+                        <time>{formatDate(event.createdAt)}</time>
+                        <StatusBadge value={event.type} />
+                        <span>{event.level}</span>
+                      </div>
+                      <p>{event.message}</p>
+                      {event.detailsJson ? <Expandable title="Event Details" content={formatJson(event.detailsJson)} pre /> : null}
+                    </article>
+                  ))}
+                  {detail.events.length === 0 ? <p className="muted">No events recorded.</p> : null}
+                </div>
+              </section>
+
               <section>
                 <h3>Task Runs</h3>
                 <div className="run-list">
@@ -266,12 +314,41 @@ export default function App() {
                         <strong>{formatEnum(run.kind, taskRunKinds)}</strong>
                         <StatusBadge value={formatEnum(run.status, taskRunStatuses)} />
                         <span>{formatDate(run.updatedAt)}</span>
+                        <span>{formatDuration(run.startedAt, run.completedAt)}</span>
                       </div>
                       {run.failureReason ? <p className="error-text">{run.failureReason}</p> : null}
-                      {run.output ? <pre>{run.output}</pre> : <p className="muted">No output recorded.</p>}
+                      {run.agentMessages.length > 0 ? (
+                        <div className="agent-message-list">
+                          {run.agentMessages.map(message => (
+                            <Expandable
+                              key={message.sequence}
+                              title={`Agent Message ${message.sequence + 1}${message.role ? `: ${message.role}` : ""}`}
+                              content={message.content}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                      {run.output ? <Expandable title="Raw Output" content={run.output} pre /> : <p className="muted">No output recorded.</p>}
                     </article>
                   ))}
                   {detail.runs.length === 0 ? <p className="muted">No task runs recorded.</p> : null}
+                </div>
+              </section>
+
+              <section>
+                <h3>Chat Messages</h3>
+                <div className="chat-list">
+                  {detail.chatMessages.map(message => (
+                    <article className="chat-row" key={message.id}>
+                      <div className="chat-meta">
+                        <strong>{message.author}</strong>
+                        <time>{formatDate(message.updatedAt)}</time>
+                        <ExternalLink href={message.url}>Open</ExternalLink>
+                      </div>
+                      <Expandable title="Message" content={message.body} />
+                    </article>
+                  ))}
+                  {detail.chatMessages.length === 0 ? <p className="muted">No chat messages recorded.</p> : null}
                 </div>
               </section>
 
@@ -282,7 +359,7 @@ export default function App() {
                     <div className="log-row" key={log.id}>
                       <time>{formatDate(log.createdAt)}</time>
                       <span>{log.level}</span>
-                      <p>{log.message}</p>
+                      <Expandable title="Log Message" content={log.message} />
                     </div>
                   ))}
                   {detail.logs.length === 0 ? <p className="muted">No logs recorded.</p> : null}
@@ -315,6 +392,22 @@ function ExternalLink({ href, children }: { href: string; children: ReactNode })
   return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
 }
 
+function Expandable({ title, content, pre }: { title: string; content: string; pre?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="expandable">
+      <button type="button" className="expand-button" onClick={() => setExpanded(current => !current)}>
+        {expanded ? "Collapse" : "Expand"} {title}
+      </button>
+      {pre ? (
+        <pre className={expanded ? "expanded-content" : "collapsed-content"}>{content}</pre>
+      ) : (
+        <p className={expanded ? "expanded-content prose-content" : "collapsed-content prose-content"}>{content}</p>
+      )}
+    </div>
+  );
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "short",
@@ -328,6 +421,40 @@ function formatEnum(value: string | number, labels: string[]) {
   }
 
   return value;
+}
+
+function formatDuration(startedAt?: string | null, completedAt?: string | null) {
+  if (!startedAt) {
+    return "Not started";
+  }
+
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return "Duration unavailable";
+  }
+
+  const seconds = Math.round((end - start) / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function formatJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
 }
 
 function shortUrl(value: string) {

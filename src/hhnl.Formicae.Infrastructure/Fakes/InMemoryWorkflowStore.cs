@@ -7,6 +7,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly object gate = new();
     private readonly Dictionary<Guid, Workflow> workflows = [];
     private readonly Dictionary<Guid, TaskRun> runs = [];
+    private readonly List<WorkflowEvent> events = [];
     private readonly List<WorkflowLog> logs = [];
 
     public Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
@@ -65,6 +66,17 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         }
     }
 
+    public Task<IReadOnlyList<Workflow>> ListNonTerminalWorkflowsAsync(CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
+                .Where(workflow => workflow.Status is not WorkflowStatus.Completed and not WorkflowStatus.Failed and not WorkflowStatus.Canceled)
+                .OrderBy(workflow => workflow.CreatedAt)
+                .ToArray());
+        }
+    }
+
     public Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         lock (gate)
@@ -100,6 +112,28 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
             return Task.FromResult<IReadOnlyList<TaskRun>>(runs.Values
                 .Where(run => run.WorkflowId == workflowId)
                 .OrderBy(run => run.CreatedAt)
+                .ToArray());
+        }
+    }
+
+    public Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            events.Add(evt);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<WorkflowEvent>>(events
+                .Where(evt => evt.WorkflowId == workflowId)
+                .OrderBy(evt => evt.CreatedAt)
+                .ThenBy(evt => evt.Id)
                 .ToArray());
         }
     }

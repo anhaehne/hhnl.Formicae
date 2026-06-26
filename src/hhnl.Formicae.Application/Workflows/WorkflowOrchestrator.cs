@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 
 namespace hhnl.Formicae.Application.Workflows;
 
@@ -7,8 +8,11 @@ public sealed class WorkflowOrchestrator(
     IWorkItemProvider workItems,
     ISourceControlProvider sourceControl,
     IAgentRunner agentRunner,
-    IPromptRenderer promptRenderer)
+    IPromptRenderer promptRenderer,
+    IClock? clock = null)
 {
+    private readonly IClock clock = clock ?? new SystemClock();
+
     public async Task<int> AdvanceRunnableWorkflowsAsync(CancellationToken cancellationToken)
     {
         var workflows = await store.ListRunnableWorkflowsAsync(cancellationToken);
@@ -50,10 +54,11 @@ public sealed class WorkflowOrchestrator(
         }
         catch (Exception exception)
         {
-            workflow.Status = WorkflowStatus.Failed;
-            workflow.FailureReason = exception.Message;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await FailWorkflowAsync(workflow, exception.Message, new
+            {
+                exceptionType = exception.GetType().FullName,
+                exception.Message
+            }, cancellationToken);
             await store.AddLogAsync(new WorkflowLog
             {
                 WorkflowId = workflow.Id,
@@ -89,10 +94,7 @@ public sealed class WorkflowOrchestrator(
                 PullRequestCommentMarkers.Plan(workflow.Id),
                 PullRequestCommentMarkers.BuildPlanBody(workflow, existingResult),
                 cancellationToken);
-            workflow.Status = WorkflowStatus.Implementing;
-            workflow.CurrentStep = WorkflowStep.Implement;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Implementing, WorkflowStep.Implement, "Existing planning result reused.", cancellationToken);
             return true;
         }
 
@@ -105,14 +107,12 @@ public sealed class WorkflowOrchestrator(
                 return false;
             }
 
-            CompleteTaskRun(existing, result);
-            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await CompleteTaskRunAsync(workflow, existing, result, cancellationToken);
             await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
 
             if (!result.Succeeded)
             {
-                FailWorkflow(workflow, result.FailureReason ?? "Planning agent failed.");
-                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                await FailWorkflowAsync(workflow, result.FailureReason ?? "Planning agent failed.", BuildFailureDetails(existing, result), cancellationToken);
                 return true;
             }
 
@@ -120,10 +120,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        workflow.Status = WorkflowStatus.Planning;
-        workflow.CurrentStep = WorkflowStep.Plan;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning started.", cancellationToken);
 
         var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
@@ -132,30 +129,24 @@ public sealed class WorkflowOrchestrator(
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Plan, workflow, issue, cancellationToken);
         var branch = workflow.BranchName ?? $"formicae/{workflow.Id:N}";
 
-        run.Status = TaskRunStatus.Running;
         run.FailureReason = null;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await StartTaskRunAsync(workflow, run, cancellationToken);
         await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
-        run.ExternalId = start.ExternalId;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
+        await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
         {
-            await store.UpsertTaskRunAsync(run, cancellationToken);
             return true;
         }
 
-        CompleteTaskRun(run, start.CompletedResult);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await CompleteTaskRunAsync(workflow, run, start.CompletedResult, cancellationToken);
         await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
 
         if (!start.CompletedResult.Succeeded)
         {
-            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Planning agent failed.");
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await FailWorkflowAsync(workflow, start.CompletedResult.FailureReason ?? "Planning agent failed.", BuildFailureDetails(run, start.CompletedResult), cancellationToken);
             return true;
         }
 
@@ -182,10 +173,7 @@ public sealed class WorkflowOrchestrator(
         var planRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (planRun?.Status == TaskRunStatus.Running)
         {
-            workflow.Status = WorkflowStatus.Planning;
-            workflow.CurrentStep = WorkflowStep.Plan;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning resumed for new issue feedback.", cancellationToken);
             return true;
         }
 
@@ -213,10 +201,7 @@ public sealed class WorkflowOrchestrator(
                 cancellationToken);
         }
 
-        workflow.Status = WorkflowStatus.Implementing;
-        workflow.CurrentStep = WorkflowStep.Implement;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Implementing, WorkflowStep.Implement, isRevision ? "Planning revision completed." : "Planning completed.", cancellationToken);
     }
 
     private static bool IsPlanRevision(string? previousOutput)
@@ -226,10 +211,7 @@ public sealed class WorkflowOrchestrator(
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded)
         {
-            workflow.Status = WorkflowStatus.CreatingPullRequest;
-            workflow.CurrentStep = WorkflowStep.CreatePullRequest;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Existing implementation result reused.", cancellationToken);
             return true;
         }
 
@@ -241,21 +223,16 @@ public sealed class WorkflowOrchestrator(
                 return false;
             }
 
-            CompleteTaskRun(existing, result);
-            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await CompleteTaskRunAsync(workflow, existing, result, cancellationToken);
             await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
 
             if (!result.Succeeded)
             {
-                FailWorkflow(workflow, result.FailureReason ?? "Implementation agent failed.");
-                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                await FailWorkflowAsync(workflow, result.FailureReason ?? "Implementation agent failed.", BuildFailureDetails(existing, result), cancellationToken);
                 return true;
             }
 
-            workflow.Status = WorkflowStatus.CreatingPullRequest;
-            workflow.CurrentStep = WorkflowStep.CreatePullRequest;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Implementation completed.", cancellationToken);
             return true;
         }
 
@@ -265,34 +242,26 @@ public sealed class WorkflowOrchestrator(
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
 
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
-        run.Status = TaskRunStatus.Running;
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await StartTaskRunAsync(workflow, run, cancellationToken);
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
-        run.ExternalId = start.ExternalId;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
+        await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
         {
-            await store.UpsertTaskRunAsync(run, cancellationToken);
             return true;
         }
 
-        CompleteTaskRun(run, start.CompletedResult);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await CompleteTaskRunAsync(workflow, run, start.CompletedResult, cancellationToken);
         await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
 
         if (!start.CompletedResult.Succeeded)
         {
-            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Implementation agent failed.");
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await FailWorkflowAsync(workflow, start.CompletedResult.FailureReason ?? "Implementation agent failed.", BuildFailureDetails(run, start.CompletedResult), cancellationToken);
             return true;
         }
 
-        workflow.Status = WorkflowStatus.CreatingPullRequest;
-        workflow.CurrentStep = WorkflowStep.CreatePullRequest;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Implementation completed.", cancellationToken);
         return true;
     }
     private async Task<bool> CreatePullRequestAsync(Workflow workflow, CancellationToken cancellationToken)
@@ -300,29 +269,20 @@ public sealed class WorkflowOrchestrator(
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.CreatePullRequest, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && workflow.PullRequestUrl is not null)
         {
-            workflow.Status = WorkflowStatus.Reviewing;
-            workflow.CurrentStep = WorkflowStep.AddressComments;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Reviewing, WorkflowStep.AddressComments, "Existing pull request reused.", cancellationToken);
             return true;
         }
 
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.CreatePullRequest };
-        run.Status = TaskRunStatus.Running;
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await StartTaskRunAsync(workflow, run, cancellationToken);
 
         var taskRuns = await store.ListTaskRunsAsync(workflow.Id, cancellationToken);
         var pullRequest = await sourceControl.CreatePullRequestAsync(workflow, taskRuns, cancellationToken);
-        run.Status = TaskRunStatus.Succeeded;
-        run.Output = pullRequest.Url;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await CompleteTaskRunAsync(workflow, run, pullRequest.Url, true, null, cancellationToken);
 
         workflow.PullRequestUrl = pullRequest.Url;
-        workflow.Status = WorkflowStatus.Reviewing;
-        workflow.CurrentStep = WorkflowStep.AddressComments;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await AddEventAsync(workflow.Id, run.Id, WorkflowEventTypes.PullRequestCreated, "Information", "Pull request created.", new { pullRequest.Url }, cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Reviewing, WorkflowStep.AddressComments, "Pull request created.", cancellationToken);
         return true;
     }
 
@@ -337,24 +297,19 @@ public sealed class WorkflowOrchestrator(
                 return false;
             }
 
-            CompleteTaskRun(existing, result);
-            await store.UpsertTaskRunAsync(existing, cancellationToken);
+            await CompleteTaskRunAsync(workflow, existing, result, cancellationToken);
             await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
 
             if (!result.Succeeded)
             {
-                FailWorkflow(workflow, result.FailureReason ?? "Pull request comment agent failed.");
-                await store.UpdateWorkflowAsync(workflow, cancellationToken);
+                await FailWorkflowAsync(workflow, result.FailureReason ?? "Pull request comment agent failed.", BuildFailureDetails(existing, result), cancellationToken);
                 return true;
             }
 
             var runningResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result);
             await sourceControl.UpsertPullRequestCommentAsync(workflow, runningResponseBody, cancellationToken);
 
-            workflow.Status = WorkflowStatus.Completed;
-            workflow.CurrentStep = WorkflowStep.Done;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
             return true;
         }
 
@@ -370,10 +325,7 @@ public sealed class WorkflowOrchestrator(
             : comments.Where(comment => comment.UpdatedAt > previousAddressedAt.Value).ToArray();
         if (commentsToAddress.Count == 0)
         {
-            workflow.Status = WorkflowStatus.Completed;
-            workflow.CurrentStep = WorkflowStep.Done;
-            workflow.UpdatedAt = DateTimeOffset.UtcNow;
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed with no new pull request comments.", cancellationToken);
             return true;
         }
 
@@ -384,42 +336,33 @@ public sealed class WorkflowOrchestrator(
         };
         var branch = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before addressing pull request comments.");
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
-        run.Status = TaskRunStatus.Running;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await StartTaskRunAsync(workflow, run, cancellationToken);
         foreach (var comment in commentsToAddress)
         {
             await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
         }
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
-        run.ExternalId = start.ExternalId;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
+        await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
         {
-            await store.UpsertTaskRunAsync(run, cancellationToken);
             return true;
         }
 
-        CompleteTaskRun(run, start.CompletedResult);
-        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await CompleteTaskRunAsync(workflow, run, start.CompletedResult, cancellationToken);
         await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
 
         if (!start.CompletedResult.Succeeded)
         {
-            FailWorkflow(workflow, start.CompletedResult.FailureReason ?? "Pull request comment agent failed.");
-            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await FailWorkflowAsync(workflow, start.CompletedResult.FailureReason ?? "Pull request comment agent failed.", BuildFailureDetails(run, start.CompletedResult), cancellationToken);
             return true;
         }
 
         var completedResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, start.CompletedResult);
         await sourceControl.UpsertPullRequestCommentAsync(workflow, completedResponseBody, cancellationToken);
 
-        workflow.Status = WorkflowStatus.Completed;
-        workflow.CurrentStep = WorkflowStep.Done;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
         return true;
     }
     private async Task<AgentRunResult?> TryGetRunningAgentResultAsync(TaskRun run, CancellationToken cancellationToken)
@@ -431,21 +374,137 @@ public sealed class WorkflowOrchestrator(
 
         return await agentRunner.TryGetResultAsync(run.ExternalId, cancellationToken);
     }
-    private static void CompleteTaskRun(TaskRun run, AgentRunResult result)
+    private async Task TransitionWorkflowAsync(
+        Workflow workflow,
+        WorkflowStatus status,
+        WorkflowStep step,
+        string message,
+        CancellationToken cancellationToken,
+        object? details = null)
     {
-        run.Status = result.Succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;
-        run.ExternalId = result.ExternalId;
-        run.Output = result.Output;
-        run.FailureReason = result.FailureReason;
-        run.UpdatedAt = DateTimeOffset.UtcNow;
+        var previousStatus = workflow.Status;
+        var previousStep = workflow.CurrentStep;
+        workflow.Status = status;
+        workflow.CurrentStep = step;
+        workflow.UpdatedAt = clock.UtcNow;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+
+        var type = status switch
+        {
+            WorkflowStatus.Completed => WorkflowEventTypes.WorkflowCompleted,
+            WorkflowStatus.Failed => WorkflowEventTypes.WorkflowFailed,
+            _ => WorkflowEventTypes.WorkflowTransitioned
+        };
+        var transitionDetails = new
+        {
+            fromStatus = previousStatus.ToString(),
+            toStatus = status.ToString(),
+            fromStep = previousStep.ToString(),
+            toStep = step.ToString()
+        };
+        await AddEventAsync(workflow.Id, null, type, status == WorkflowStatus.Failed ? "Error" : "Information", message, details ?? transitionDetails, cancellationToken);
     }
 
-    private static void FailWorkflow(Workflow workflow, string reason)
+    private async Task StartTaskRunAsync(Workflow workflow, TaskRun run, CancellationToken cancellationToken)
     {
-        workflow.Status = WorkflowStatus.Failed;
-        workflow.FailureReason = reason;
-        workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        var wasRunning = run.Status == TaskRunStatus.Running;
+        run.Status = TaskRunStatus.Running;
+        run.StartedAt ??= clock.UtcNow;
+        run.CompletedAt = null;
+        run.FailureReason = null;
+        run.UpdatedAt = clock.UtcNow;
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+
+        if (!wasRunning)
+        {
+            await AddEventAsync(workflow.Id, run.Id, WorkflowEventTypes.TaskStarted, "Information", $"{run.Kind} task started.", new
+            {
+                taskKind = run.Kind.ToString()
+            }, cancellationToken);
+        }
     }
+
+    private async Task AssignExternalJobAsync(Workflow workflow, TaskRun run, string externalId, CancellationToken cancellationToken)
+    {
+        run.ExternalId = externalId;
+        run.UpdatedAt = clock.UtcNow;
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+        await AddEventAsync(workflow.Id, run.Id, WorkflowEventTypes.ExternalJobAssigned, "Information", $"{run.Kind} external job assigned.", new
+        {
+            taskKind = run.Kind.ToString(),
+            externalId
+        }, cancellationToken);
+    }
+
+    private Task CompleteTaskRunAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)
+        => CompleteTaskRunAsync(workflow, run, result.Output, result.Succeeded, result.FailureReason, cancellationToken, result.ExternalId);
+
+    private async Task CompleteTaskRunAsync(
+        Workflow workflow,
+        TaskRun run,
+        string output,
+        bool succeeded,
+        string? failureReason,
+        CancellationToken cancellationToken,
+        string? externalId = null)
+    {
+        run.Status = succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;
+        run.ExternalId = externalId ?? run.ExternalId;
+        run.Output = output;
+        run.FailureReason = failureReason;
+        run.StartedAt ??= clock.UtcNow;
+        run.CompletedAt = clock.UtcNow;
+        run.UpdatedAt = run.CompletedAt.Value;
+        await store.UpsertTaskRunAsync(run, cancellationToken);
+
+        await AddEventAsync(
+            workflow.Id,
+            run.Id,
+            succeeded ? WorkflowEventTypes.TaskSucceeded : WorkflowEventTypes.TaskFailed,
+            succeeded ? "Information" : "Error",
+            succeeded ? $"{run.Kind} task succeeded." : $"{run.Kind} task failed.",
+            succeeded ? new { taskKind = run.Kind.ToString(), run.ExternalId } : BuildFailureDetails(run, new AgentRunResult(false, run.ExternalId ?? string.Empty, output, failureReason)),
+            cancellationToken);
+    }
+
+    private async Task FailWorkflowAsync(Workflow workflow, string reason, object? details, CancellationToken cancellationToken)
+    {
+        workflow.FailureReason = reason;
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Failed, workflow.CurrentStep, reason, cancellationToken, details);
+    }
+
+    private static object BuildFailureDetails(TaskRun run, AgentRunResult result)
+        => new
+        {
+            taskKind = run.Kind.ToString(),
+            externalId = result.ExternalId,
+            failureReason = result.FailureReason,
+            outputExcerpt = Excerpt(result.Output)
+        };
+
+    private static string Excerpt(string output)
+        => string.IsNullOrWhiteSpace(output)
+            ? string.Empty
+            : output.Trim().Length <= 500 ? output.Trim() : output.Trim()[..500];
+
+    private Task AddEventAsync(
+        Guid workflowId,
+        Guid? taskRunId,
+        string type,
+        string level,
+        string message,
+        object? details,
+        CancellationToken cancellationToken)
+        => store.AddEventAsync(new WorkflowEvent
+        {
+            WorkflowId = workflowId,
+            TaskRunId = taskRunId,
+            Type = type,
+            Level = level,
+            Message = message,
+            DetailsJson = details is null ? null : JsonSerializer.Serialize(details),
+            CreatedAt = clock.UtcNow
+        }, cancellationToken);
 
     private static string FormatPullRequestConversation(Workflow workflow, IReadOnlyList<PullRequestComment> comments)
     {

@@ -19,6 +19,9 @@ public static class DependencyInjection
         services.AddScoped<WorkflowService>();
         services.AddScoped<WorkflowOrchestrator>();
         services.AddScoped<WorkflowDiscoveryService>();
+        services.AddScoped<WorkflowObservabilityService>();
+        services.AddSingleton<IClock, SystemClock>();
+        services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
         services.Configure<OpenHandsOptions>(configuration.GetSection("OpenHands"));
         services.Configure<KubernetesJobOptions>(configuration.GetSection("KubernetesJobs"));

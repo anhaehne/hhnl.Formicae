@@ -31,6 +31,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("ExternalId")
                         .HasColumnType("text");
 
@@ -48,6 +51,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -60,6 +66,45 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("task_runs", (string)null);
+                });
+
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("TaskRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkflowId");
+
+                    b.HasIndex("WorkflowId", "CreatedAt");
+
+                    b.ToTable("workflow_events", (string)null);
                 });
 
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.Workflow", b =>

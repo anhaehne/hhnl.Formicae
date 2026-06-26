@@ -72,6 +72,21 @@ app.MapGet("/api/workflows/{workflowId:guid}/runs", async (
     WorkflowService workflowService,
     CancellationToken cancellationToken) => Results.Ok(await workflowService.ListRunsAsync(workflowId, cancellationToken)));
 
+app.MapGet("/api/workflows/{workflowId:guid}/events", async (
+    Guid workflowId,
+    WorkflowService workflowService,
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListEventsAsync(workflowId, cancellationToken)));
+
+app.MapGet("/api/workflows/{workflowId:guid}/signals", async (
+    Guid workflowId,
+    WorkflowObservabilityService observabilityService,
+    CancellationToken cancellationToken) => Results.Ok(await observabilityService.GetWorkflowSignalsAsync(workflowId, cancellationToken)));
+
+app.MapGet("/api/workflows/{workflowId:guid}/chat-messages", async (
+    Guid workflowId,
+    WorkflowService workflowService,
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListChatMessagesAsync(workflowId, cancellationToken)));
+
 app.MapGet("/api/workflows/{workflowId:guid}/logs", async (
     Guid workflowId,
     WorkflowService workflowService,

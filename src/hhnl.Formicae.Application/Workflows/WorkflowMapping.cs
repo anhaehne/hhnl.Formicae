@@ -13,4 +13,30 @@ public static class WorkflowMapping
             workflow.UpdatedAt,
             workflow.PullRequestUrl,
             workflow.FailureReason);
+
+    public static TaskRunResponse ToResponse(this TaskRun run)
+        => new(
+            run.Id,
+            run.WorkflowId,
+            run.Kind,
+            run.Status,
+            run.ExternalId,
+            run.Output,
+            run.FailureReason,
+            run.StartedAt,
+            run.CompletedAt,
+            run.CreatedAt,
+            run.UpdatedAt,
+            AgentMessageParser.Parse(run.Output));
+
+    public static WorkflowEventResponse ToResponse(this WorkflowEvent evt)
+        => new(
+            evt.Id,
+            evt.WorkflowId,
+            evt.TaskRunId,
+            evt.Type,
+            evt.Level,
+            evt.Message,
+            evt.DetailsJson,
+            evt.CreatedAt);
 }

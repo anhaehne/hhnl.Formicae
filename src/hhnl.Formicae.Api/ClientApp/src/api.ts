@@ -25,8 +25,18 @@ export type TaskRun = {
   externalId?: string | null;
   output?: string | null;
   failureReason?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  agentMessages: AgentMessage[];
+};
+
+export type AgentMessage = {
+  sequence: number;
+  role?: string | null;
+  content: string;
+  createdAt?: string | null;
 };
 
 export type WorkflowLog = {
@@ -36,6 +46,33 @@ export type WorkflowLog = {
   level: string;
   message: string;
   createdAt: string;
+};
+
+export type WorkflowEvent = {
+  id: string;
+  workflowId: string;
+  taskRunId?: string | null;
+  type: string;
+  level: string;
+  message: string;
+  detailsJson?: string | null;
+  createdAt: string;
+};
+
+export type WorkflowSignal = {
+  severity: string;
+  reason: string;
+  workflowId: string;
+  taskRunId?: string | null;
+  observedAt: string;
+};
+
+export type WorkflowChatMessage = {
+  id: string;
+  author: string;
+  body: string;
+  url: string;
+  updatedAt: string;
 };
 
 export async function listWorkflows(limit = 25): Promise<WorkflowSummary[]> {
@@ -60,6 +97,18 @@ export async function listRuns(workflowId: string): Promise<TaskRun[]> {
 
 export async function listLogs(workflowId: string): Promise<WorkflowLog[]> {
   return send<WorkflowLog[]>(`/api/workflows/${encodeURIComponent(workflowId)}/logs`);
+}
+
+export async function listEvents(workflowId: string): Promise<WorkflowEvent[]> {
+  return send<WorkflowEvent[]>(`/api/workflows/${encodeURIComponent(workflowId)}/events`);
+}
+
+export async function listSignals(workflowId: string): Promise<WorkflowSignal[]> {
+  return send<WorkflowSignal[]>(`/api/workflows/${encodeURIComponent(workflowId)}/signals`);
+}
+
+export async function listChatMessages(workflowId: string): Promise<WorkflowChatMessage[]> {
+  return send<WorkflowChatMessage[]>(`/api/workflows/${encodeURIComponent(workflowId)}/chat-messages`);
 }
 
 async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
