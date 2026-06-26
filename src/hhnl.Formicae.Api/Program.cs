@@ -107,12 +107,14 @@ app.MapGet("/api/auth/external-challenge", (HttpContext context) =>
 });
 
 app.MapGet("/api/auth/github/challenge", async (
-    Guid integrationId,
+    Guid? integrationId,
     HttpContext context,
     DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
-    var integration = await integrations.GetRawAsync(integrationId, cancellationToken);
+    var integration = integrationId.HasValue
+        ? await integrations.GetRawAsync(integrationId.Value, cancellationToken)
+        : await integrations.GetDefaultGitHubIntegrationAsync(cancellationToken);
     if (integration is null)
     {
         return Results.NotFound();

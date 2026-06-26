@@ -412,12 +412,12 @@ export default function App() {
   }
 
   function handleGitHubRepositoryLogin() {
-    if (!selectedIntegrationId) {
-      setRepositoryError("Select a GitHub integration before authenticating.");
-      return;
+    const query = new URLSearchParams({ returnUrl: "/" });
+    if (selectedIntegrationId) {
+      query.set("integrationId", selectedIntegrationId);
     }
 
-    window.location.href = `/api/auth/github/challenge?integrationId=${encodeURIComponent(selectedIntegrationId)}&returnUrl=${encodeURIComponent("/")}`;
+    window.location.href = `/api/auth/github/challenge?${query.toString()}`;
   }
 
   async function handleIdentityToggle(enabled: boolean) {

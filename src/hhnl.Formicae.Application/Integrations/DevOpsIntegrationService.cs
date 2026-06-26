@@ -39,6 +39,13 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
     public async Task<IReadOnlyList<IntegrationSummary>> ListAsync(CancellationToken cancellationToken)
         => (await store.ListAsync(cancellationToken)).Select(ToSummary).ToArray();
 
+    public async Task<DevOpsIntegration?> GetDefaultGitHubIntegrationAsync(CancellationToken cancellationToken)
+        => (await store.ListAsync(cancellationToken))
+            .Where(integration => integration.ProviderType == DevOpsProviderType.GitHub)
+            .OrderByDescending(integration => integration.IdentityProviderEnabled)
+            .ThenByDescending(integration => integration.UpdatedAt)
+            .FirstOrDefault();
+
     public async Task<IntegrationDetail?> GetAsync(Guid integrationId, Uri requestBaseUri, CancellationToken cancellationToken)
     {
         var integration = await store.GetAsync(integrationId, cancellationToken);
