@@ -21,7 +21,7 @@ public sealed class DevOpsIntegrationServiceTests
         Assert.Equal("GitHub Prod", integration.DisplayName);
         Assert.Equal("client-id", integration.GitHubAppClientId);
         Assert.Equal("https://formicae.example/api/webhooks/github", integration.WebhookUrl);
-        Assert.Equal("https://formicae.example/api/auth/external-callback", integration.SetupInstructions.CallbackUrl);
+        Assert.Equal("https://formicae.example/api/auth/github/callback", integration.SetupInstructions.CallbackUrl);
         Assert.Equal(64, integration.WebhookSecret.Length);
         Assert.Contains("issues", integration.SetupInstructions.RequiredWebhookEvents);
     }

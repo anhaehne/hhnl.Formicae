@@ -10,6 +10,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Octokit;
 using System.Security.Claims;
+using System.Security.Cryptography;
+
+const string GitHubOAuthStateCookieName = ".Formicae.GitHubOAuthState";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -101,6 +104,106 @@ app.MapGet("/api/auth/external-challenge", (HttpContext context) =>
     var redirectUri = context.Request.Query["returnUrl"].FirstOrDefault();
     redirectUri = string.IsNullOrWhiteSpace(redirectUri) ? "/" : redirectUri;
     return Results.Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, ["GitHub"]);
+});
+
+app.MapGet("/api/auth/github/challenge", async (
+    Guid integrationId,
+    HttpContext context,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    var integration = await integrations.GetRawAsync(integrationId, cancellationToken);
+    if (integration is null)
+    {
+        return Results.NotFound();
+    }
+
+    var returnUrl = context.Request.Query["returnUrl"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(returnUrl) || returnUrl[0] != '/')
+    {
+        returnUrl = "/";
+    }
+
+    var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    context.Response.Cookies.Append(
+        GitHubOAuthStateCookieName,
+        $"{state}|{integration.Id}|{returnUrl}",
+        new CookieOptions
+        {
+            HttpOnly = true,
+            IsEssential = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = true,
+            Expires = DateTimeOffset.UtcNow.AddMinutes(15)
+        });
+
+    var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"));
+    var request = new OauthLoginRequest(integration.GitHubAppClientId)
+    {
+        State = state,
+        RedirectUri = new Uri(GetPublicBaseUri(context.Request), "/api/auth/github/callback")
+    };
+    request.Scopes.Add("read:user");
+    request.Scopes.Add("user:email");
+    request.Scopes.Add("repo");
+
+    return Results.Redirect(client.Oauth.GetGitHubLoginUrl(request).ToString());
+});
+
+app.MapGet("/api/auth/github/callback", async (
+    string? code,
+    string? state,
+    HttpContext context,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
+    {
+        return Results.Redirect("/?auth=failed");
+    }
+
+    var stateCookie = context.Request.Cookies[GitHubOAuthStateCookieName];
+    context.Response.Cookies.Delete(GitHubOAuthStateCookieName);
+    var parts = stateCookie?.Split('|', 3);
+    if (parts is not { Length: 3 }
+        || !string.Equals(parts[0], state, StringComparison.Ordinal)
+        || !Guid.TryParse(parts[1], out var integrationId))
+    {
+        return Results.BadRequest(new { error = "Invalid GitHub OAuth state." });
+    }
+
+    var integration = await integrations.GetRawAsync(integrationId, cancellationToken);
+    if (integration is null || string.IsNullOrWhiteSpace(integration.GitHubAppClientSecretReference))
+    {
+        return Results.BadRequest(new { error = "GitHub integration is not configured for OAuth." });
+    }
+
+    var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"));
+    var token = await client.Oauth.CreateAccessToken(new OauthTokenRequest(
+        integration.GitHubAppClientId,
+        integration.GitHubAppClientSecretReference,
+        code));
+    client.Credentials = new Credentials(token.AccessToken);
+    var user = await client.User.Current();
+
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Name, user.Login)
+    };
+    if (!string.IsNullOrWhiteSpace(user.Email))
+    {
+        claims.Add(new Claim(ClaimTypes.Email, user.Email));
+    }
+
+    var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, IdentityConstants.ApplicationScheme));
+    var properties = new AuthenticationProperties { IsPersistent = false };
+    properties.StoreTokens([
+        new AuthenticationToken { Name = "access_token", Value = token.AccessToken }
+    ]);
+    await context.SignInAsync(IdentityConstants.ApplicationScheme, principal, properties);
+
+    return Results.Redirect(parts[2]);
 });
 
 app.MapGet("/api/auth/external-callback", () => Results.Redirect("/"));
@@ -349,6 +452,23 @@ app.Run();
 
 static Uri GetRequestBaseUri(HttpRequest request)
     => new($"{request.Scheme}://{request.Host}");
+
+static Uri GetPublicBaseUri(HttpRequest request)
+{
+    var scheme = request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(scheme))
+    {
+        scheme = request.IsHttps ? Uri.UriSchemeHttps : Uri.UriSchemeHttps;
+    }
+
+    var host = request.Headers["X-Forwarded-Host"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(host))
+    {
+        host = request.Host.Value;
+    }
+
+    return new Uri($"{scheme}://{host}");
+}
 
 static bool IsAnonymousPath(PathString path)
     => path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)

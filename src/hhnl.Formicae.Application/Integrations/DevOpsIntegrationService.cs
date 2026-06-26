@@ -50,6 +50,9 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
     }
 
+    public Task<DevOpsIntegration?> GetRawAsync(Guid integrationId, CancellationToken cancellationToken)
+        => store.GetAsync(integrationId, cancellationToken);
+
     public async Task<IntegrationDetail?> UpdateGitHubAppAsync(
         Guid integrationId,
         UpdateGitHubAppRequest request,
@@ -236,7 +239,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.RequiresRestart,
             GitHubCapabilities.Select(capability => capability.ToString()).ToArray(),
             new GitHubSetupInstructions(
-                new Uri(requestBaseUri, "/api/auth/external-callback").ToString(),
+                new Uri(requestBaseUri, "/api/auth/github/callback").ToString(),
                 integration.WebhookUrl,
                 integration.WebhookSecret,
                 ["Issues: read/write", "Pull requests: read/write", "Contents: read/write", "Metadata: read-only"],
