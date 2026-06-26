@@ -1218,7 +1218,8 @@ function IntegrationsPage({
                 <SummaryItem label="Install URL" value={integrationDetail.setupInstructions.installationUrl || "Not available"} mono />
                 <SummaryItem label="Webhook URL" value={integrationDetail.webhookUrl} mono />
                 <SummaryItem label="Webhook Secret" value={integrationDetail.webhookSecret} mono />
-                <SummaryItem label="Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
+                <SummaryItem label="OAuth Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
+                <SummaryItem label="Setup Callback URL" value={integrationDetail.setupInstructions.installationCallbackUrl} mono />
               </div>
 
               <div className="button-row">
