@@ -314,6 +314,19 @@ public sealed class WorkflowOrchestrator(
         }
 
         var previousAddressedAt = existing?.Status == TaskRunStatus.Succeeded ? existing.UpdatedAt : (DateTimeOffset?)null;
+        var pullRequestStatus = await sourceControl.GetPullRequestStatusAsync(workflow, cancellationToken);
+        if (pullRequestStatus.IsMerged)
+        {
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed because the pull request was merged.", cancellationToken);
+            return true;
+        }
+
+        if (!pullRequestStatus.IsOpen)
+        {
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Canceled, WorkflowStep.Done, "Workflow canceled because the pull request was closed without merging.", cancellationToken);
+            return true;
+        }
+
         var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
         if (comments.Count == 0)
         {

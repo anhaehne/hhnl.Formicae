@@ -15,12 +15,14 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<AddIssueCommentCall> AddIssueCommentCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreatePullRequestCall> CreatePullRequestCalls { get; } = [];
+    public List<GetPullRequestStatusCall> GetPullRequestStatusCalls { get; } = [];
     public List<ListPullRequestCommentsCall> ListPullRequestCommentsCalls { get; } = [];
     public List<UpsertPullRequestCommentCall> UpsertPullRequestCommentCalls { get; } = [];
     public List<ReactToPullRequestCommentCall> ReactToPullRequestCommentCalls { get; } = [];
 
     public string DefaultBranchName { get; set; } = "formicae/mock-branch";
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
+    public PullRequestStatus DefaultPullRequestStatus { get; set; } = new(true, false);
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
         => AddIssueWithLabels(issueUrl, title, body, [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement], comments);
@@ -138,6 +140,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.FromResult<IReadOnlyList<PullRequestComment>>(pullRequestComments.Where(comment => !PullRequestCommentMarkers.IsAutomationComment(comment.Body)).ToArray());
     }
 
+    public Task<PullRequestStatus> GetPullRequestStatusAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        GetPullRequestStatusCalls.Add(new GetPullRequestStatusCall(workflow.Id, workflow.PullRequestUrl));
+        return Task.FromResult(DefaultPullRequestStatus);
+    }
     public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
     {
         UpsertPullRequestCommentCalls.Add(new UpsertPullRequestCommentCall(workflow.Id, workflow.PullRequestUrl, body));
@@ -175,6 +182,8 @@ public sealed record CreatePullRequestCall(
     string RepositoryUrl,
     string? BranchName,
     IReadOnlyList<TaskRun> TaskRuns);
+
+public sealed record GetPullRequestStatusCall(Guid WorkflowId, string? PullRequestUrl);
 
 public sealed record ListPullRequestCommentsCall(Guid WorkflowId, string? PullRequestUrl);
 

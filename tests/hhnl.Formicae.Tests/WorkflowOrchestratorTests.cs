@@ -588,6 +588,41 @@ public sealed class WorkflowOrchestratorTests
 
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Completes_reviewing_workflow_when_pull_request_is_merged()
+    {
+        var store = new InMemoryWorkflowStore();
+        var devOps = new MockDevOpsAdapter
+        {
+            DefaultPullRequestUrl = "https://github.com/acme/widgets/pull/29",
+            DefaultPullRequestStatus = new PullRequestStatus(false, true)
+        };
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/6",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            BranchName = "formicae/merged-pr",
+            PullRequestUrl = devOps.DefaultPullRequestUrl,
+            Status = WorkflowStatus.Reviewing,
+            CurrentStep = WorkflowStep.AddressComments
+        }, CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Completed, updated.Status);
+        Assert.Equal(WorkflowStep.Done, updated.CurrentStep);
+        Assert.Empty(devOps.ListPullRequestCommentsCalls);
+        Assert.Collection(devOps.GetPullRequestStatusCalls, call =>
+        {
+            Assert.Equal(workflow.Id, call.WorkflowId);
+            Assert.Equal(devOps.DefaultPullRequestUrl, call.PullRequestUrl);
+        });
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Reruns_address_comments_for_newer_comments_after_completed_pass()
     {
         var store = new InMemoryWorkflowStore();
@@ -1026,6 +1061,12 @@ public sealed class WorkflowOrchestratorTests
         }
         public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
             => Task.FromResult<IReadOnlyList<PullRequest>>([]);
+
+        public Task<PullRequest> GetPullRequestAsync(string owner, string repository, int number)
+            => Task.FromResult(Model<PullRequest>(
+                (nameof(PullRequest.HtmlUrl), $"https://github.com/{owner}/{repository}/pull/{number}"),
+                (nameof(PullRequest.State), ItemState.Open),
+                (nameof(PullRequest.Merged), false)));
 
         public Task<PullRequest> CreatePullRequestAsync(string owner, string repository, string title, string head, string baseBranch, string body)
         {

@@ -118,6 +118,15 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             .ToArray();
     }
 
+    public async Task<PullRequestStatus> GetPullRequestStatusAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reading pull request status.");
+        var pullRequestReference = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var pullRequest = await api.GetPullRequestAsync(pullRequestReference.Owner, pullRequestReference.Repository, pullRequestReference.Number);
+
+        return new PullRequestStatus(pullRequest.State.Value == ItemState.Open, pullRequest.Merged);
+    }
+
     public async Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before writing pull request comments.");

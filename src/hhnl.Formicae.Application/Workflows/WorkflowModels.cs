@@ -356,6 +356,8 @@ public sealed record AgentRunResult(
 
 public sealed record PullRequestResult(string Url);
 
+public sealed record PullRequestStatus(bool IsOpen, bool IsMerged);
+
 public sealed record PullRequestComment(
     string Id,
     string Author,

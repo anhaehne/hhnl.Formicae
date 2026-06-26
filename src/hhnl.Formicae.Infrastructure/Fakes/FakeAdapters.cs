@@ -62,6 +62,8 @@ public sealed class FakeSourceControlProvider : ISourceControlProvider
                 PullRequestCommentKind.ReviewComment)
         ]);
 
+    public Task<PullRequestStatus> GetPullRequestStatusAsync(Workflow workflow, CancellationToken cancellationToken)
+        => Task.FromResult(new PullRequestStatus(true, false));
     public Task UpsertPullRequestCommentAsync(Workflow workflow, string body, CancellationToken cancellationToken)
         => Task.CompletedTask;
 

@@ -39,6 +39,10 @@ public interface ISourceControlProvider
         Workflow workflow,
         CancellationToken cancellationToken);
 
+    Task<PullRequestStatus> GetPullRequestStatusAsync(
+        Workflow workflow,
+        CancellationToken cancellationToken);
+
     Task UpsertPullRequestCommentAsync(
         Workflow workflow,
         string body,
