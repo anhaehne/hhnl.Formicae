@@ -5,7 +5,8 @@ namespace hhnl.Formicae.Application.Workflows;
 public sealed class WorkflowDiscoveryService(
     IWorkflowStore store,
     IWorkItemProvider workItems,
-    IOptions<WorkflowDiscoveryOptions> options)
+    IOptions<WorkflowDiscoveryOptions> options,
+    AiSettingsService? aiSettingsService = null)
 {
     public async Task<int> DiscoverReadyToPlanWorkflowsAsync(CancellationToken cancellationToken)
     {
@@ -28,12 +29,16 @@ public sealed class WorkflowDiscoveryService(
                 continue;
             }
 
+            var model = aiSettingsService is null
+                ? discovery.Model
+                : (await aiSettingsService.ResolveAsync(cancellationToken)).Model ?? discovery.Model;
+
             var workflow = new Workflow
             {
                 IssueUrl = issue.Url,
                 RepositoryUrl = discovery.RepositoryUrl,
                 BaseBranch = string.IsNullOrWhiteSpace(discovery.BaseBranch) ? "main" : discovery.BaseBranch,
-                Model = discovery.Model,
+                Model = model,
                 Status = WorkflowStatus.Queued,
                 CurrentStep = WorkflowStep.None
             };

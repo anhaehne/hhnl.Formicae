@@ -42,6 +42,25 @@ app.MapPost("/api/webhooks/github", async (
     GitHubWebhookHandler handler,
     CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
 
+app.MapGet("/api/ai-settings", async (
+    AiSettingsService aiSettingsService,
+    CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.GetAsync(cancellationToken)));
+
+app.MapPut("/api/ai-settings", async (
+    UpdateAiSettingsRequest request,
+    AiSettingsService aiSettingsService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await aiSettingsService.UpdateAsync(request, cancellationToken));
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
     WorkflowService workflowService,

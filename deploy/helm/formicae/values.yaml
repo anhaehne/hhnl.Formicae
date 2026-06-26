@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.1.27"
+  tag: "0.1.28"
   pullPolicy: IfNotPresent
 
 api:
@@ -36,7 +36,9 @@ config:
   sourceControlMode: "GitHub"
   agentMode: "OpenHands"
   openHandsAuthMethod: "ApiKey"
+  openHandsProvider: ""
   openHandsDefaultModel: ""
+  openHandsEndpointUrl: ""
   workflowDiscoveryEnabled: "true"
   workflowDiscoveryRepositoryUrl: "https://github.com/anhaehne/hhnl.Formicae"
   workflowDiscoveryBaseBranch: "main"

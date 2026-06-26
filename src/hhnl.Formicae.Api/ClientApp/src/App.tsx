@@ -1,6 +1,8 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  AiSettings,
+  getAiSettings,
   getWorkflow,
   listChatMessages,
   listEvents,
@@ -10,6 +12,7 @@ import {
   listWorkflows,
   startWorkflow,
   TaskRun,
+  updateAiSettings,
   WorkflowChatMessage,
   WorkflowEvent,
   WorkflowLog,
@@ -27,6 +30,14 @@ type FormState = {
   repositoryUrl: string;
   baseBranch: string;
   model: string;
+};
+
+type AiSettingsFormState = {
+  provider: string;
+  model: string;
+  authMethod: string;
+  llmApiKeySecretName: string;
+  endpointUrl: string;
 };
 
 type DetailState = {
@@ -47,8 +58,23 @@ const initialForm: FormState = {
   model: ""
 };
 
+const initialAiSettingsForm: AiSettingsFormState = {
+  provider: "",
+  model: "",
+  authMethod: "ApiKey",
+  llmApiKeySecretName: "",
+  endpointUrl: ""
+};
+
 export default function App() {
   const [form, setForm] = useState<FormState>(initialForm);
+  const modelTouched = useRef(false);
+  const [aiSettings, setAiSettings] = useState<AiSettings>();
+  const [aiSettingsForm, setAiSettingsForm] = useState<AiSettingsFormState>(initialAiSettingsForm);
+  const [loadingAiSettings, setLoadingAiSettings] = useState(false);
+  const [savingAiSettings, setSavingAiSettings] = useState(false);
+  const [aiSettingsError, setAiSettingsError] = useState<string>();
+  const [aiSettingsSaved, setAiSettingsSaved] = useState<string>();
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
   const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
@@ -81,6 +107,43 @@ export default function App() {
   useEffect(() => {
     void refreshWorkflows();
   }, [refreshWorkflows]);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadAiSettings() {
+      setLoadingAiSettings(true);
+      setAiSettingsError(undefined);
+      try {
+        const settings = await getAiSettings();
+        if (ignore) {
+          return;
+        }
+
+        setAiSettings(settings);
+        setAiSettingsForm(toAiSettingsForm(settings));
+        setForm(current => {
+          if (modelTouched.current || current.model.trim()) {
+            return current;
+          }
+
+          return { ...current, model: settings.model ?? "" };
+        });
+      } catch (error) {
+        if (!ignore) {
+          setAiSettingsError(error instanceof Error ? error.message : "Could not load AI settings.");
+        }
+      } finally {
+        if (!ignore) {
+          setLoadingAiSettings(false);
+        }
+      }
+    }
+
+    void loadAiSettings();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -153,6 +216,37 @@ export default function App() {
     }
   }
 
+  async function handleAiSettingsSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAiSettingsError(undefined);
+    setAiSettingsSaved(undefined);
+    setSavingAiSettings(true);
+
+    try {
+      const settings = await updateAiSettings({
+        provider: aiSettingsForm.provider.trim() || null,
+        model: aiSettingsForm.model.trim() || null,
+        authMethod: aiSettingsForm.authMethod,
+        llmApiKeySecretName: aiSettingsForm.llmApiKeySecretName.trim() || null,
+        endpointUrl: aiSettingsForm.endpointUrl.trim() || null
+      });
+      setAiSettings(settings);
+      setAiSettingsForm(toAiSettingsForm(settings));
+      setForm(current => {
+        if (modelTouched.current || current.model.trim()) {
+          return current;
+        }
+
+        return { ...current, model: settings.model ?? "" };
+      });
+      setAiSettingsSaved("Saved. New workflow executions will use these settings.");
+    } catch (error) {
+      setAiSettingsError(error instanceof Error ? error.message : "Could not save AI settings.");
+    } finally {
+      setSavingAiSettings(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -166,50 +260,124 @@ export default function App() {
       </header>
 
       <section className="workspace-grid">
-        <form className="panel trigger-panel" onSubmit={handleSubmit}>
-          <div className="panel-heading">
-            <h2>Manual Trigger</h2>
-          </div>
-          <label>
-            <span>Issue URL</span>
-            <input
-              value={form.issueUrl}
-              onChange={event => setForm(current => ({ ...current, issueUrl: event.target.value }))}
-              placeholder="https://github.com/org/repo/issues/1"
-              type="url"
-            />
-          </label>
-          <label>
-            <span>Repository URL</span>
-            <input
-              value={form.repositoryUrl}
-              onChange={event => setForm(current => ({ ...current, repositoryUrl: event.target.value }))}
-              placeholder="https://github.com/org/repo"
-              type="url"
-            />
-          </label>
-          <div className="form-row">
+        <div className="left-stack">
+          <form className="panel trigger-panel" onSubmit={handleSubmit}>
+            <div className="panel-heading">
+              <h2>Manual Trigger</h2>
+            </div>
             <label>
-              <span>Base Branch</span>
+              <span>Issue URL</span>
               <input
-                value={form.baseBranch}
-                onChange={event => setForm(current => ({ ...current, baseBranch: event.target.value }))}
+                value={form.issueUrl}
+                onChange={event => setForm(current => ({ ...current, issueUrl: event.target.value }))}
+                placeholder="https://github.com/org/repo/issues/1"
+                type="url"
               />
             </label>
             <label>
-              <span>Model</span>
+              <span>Repository URL</span>
               <input
-                value={form.model}
-                onChange={event => setForm(current => ({ ...current, model: event.target.value }))}
-                placeholder="optional"
+                value={form.repositoryUrl}
+                onChange={event => setForm(current => ({ ...current, repositoryUrl: event.target.value }))}
+                placeholder="https://github.com/org/repo"
+                type="url"
               />
             </label>
-          </div>
-          {formError ? <p className="error-text">{formError}</p> : null}
-          <button type="submit" className="primary-button" disabled={submitting}>
-            {submitting ? "Starting" : "Start Workflow"}
-          </button>
-        </form>
+            <div className="form-row">
+              <label>
+                <span>Base Branch</span>
+                <input
+                  value={form.baseBranch}
+                  onChange={event => setForm(current => ({ ...current, baseBranch: event.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Model</span>
+                <input
+                  value={form.model}
+                  onChange={event => {
+                    modelTouched.current = true;
+                    setForm(current => ({ ...current, model: event.target.value }));
+                  }}
+                  placeholder="optional"
+                />
+              </label>
+            </div>
+            {formError ? <p className="error-text">{formError}</p> : null}
+            <button type="submit" className="primary-button" disabled={submitting}>
+              {submitting ? "Starting" : "Start Workflow"}
+            </button>
+          </form>
+
+          <section className="panel ai-settings-panel">
+            <div className="panel-heading">
+              <h2>AI Settings</h2>
+              {loadingAiSettings ? <span className="muted">Loading</span> : null}
+            </div>
+            <form onSubmit={handleAiSettingsSubmit}>
+              <div className="settings-section">
+                <h3>Basic</h3>
+                <div className="form-row">
+                  <label>
+                    <span>Provider</span>
+                    <input
+                      value={aiSettingsForm.provider}
+                      onChange={event => setAiSettingsForm(current => ({ ...current, provider: event.target.value }))}
+                      placeholder="OpenAI, Anthropic, custom"
+                    />
+                  </label>
+                  <label>
+                    <span>Model</span>
+                    <input
+                      value={aiSettingsForm.model}
+                      onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))}
+                      placeholder="optional default"
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>Auth Method</span>
+                  <select
+                    value={aiSettingsForm.authMethod}
+                    onChange={event => setAiSettingsForm(current => ({ ...current, authMethod: event.target.value }))}
+                  >
+                    <option value="ApiKey">API key</option>
+                    <option value="CodexSubscription">Codex subscription</option>
+                  </select>
+                </label>
+                <label>
+                  <span>API Key Secret Name</span>
+                  <input
+                    value={aiSettingsForm.llmApiKeySecretName}
+                    onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKeySecretName: event.target.value }))}
+                    placeholder="Kubernetes secret name"
+                  />
+                </label>
+                <div className="secret-status">
+                  <span>API key</span>
+                  <StatusBadge value={aiSettings?.hasApiKeySecret ? "Configured" : "NotConfigured"} />
+                </div>
+              </div>
+              <div className="settings-section">
+                <h3>Advanced</h3>
+                <label>
+                  <span>Endpoint / Base URL</span>
+                  <input
+                    value={aiSettingsForm.endpointUrl}
+                    onChange={event => setAiSettingsForm(current => ({ ...current, endpointUrl: event.target.value }))}
+                    placeholder="https://api.example.com/v1"
+                    type="url"
+                  />
+                </label>
+              </div>
+              {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
+              {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
+              <button type="submit" className="primary-button" disabled={savingAiSettings}>
+                {savingAiSettings ? "Saving" : "Save AI Settings"}
+              </button>
+            </form>
+          </section>
+        </div>
 
         <section className="panel recent-panel">
           <div className="panel-heading">
@@ -373,6 +541,16 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
+  return {
+    provider: settings.provider ?? "",
+    model: settings.model ?? "",
+    authMethod: settings.authMethod,
+    llmApiKeySecretName: settings.llmApiKeySecretName ?? "",
+    endpointUrl: settings.endpointUrl ?? ""
+  };
 }
 
 function SummaryItem({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {

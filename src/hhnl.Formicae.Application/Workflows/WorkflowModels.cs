@@ -92,11 +92,39 @@ public sealed class WorkflowLog
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
+public sealed class AiSettings
+{
+    public const string DefaultId = "default";
+
+    public string Id { get; init; } = DefaultId;
+    public string? Provider { get; set; }
+    public string? Model { get; set; }
+    public string? EndpointUrl { get; set; }
+    public string AuthMethod { get; set; } = OpenHandsAuthMethods.ApiKey;
+    public string? LlmApiKeySecretName { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed record StartGitHubIssueWorkflowRequest(
     string IssueUrl,
     string RepositoryUrl,
     string? BaseBranch,
     string? Model);
+
+public sealed record AiSettingsResponse(
+    string? Provider,
+    string? Model,
+    string? EndpointUrl,
+    string AuthMethod,
+    string? LlmApiKeySecretName,
+    bool HasApiKeySecret);
+
+public sealed record UpdateAiSettingsRequest(
+    string? Provider,
+    string? Model,
+    string? EndpointUrl,
+    string AuthMethod,
+    string? LlmApiKeySecretName);
 
 public sealed record WorkflowSummaryResponse(
     Guid WorkflowId,

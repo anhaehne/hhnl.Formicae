@@ -77,6 +77,13 @@ public interface IWorkflowStore
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
 }
 
+public interface IAiSettingsStore
+{
+    Task<AiSettings?> GetAsync(CancellationToken cancellationToken);
+
+    Task<AiSettings> UpsertAsync(AiSettings settings, CancellationToken cancellationToken);
+}
+
 public interface IClock
 {
     DateTimeOffset UtcNow { get; }

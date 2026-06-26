@@ -6,30 +6,39 @@ using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Infrastructure.OpenHands;
 
-public sealed class OpenHandsOptions
+public sealed class OpenHandsAgentRunner : IAgentRunner
 {
-    public string AuthMethod { get; set; } = OpenHandsAuthMethods.ApiKey;
-    public string? DefaultModel { get; set; }
-    public string LlmApiKeySecretName { get; set; } = "openhands-llm-api-key";
-    public string Shell { get; set; } = "/bin/sh";
-    public string BootstrapCommand { get; set; } = string.Empty;
-    public string Command { get; set; } = "openhands --headless --json --override-with-envs -t \"$FORMICAE_TASK_PROMPT\"";
-    public string CodexSubscriptionImage { get; set; } = "mcr.microsoft.com/dotnet/sdk:10.0";
-    public string CodexSubscriptionBootstrapCommand { get; set; } = "apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gnupg && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*";
-    public string CodexSubscriptionCommand { get; set; } = "mkdir -p \"$CODEX_HOME\" /workspace && if [ -f /root/.codex/auth.json ]; then cp /root/.codex/auth.json \"$CODEX_HOME/auth.json\" && chmod 600 \"$CODEX_HOME/auth.json\"; fi && repo=\"${FORMICAE_REPOSITORY_URL#https://}\" && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ] || [ \"$FORMICAE_TASK_KIND\" = \"AddressComments\" ]; then if [ -z \"$GITHUB_TOKEN\" ]; then echo \"GITHUB_TOKEN is required to push workflow changes.\" >&2; exit 1; fi; git clone \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" /workspace/repo && cd /workspace/repo && git checkout \"$FORMICAE_BRANCH\" && git remote set-url origin \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" && git config user.email \"formicae@example.invalid\" && git config user.name \"Formicae Agent\"; else cd /workspace; fi && codex_model_args=\"\" && if [ -n \"$FORMICAE_MODEL\" ]; then codex_model_args=\"-m $FORMICAE_MODEL\"; fi && npx -y @openai/codex exec $codex_model_args -C \"$PWD\" --skip-git-repo-check --json --dangerously-bypass-approvals-and-sandbox \"$FORMICAE_TASK_PROMPT\" && if [ \"$FORMICAE_TASK_KIND\" = \"Implement\" ] || [ \"$FORMICAE_TASK_KIND\" = \"AddressComments\" ]; then git remote set-url origin \"https://x-access-token:${GITHUB_TOKEN}@${repo}\" && git add -A && if git diff --cached --quiet; then echo \"Codex completed without uncommitted file changes.\"; else commit_subject=\"Implement Formicae workflow ${FORMICAE_WORKFLOW_ID}\" && if [ \"$FORMICAE_TASK_KIND\" = \"AddressComments\" ]; then commit_subject=\"Address comments for Formicae workflow ${FORMICAE_WORKFLOW_ID}\"; fi && git commit -m \"$commit_subject\"; fi && git push origin \"$FORMICAE_BRANCH\"; fi";
-}
+    private readonly IKubernetesJobRunner jobRunner;
+    private readonly IOptions<KubernetesJobOptions> jobOptions;
+    private readonly IOptions<OpenHandsOptions> openHandsOptions;
+    private readonly AiSettingsService? aiSettingsService;
 
-public static class OpenHandsAuthMethods
-{
-    public const string ApiKey = "ApiKey";
-    public const string CodexSubscription = "CodexSubscription";
-}
+    public OpenHandsAgentRunner(
+        IKubernetesJobRunner jobRunner,
+        IOptions<KubernetesJobOptions> jobOptions,
+        IOptions<OpenHandsOptions> openHandsOptions)
+        : this(jobRunner, jobOptions, openHandsOptions, null)
+    {
+    }
 
-public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOptions<KubernetesJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions) : IAgentRunner
-{
+    public OpenHandsAgentRunner(
+        IKubernetesJobRunner jobRunner,
+        IOptions<KubernetesJobOptions> jobOptions,
+        IOptions<OpenHandsOptions> openHandsOptions,
+        AiSettingsService? aiSettingsService)
+    {
+        this.jobRunner = jobRunner;
+        this.jobOptions = jobOptions;
+        this.openHandsOptions = openHandsOptions;
+        this.aiSettingsService = aiSettingsService;
+    }
+
     public async Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        var spec = BuildSpec(task);
+        var settings = aiSettingsService is null
+            ? ResolveSettingsFromOptions(openHandsOptions.Value)
+            : await aiSettingsService.ResolveAsync(cancellationToken);
+        var spec = BuildSpec(task, settings);
         var start = await jobRunner.StartJobAsync(spec, cancellationToken);
         return new AgentRunStartResult(start.JobName);
     }
@@ -46,12 +55,12 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
     }
 
-    private KubernetesJobSpec BuildSpec(AgentTask task)
+    private KubernetesJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings)
     {
-        var command = ResolveCommand(openHandsOptions.Value);
-        var model = ResolveModel(task, openHandsOptions.Value, command.AuthMethod);
+        var command = ResolveCommand(openHandsOptions.Value, settings.AuthMethod);
+        var model = ResolveModel(task, settings, command.AuthMethod);
         var jobName = BuildJobName(task);
-        var environment = BuildEnvironment(task, model, command.AuthMethod);
+        var environment = BuildEnvironment(task, model, settings.EndpointUrl, command.AuthMethod);
         return new KubernetesJobSpec(
             jobName,
             command.Image ?? jobOptions.Value.Image,
@@ -120,16 +129,24 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         return true;
     }
 
-    private static string ResolveModel(AgentTask task, OpenHandsOptions options, string authMethod)
+    private static ResolvedAiSettings ResolveSettingsFromOptions(OpenHandsOptions options)
+        => new(
+            TrimToNull(options.Provider),
+            TrimToNull(options.DefaultModel),
+            TrimToNull(options.EndpointUrl),
+            NormalizeAuthMethod(TrimToNull(options.AuthMethod) ?? OpenHandsAuthMethods.ApiKey),
+            TrimToNull(options.LlmApiKeySecretName));
+
+    private static string ResolveModel(AgentTask task, ResolvedAiSettings settings, string authMethod)
     {
         if (!string.IsNullOrWhiteSpace(task.Model))
         {
             return task.Model;
         }
 
-        if (!string.IsNullOrWhiteSpace(options.DefaultModel))
+        if (!string.IsNullOrWhiteSpace(settings.Model))
         {
-            return options.DefaultModel;
+            return settings.Model;
         }
 
         return IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey)
@@ -137,7 +154,7 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
             : string.Empty;
     }
 
-    private static Dictionary<string, string> BuildEnvironment(AgentTask task, string model, string authMethod)
+    private static Dictionary<string, string> BuildEnvironment(AgentTask task, string model, string? endpointUrl, string authMethod)
     {
         var environment = new Dictionary<string, string>
         {
@@ -153,6 +170,10 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
         {
             environment["LLM_MODEL"] = model;
+            if (!string.IsNullOrWhiteSpace(endpointUrl))
+            {
+                environment["LLM_BASE_URL"] = endpointUrl;
+            }
         }
         else if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
@@ -166,9 +187,9 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
         return environment;
     }
 
-    private static SelectedOpenHandsCommand ResolveCommand(OpenHandsOptions options)
+    private static SelectedOpenHandsCommand ResolveCommand(OpenHandsOptions options, string authMethod)
     {
-        if (IsAuthMethod(options.AuthMethod, OpenHandsAuthMethods.CodexSubscription))
+        if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
             return new SelectedOpenHandsCommand(
                 KubernetesJobAuthMethods.CodexSubscription,
@@ -177,7 +198,7 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
                 options.CodexSubscriptionCommand);
         }
 
-        if (IsAuthMethod(options.AuthMethod, OpenHandsAuthMethods.ApiKey))
+        if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
         {
             return new SelectedOpenHandsCommand(
                 KubernetesJobAuthMethods.ApiKey,
@@ -186,11 +207,32 @@ public sealed class OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOption
                 options.Command);
         }
 
-        throw new InvalidOperationException($"Unsupported OpenHands auth method '{options.AuthMethod}'. Supported values are '{OpenHandsAuthMethods.ApiKey}' and '{OpenHandsAuthMethods.CodexSubscription}'.");
+        throw new InvalidOperationException($"Unsupported OpenHands auth method '{authMethod}'. Supported values are '{OpenHandsAuthMethods.ApiKey}' and '{OpenHandsAuthMethods.CodexSubscription}'.");
     }
 
     private static bool IsAuthMethod(string? actual, string expected)
         => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeAuthMethod(string authMethod)
+    {
+        if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
+        {
+            return OpenHandsAuthMethods.ApiKey;
+        }
+
+        if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
+        {
+            return OpenHandsAuthMethods.CodexSubscription;
+        }
+
+        return authMethod;
+    }
+
+    private static string? TrimToNull(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
 
     private static string BuildShellCommand(string bootstrapCommand, string command)
         => string.IsNullOrWhiteSpace(bootstrapCommand)

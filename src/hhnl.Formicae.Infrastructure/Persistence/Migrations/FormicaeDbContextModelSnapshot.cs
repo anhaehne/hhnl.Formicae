@@ -22,6 +22,35 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.AiSettings", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AuthMethod")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EndpointUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LlmApiKeySecretName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Provider")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ai_settings", (string)null);
+                });
+
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.TaskRun", b =>
                 {
                     b.Property<Guid>("Id")

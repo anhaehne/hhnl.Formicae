@@ -9,6 +9,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
+    public DbSet<AiSettings> AiSettings => Set<AiSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +52,14 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(log => log.Message).IsRequired();
             entity.Property(log => log.Level).IsRequired();
             entity.HasIndex(log => log.WorkflowId);
+        });
+
+        modelBuilder.Entity<AiSettings>(entity =>
+        {
+            entity.ToTable("ai_settings");
+            entity.HasKey(settings => settings.Id);
+            entity.Property(settings => settings.Id).IsRequired();
+            entity.Property(settings => settings.AuthMethod).IsRequired();
         });
     }
 }
