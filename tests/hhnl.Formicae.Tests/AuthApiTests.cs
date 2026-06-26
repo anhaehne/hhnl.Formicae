@@ -81,6 +81,20 @@ public sealed class AuthApiTests
         Assert.Contains("github.com/login/oauth/authorize", response.Headers.Location.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Auth_enabled_rejects_unsupported_provider_before_checking_GitHub_credentials()
+    {
+        using var factory = new FormicaeApiFactory(new Dictionary<string, string?>
+        {
+            ["Auth:Enabled"] = "true",
+            ["Auth:Provider"] = "ExampleProvider"
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => factory.CreateClient(new() { AllowAutoRedirect = false }));
+
+        Assert.Contains("Authentication provider 'ExampleProvider' is not supported.", exception.Message, StringComparison.Ordinal);
+    }
+
     private static FormicaeApiFactory CreateAuthEnabledFactory()
         => new(new Dictionary<string, string?>
         {
