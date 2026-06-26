@@ -118,6 +118,8 @@ export type GitHubUserRepository = {
   repositoryUrl: string;
   defaultBranch: string;
   private: boolean;
+  installationId: number;
+  installationAccount?: string | null;
 };
 
 export type ConnectedRepository = {

@@ -5,4 +5,6 @@ public sealed record GitHubUserRepositoryResponse(
     string Name,
     string RepositoryUrl,
     string DefaultBranch,
-    bool Private);
+    bool Private,
+    long InstallationId,
+    string? InstallationAccount);

@@ -60,6 +60,23 @@ public sealed class DevOpsIntegrationServiceTests
         Assert.Throws<ArgumentException>(() => DevOpsIntegrationService.ParseGitHubRepositoryUrl(url));
     }
 
+
+    [Fact]
+    public async Task AddRepositoryAsync_requires_github_app_installation()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGitHubIntegrationAsync(
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddRepositoryAsync(
+            integration.Id,
+            new AddConnectedRepositoryRequest("https://github.com/acme/widgets", "main", null, null),
+            CancellationToken.None));
+
+        Assert.Contains("GitHub App installation", exception.Message);
+    }
     [Fact]
     public async Task AddRepositoryAsync_rejects_duplicates()
     {

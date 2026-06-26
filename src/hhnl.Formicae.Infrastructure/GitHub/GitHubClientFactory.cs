@@ -21,6 +21,11 @@ public sealed class GitHubClientFactory(IDevOpsIntegrationStore? integrationStor
         var integration = connectedRepository.DevOpsIntegration
             ?? await integrationStore.GetAsync(connectedRepository.DevOpsIntegrationId, cancellationToken)
             ?? throw new InvalidOperationException($"GitHub integration for repository '{repository.RepositoryUrl}' was not found.");
+        if (!connectedRepository.InstallationId.HasValue)
+        {
+            throw new InvalidOperationException($"GitHub repository '{repository.RepositoryUrl}' is not connected through a GitHub App installation. Install or grant the GitHub App access to the repository, authenticate GitHub again, remove the existing repository record, and add it again from the available installation repositories list.");
+        }
+
         if (string.IsNullOrWhiteSpace(integration.GitHubOAuthAccessToken))
         {
             throw new InvalidOperationException($"GitHub integration '{integration.DisplayName}' is not authenticated. Authenticate GitHub for the integration before running workflows.");

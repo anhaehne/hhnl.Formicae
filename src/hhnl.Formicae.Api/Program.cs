@@ -230,20 +230,24 @@ app.MapGet("/api/auth/github/repositories", async (
         Credentials = new Credentials(accessToken)
     };
 
-    var repositories = await client.Repository.GetAllForCurrent(new RepositoryRequest
+    var installations = await client.GitHubApps.GetAllInstallationsForCurrentUser();
+    var repositories = new List<GitHubUserRepositoryResponse>();
+    foreach (var installation in installations.Installations)
     {
-        Affiliation = RepositoryAffiliation.Owner | RepositoryAffiliation.Collaborator | RepositoryAffiliation.OrganizationMember,
-        Sort = RepositorySort.FullName,
-        Direction = SortDirection.Ascending
-    });
-
-    return Results.Ok(repositories
-        .Select(repository => new GitHubUserRepositoryResponse(
+        var installedRepositories = await client.GitHubApps.Installation.GetAllRepositoriesForCurrentUser(installation.Id);
+        repositories.AddRange(installedRepositories.Repositories.Select(repository => new GitHubUserRepositoryResponse(
             repository.Owner.Login,
             repository.Name,
             repository.HtmlUrl,
             repository.DefaultBranch,
-            repository.Private))
+            repository.Private,
+            installation.Id,
+            installation.Account?.Login)));
+    }
+
+    return Results.Ok(repositories
+        .OrderBy(repository => repository.Owner, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(repository => repository.Name, StringComparer.OrdinalIgnoreCase)
         .ToArray());
 });
 

@@ -488,8 +488,8 @@ export default function App() {
       await addConnectedRepository(selectedIntegrationId, {
         repositoryUrl: repository.repositoryUrl,
         defaultBranch: repository.defaultBranch || "main",
-        installationId: null,
-        installationAccount: repository.owner
+        installationId: repository.installationId,
+        installationAccount: repository.installationAccount ?? repository.owner
       });
       setIntegrationDetail(await getIntegration(selectedIntegrationId));
       setRepositorySaved(`${repository.owner}/${repository.name} added.`);

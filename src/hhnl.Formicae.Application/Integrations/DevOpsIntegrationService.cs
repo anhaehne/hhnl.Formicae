@@ -116,6 +116,11 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
 
         EnsureGitHub(integration);
+        if (!request.InstallationId.HasValue)
+        {
+            throw new InvalidOperationException("Repository must be selected from a GitHub App installation. Install or grant the GitHub App access to this repository, authenticate GitHub again, and add the repository from the available installation repositories list.");
+        }
+
         var repository = ParseGitHubRepositoryUrl(request.RepositoryUrl);
         var existing = await store.GetRepositoryByUrlAsync(integrationId, repository.RepositoryUrl, cancellationToken);
         if (existing is not null)
