@@ -280,6 +280,11 @@ tbody tr:hover {
   max-width: 960px;
 }
 
+.integrations-page {
+  margin: 0 auto;
+  max-width: 1440px;
+}
+
 .settings-panel .primary-button {
   max-width: 240px;
 }
@@ -292,6 +297,13 @@ tbody tr:hover {
 .summary-list {
   border-right: 1px solid #e2e5de;
   padding-right: 18px;
+}
+
+.summary-list.compact {
+  border-right: 0;
+  display: grid;
+  gap: 10px;
+  padding-right: 0;
 }
 
 .summary-item {
@@ -319,6 +331,99 @@ tbody tr:hover {
 .detail-stack {
   display: grid;
   gap: 18px;
+}
+
+.button-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.toggle-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.toggle-label input {
+  min-height: auto;
+  width: auto;
+}
+
+.toggle-label span {
+  margin: 0;
+}
+
+.integration-list,
+.repository-list {
+  display: grid;
+  gap: 8px;
+}
+
+.integration-row {
+  background: #fbfcfa;
+  border: 1px solid #d7dbd2;
+  border-radius: 6px;
+  color: #202124;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.integration-row.selected {
+  border-color: #12625d;
+  box-shadow: inset 3px 0 0 #12625d;
+}
+
+.integration-row span,
+.repository-row span {
+  color: #596057;
+  font-size: 0.82rem;
+}
+
+.checklist-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.checklist-grid h4 {
+  font-size: 0.82rem;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.checklist-grid ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.repository-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 2fr) minmax(110px, 0.8fr) minmax(120px, 0.8fr) minmax(160px, 1fr) auto;
+  margin-bottom: 12px;
+}
+
+.repository-row {
+  align-items: center;
+  background: #fbfcfa;
+  border: 1px solid #e2e5de;
+  border-radius: 6px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.repository-row > div {
+  display: grid;
+  gap: 2px;
 }
 
 .run-list {
@@ -532,6 +637,15 @@ pre.collapsed-content::after {
   margin-bottom: 12px;
 }
 
+.warning-text {
+  background: #fff7e6;
+  border: 1px solid #efc56f;
+  border-radius: 6px;
+  color: #6e3f21;
+  margin-bottom: 0;
+  padding: 10px;
+}
+
 .empty-cell {
   color: #6f766d;
   padding: 24px;
@@ -561,7 +675,9 @@ pre.collapsed-content::after {
   }
 
   .workspace-grid,
-  .detail-grid {
+  .detail-grid,
+  .checklist-grid,
+  .repository-form {
     grid-template-columns: 1fr;
   }
 

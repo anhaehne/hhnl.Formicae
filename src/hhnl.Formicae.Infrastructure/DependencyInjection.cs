@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
@@ -22,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<WorkflowObservabilityService>();
         services.AddScoped<WorkerAgentMessageService>();
         services.AddScoped<AiSettingsService>();
+        services.AddScoped<DevOpsIntegrationService>();
         services.AddSingleton<IClock, SystemClock>();
         services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
@@ -31,8 +33,10 @@ public static class DependencyInjection
 
         if (configuration.GetValue("UseFakeAdapters", true))
         {
+            services.AddDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase("Formicae"));
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
             services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
@@ -42,8 +46,10 @@ public static class DependencyInjection
 
         if (IsMode(configuration, "PersistenceMode", "InMemory"))
         {
+            services.AddDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase("Formicae"));
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
         else
@@ -51,8 +57,11 @@ public static class DependencyInjection
             services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
             services.AddScoped<IAiSettingsStore, EfAiSettingsStore>();
+            services.AddScoped<IDevOpsIntegrationStore, EfDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
+
+        services.AddSingleton<IGitHubClientFactory, GitHubClientFactory>();
 
         if (IsMode(configuration, "WorkItemMode", "Fake"))
         {
@@ -60,7 +69,8 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<IWorkItemProvider>(_ => new GitHubWorkItemProvider(CreateGitHubClient(requireToken: false)));
+            services.AddSingleton<IWorkItemProvider>(serviceProvider =>
+                new GitHubWorkItemProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>().CreateClient(requireToken: false)));
         }
 
         if (IsMode(configuration, "SourceControlMode", "Fake"))
@@ -69,7 +79,8 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<ISourceControlProvider>(_ => new GitHubSourceControlProvider(CreateGitHubClient(requireToken: true)));
+            services.AddSingleton<ISourceControlProvider>(serviceProvider =>
+                new GitHubSourceControlProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>().CreateClient(requireToken: true)));
         }
 
         if (IsMode(configuration, "AgentMode", "Fake"))
@@ -88,22 +99,4 @@ public static class DependencyInjection
 
     private static bool IsMode(IConfiguration configuration, string key, string expected)
         => string.Equals(configuration[key], expected, StringComparison.OrdinalIgnoreCase);
-
-    private static GitHubClient CreateGitHubClient(bool requireToken)
-    {
-        var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"));
-        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            if (requireToken)
-            {
-                throw new InvalidOperationException("GITHUB_TOKEN is required for GitHub source control operations.");
-            }
-
-            return client;
-        }
-
-        client.Credentials = new Credentials(token);
-        return client;
-    }
 }

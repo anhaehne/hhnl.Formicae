@@ -1,18 +1,24 @@
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace hhnl.Formicae.Infrastructure.Persistence;
 
-public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> options) : DbContext(options)
+public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> options) : IdentityDbContext<FormicaeUser>(options)
 {
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
+    public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
+    public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.Entity<Workflow>(entity =>
         {
             entity.ToTable("workflows");
@@ -60,6 +66,32 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasKey(settings => settings.Id);
             entity.Property(settings => settings.Id).IsRequired();
             entity.Property(settings => settings.AuthMethod).IsRequired();
+        });
+
+        modelBuilder.Entity<DevOpsIntegration>(entity =>
+        {
+            entity.ToTable("devops_integrations");
+            entity.HasKey(integration => integration.Id);
+            entity.Property(integration => integration.ProviderType).HasConversion<string>();
+            entity.Property(integration => integration.DisplayName).IsRequired();
+            entity.Property(integration => integration.GitHubAppClientId).IsRequired();
+            entity.Property(integration => integration.WebhookSecret).IsRequired();
+            entity.Property(integration => integration.WebhookUrl).IsRequired();
+            entity.HasMany(integration => integration.Repositories)
+                .WithOne(repository => repository.DevOpsIntegration)
+                .HasForeignKey(repository => repository.DevOpsIntegrationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConnectedRepository>(entity =>
+        {
+            entity.ToTable("connected_repositories");
+            entity.HasKey(repository => repository.Id);
+            entity.Property(repository => repository.Owner).IsRequired();
+            entity.Property(repository => repository.Name).IsRequired();
+            entity.Property(repository => repository.RepositoryUrl).IsRequired();
+            entity.Property(repository => repository.DefaultBranch).IsRequired();
+            entity.HasIndex(repository => new { repository.DevOpsIntegrationId, repository.RepositoryUrl }).IsUnique();
         });
     }
 }
