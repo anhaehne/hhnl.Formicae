@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -5,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(FormicaeDbContext))]
+    [Migration("20260626153000_AddGitHubIntegrationAccessToken")]
     public partial class AddGitHubIntegrationAccessToken : Migration
     {
         /// <inheritdoc />
