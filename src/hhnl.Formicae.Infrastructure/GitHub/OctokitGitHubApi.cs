@@ -145,7 +145,7 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
             new { query, variables },
             "application/json",
             "application/json",
-            (string?)null,
+            new Dictionary<string, string>(),
             cancellationToken);
 
         if (response.Body.Errors is { Count: > 0 })
