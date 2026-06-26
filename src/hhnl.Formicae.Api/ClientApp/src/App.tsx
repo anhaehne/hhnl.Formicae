@@ -448,7 +448,7 @@ export default function App() {
     setRestartingIdentityProvider(true);
     try {
       setIntegrationDetail(await restartIdentityProvider(selectedIntegrationId));
-      setIntegrationSaved("Restart triggered. GitHub login will use this integration after the rollout completes.");
+      setIntegrationSaved("Restart triggered. GitHub login will use this integration after the application starts again.");
       await refreshIntegrations();
     } catch (error) {
       setIntegrationError(error instanceof Error ? error.message : "Could not restart the application.");
