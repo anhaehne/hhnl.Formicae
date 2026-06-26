@@ -662,6 +662,13 @@ pre.collapsed-content::after {
   margin-bottom: 12px;
 }
 
+.warning-actions {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .warning-text {
   background: #fff7e6;
   border: 1px solid #efc56f;
@@ -678,6 +685,10 @@ pre.collapsed-content::after {
 }
 
 @media (max-width: 960px) {
+  .warning-actions {
+    grid-template-columns: 1fr;
+  }
+
   .topbar-actions {
     align-items: stretch;
     display: grid;

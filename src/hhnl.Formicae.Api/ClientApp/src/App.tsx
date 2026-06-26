@@ -19,6 +19,7 @@ import {
   listRuns,
   listSignals,
   listWorkflows,
+  restartIdentityProvider,
   rotateWebhookSecret,
   setIdentityProviderEnabled,
   startWorkflow,
@@ -115,6 +116,7 @@ export default function App() {
   const [integrationError, setIntegrationError] = useState<string>();
   const [integrationSaved, setIntegrationSaved] = useState<string>();
   const [creatingIntegration, setCreatingIntegration] = useState(false);
+  const [restartingIdentityProvider, setRestartingIdentityProvider] = useState(false);
   const [githubIntegrationForm, setGitHubIntegrationForm] = useState<GitHubIntegrationFormState>(initialGitHubIntegrationForm);
   const [availableRepositories, setAvailableRepositories] = useState<GitHubUserRepository[]>([]);
   const [repositorySearch, setRepositorySearch] = useState("");
@@ -436,6 +438,25 @@ export default function App() {
     }
   }
 
+  async function handleIdentityRestart() {
+    if (!selectedIntegrationId) {
+      return;
+    }
+
+    setIntegrationError(undefined);
+    setIntegrationSaved(undefined);
+    setRestartingIdentityProvider(true);
+    try {
+      setIntegrationDetail(await restartIdentityProvider(selectedIntegrationId));
+      setIntegrationSaved("Restart triggered. GitHub login will use this integration after the rollout completes.");
+      await refreshIntegrations();
+    } catch (error) {
+      setIntegrationError(error instanceof Error ? error.message : "Could not restart the application.");
+    } finally {
+      setRestartingIdentityProvider(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -712,11 +733,13 @@ export default function App() {
           integrationSaved={integrationSaved}
           githubIntegrationForm={githubIntegrationForm}
           creatingIntegration={creatingIntegration}
+          restartingIdentityProvider={restartingIdentityProvider}
           setGitHubIntegrationForm={setGitHubIntegrationForm}
           onCreateIntegration={handleCreateIntegration}
           onSelectIntegration={handleSelectIntegration}
           onRotateWebhookSecret={handleRotateWebhookSecret}
           onIdentityToggle={handleIdentityToggle}
+          onIdentityRestart={handleIdentityRestart}
         />
       ) : activePage === "repositories" ? (
         <RepositoriesPage
@@ -760,11 +783,13 @@ function IntegrationsPage({
   integrationSaved,
   githubIntegrationForm,
   creatingIntegration,
+  restartingIdentityProvider,
   setGitHubIntegrationForm,
   onCreateIntegration,
   onSelectIntegration,
   onRotateWebhookSecret,
-  onIdentityToggle
+  onIdentityToggle,
+  onIdentityRestart
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -773,11 +798,13 @@ function IntegrationsPage({
   integrationSaved?: string;
   githubIntegrationForm: GitHubIntegrationFormState;
   creatingIntegration: boolean;
+  restartingIdentityProvider: boolean;
   setGitHubIntegrationForm: Dispatch<SetStateAction<GitHubIntegrationFormState>>;
   onCreateIntegration: (event: FormEvent<HTMLFormElement>) => void;
   onSelectIntegration: (integrationId: string) => void;
   onRotateWebhookSecret: () => void;
   onIdentityToggle: (enabled: boolean) => void;
+  onIdentityRestart: () => void;
 }) {
   return (
     <section className="integrations-page">
@@ -867,7 +894,17 @@ function IntegrationsPage({
                   <span>Use as identity provider</span>
                 </label>
                 {integrationDetail.requiresRestart ? (
-                  <p className="warning-text">Restart required before GitHub login uses this integration.</p>
+                  <div className="warning-actions">
+                    <p className="warning-text">Restart required before GitHub login uses this integration.</p>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={onIdentityRestart}
+                      disabled={restartingIdentityProvider}
+                    >
+                      {restartingIdentityProvider ? "Restarting" : "Restart"}
+                    </button>
+                  </div>
                 ) : null}
               </section>
 

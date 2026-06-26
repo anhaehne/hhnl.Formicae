@@ -205,6 +205,10 @@ export async function setIdentityProviderEnabled(integrationId: string, enabled:
   });
 }
 
+export async function restartIdentityProvider(integrationId: string): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/identity-provider/restart`, { method: "POST" });
+}
+
 export async function listWorkflows(limit = 25): Promise<WorkflowSummary[]> {
   return send<WorkflowSummary[]>(`/api/workflows?limit=${encodeURIComponent(limit)}`);
 }

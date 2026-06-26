@@ -75,6 +75,23 @@ public sealed class DevOpsIntegrationServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddRepositoryAsync(integration.Id, request, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task MarkIdentityProviderRestartedAsync_clears_restart_flag()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGitHubIntegrationAsync(
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            RequestBaseUri,
+            CancellationToken.None);
+        integration = await service.SetIdentityProviderEnabledAsync(integration.Id, true, RequestBaseUri, CancellationToken.None);
+
+        var restarted = await service.MarkIdentityProviderRestartedAsync(integration!.Id, RequestBaseUri, CancellationToken.None);
+
+        Assert.NotNull(restarted);
+        Assert.True(restarted.IdentityProviderEnabled);
+        Assert.False(restarted.RequiresRestart);
+    }
+
     private static DevOpsIntegrationService CreateService()
         => new(new InMemoryDevOpsIntegrationStore(), new FixedClock());
 

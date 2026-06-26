@@ -165,6 +165,24 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
     }
 
+    public async Task<IntegrationDetail?> MarkIdentityProviderRestartedAsync(
+        Guid integrationId,
+        Uri requestBaseUri,
+        CancellationToken cancellationToken)
+    {
+        var integration = await store.GetAsync(integrationId, cancellationToken);
+        if (integration is null)
+        {
+            return null;
+        }
+
+        EnsureGitHub(integration);
+        integration.RequiresRestart = false;
+        integration.UpdatedAt = clock.UtcNow;
+        await store.UpdateAsync(integration, cancellationToken);
+        return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
+    }
+
     public static string BuildWebhookUrl(Uri requestBaseUri)
         => new Uri(requestBaseUri, "/api/webhooks/github").ToString();
 

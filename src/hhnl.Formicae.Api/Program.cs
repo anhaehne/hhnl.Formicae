@@ -396,6 +396,34 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     return integration is null ? Results.NotFound() : Results.Ok(integration);
 });
 
+app.MapPost("/api/integrations/{integrationId:guid}/identity-provider/restart", async (
+    Guid integrationId,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    IHostApplicationLifetime applicationLifetime,
+    CancellationToken cancellationToken) =>
+{
+    var current = await integrations.GetAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
+    if (current is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!current.IdentityProviderEnabled)
+    {
+        return Results.BadRequest(new { error = "Enable the identity provider before restarting." });
+    }
+
+    var integration = await integrations.MarkIdentityProviderRestartedAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
+    _ = Task.Run(async () =>
+    {
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        applicationLifetime.StopApplication();
+    }, CancellationToken.None);
+
+    return integration is null ? Results.NotFound() : Results.Ok(integration);
+});
+
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
     WorkflowService workflowService,
@@ -473,8 +501,13 @@ static Uri GetPublicBaseUri(HttpRequest request)
 }
 
 static bool IsAnonymousPath(PathString path)
-    => path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)
+    => IsIdentityProviderRestartPath(path)
+        || path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/api/webhooks", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase)
         || path.Value is "/favicon.ico" or "/index.html";
+
+static bool IsIdentityProviderRestartPath(PathString path)
+    => path.Value?.Contains("/identity-provider/restart", StringComparison.OrdinalIgnoreCase) == true
+        && path.StartsWithSegments("/api/integrations", StringComparison.OrdinalIgnoreCase);
