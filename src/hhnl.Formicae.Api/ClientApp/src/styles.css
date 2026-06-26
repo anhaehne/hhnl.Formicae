@@ -43,6 +43,40 @@ a:hover {
   max-width: 1440px;
 }
 
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.app-menu {
+  background: #eef1eb;
+  border: 1px solid #d7dbd2;
+  border-radius: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+}
+
+.menu-button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #4a4f49;
+  cursor: pointer;
+  font-weight: 750;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.menu-button.active {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(24 31 27 / 10%);
+  color: #12625d;
+}
+
 .eyebrow {
   color: #6e3f21;
   font-size: 0.78rem;
@@ -241,6 +275,14 @@ tbody tr:hover {
   max-width: 1440px;
 }
 
+.settings-page {
+  margin: 0 auto;
+  max-width: 960px;
+}
+
+.settings-panel .primary-button {
+  max-width: 240px;
+}
 .detail-grid {
   display: grid;
   gap: 18px;
@@ -497,11 +539,27 @@ pre.collapsed-content::after {
 }
 
 @media (max-width: 960px) {
+  .topbar-actions {
+    align-items: stretch;
+    display: grid;
+    width: 100%;
+  }
+
+  .app-menu {
+    justify-content: stretch;
+  }
+
+  .menu-button {
+    flex: 1;
+  }
   .app-shell {
     padding: 14px;
   }
 
-  .topbar,
+  .topbar {
+    flex-wrap: wrap;
+  }
+
   .workspace-grid,
   .detail-grid {
     grid-template-columns: 1fr;

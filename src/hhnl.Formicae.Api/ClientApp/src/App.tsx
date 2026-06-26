@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   AiSettings,
   getAiSettings,
@@ -40,6 +40,8 @@ type AiSettingsFormState = {
   endpointUrl: string;
 };
 
+type Page = "workflows" | "settings";
+
 type DetailState = {
   workflow?: WorkflowSummary;
   runs: TaskRun[];
@@ -67,6 +69,7 @@ const initialAiSettingsForm: AiSettingsFormState = {
 };
 
 export default function App() {
+  const [activePage, setActivePage] = useState<Page>("workflows");
   const [form, setForm] = useState<FormState>(initialForm);
   const modelTouched = useRef(false);
   const [aiSettings, setAiSettings] = useState<AiSettings>();
@@ -252,14 +255,35 @@ export default function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Formicae</p>
-          <h1>Workflow Management</h1>
+          <h1>{activePage === "workflows" ? "Workflow Management" : "Settings"}</h1>
         </div>
-        <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
-          {loadingWorkflows ? "Refreshing" : "Refresh"}
-        </button>
+        <div className="topbar-actions">
+          <nav className="app-menu" aria-label="Primary navigation">
+            <button
+              type="button"
+              className={`menu-button${activePage === "workflows" ? " active" : ""}`}
+              onClick={() => setActivePage("workflows")}
+            >
+              Workflows
+            </button>
+            <button
+              type="button"
+              className={`menu-button${activePage === "settings" ? " active" : ""}`}
+              onClick={() => setActivePage("settings")}
+            >
+              Settings
+            </button>
+          </nav>
+          {activePage === "workflows" ? (
+            <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
+              {loadingWorkflows ? "Refreshing" : "Refresh"}
+            </button>
+          ) : null}
+        </div>
       </header>
-
-      <section className="workspace-grid">
+      {activePage === "workflows" ? (
+        <>
+          <section className="workspace-grid">
         <div className="left-stack">
           <form className="panel trigger-panel" onSubmit={handleSubmit}>
             <div className="panel-heading">
@@ -308,75 +332,6 @@ export default function App() {
               {submitting ? "Starting" : "Start Workflow"}
             </button>
           </form>
-
-          <section className="panel ai-settings-panel">
-            <div className="panel-heading">
-              <h2>AI Settings</h2>
-              {loadingAiSettings ? <span className="muted">Loading</span> : null}
-            </div>
-            <form onSubmit={handleAiSettingsSubmit}>
-              <div className="settings-section">
-                <h3>Basic</h3>
-                <div className="form-row">
-                  <label>
-                    <span>Provider</span>
-                    <input
-                      value={aiSettingsForm.provider}
-                      onChange={event => setAiSettingsForm(current => ({ ...current, provider: event.target.value }))}
-                      placeholder="OpenAI, Anthropic, custom"
-                    />
-                  </label>
-                  <label>
-                    <span>Model</span>
-                    <input
-                      value={aiSettingsForm.model}
-                      onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))}
-                      placeholder="optional default"
-                    />
-                  </label>
-                </div>
-                <label>
-                  <span>Auth Method</span>
-                  <select
-                    value={aiSettingsForm.authMethod}
-                    onChange={event => setAiSettingsForm(current => ({ ...current, authMethod: event.target.value }))}
-                  >
-                    <option value="ApiKey">API key</option>
-                    <option value="CodexSubscription">Codex subscription</option>
-                  </select>
-                </label>
-                <label>
-                  <span>API Key Secret Name</span>
-                  <input
-                    value={aiSettingsForm.llmApiKeySecretName}
-                    onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKeySecretName: event.target.value }))}
-                    placeholder="Kubernetes secret name"
-                  />
-                </label>
-                <div className="secret-status">
-                  <span>API key</span>
-                  <StatusBadge value={aiSettings?.hasApiKeySecret ? "Configured" : "NotConfigured"} />
-                </div>
-              </div>
-              <div className="settings-section">
-                <h3>Advanced</h3>
-                <label>
-                  <span>Endpoint / Base URL</span>
-                  <input
-                    value={aiSettingsForm.endpointUrl}
-                    onChange={event => setAiSettingsForm(current => ({ ...current, endpointUrl: event.target.value }))}
-                    placeholder="https://api.example.com/v1"
-                    type="url"
-                  />
-                </label>
-              </div>
-              {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
-              {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
-              <button type="submit" className="primary-button" disabled={savingAiSettings}>
-                {savingAiSettings ? "Saving" : "Save AI Settings"}
-              </button>
-            </form>
-          </section>
         </div>
 
         <section className="panel recent-panel">
@@ -539,10 +494,115 @@ export default function App() {
           <p className="muted">Select a workflow to inspect runs and logs.</p>
         )}
       </section>
+        </>
+      ) : (
+        <SettingsPage
+          aiSettings={aiSettings}
+          aiSettingsForm={aiSettingsForm}
+          loadingAiSettings={loadingAiSettings}
+          savingAiSettings={savingAiSettings}
+          aiSettingsError={aiSettingsError}
+          aiSettingsSaved={aiSettingsSaved}
+          setAiSettingsForm={setAiSettingsForm}
+          onSubmit={handleAiSettingsSubmit}
+        />
+      )}
     </main>
   );
 }
 
+function SettingsPage({
+  aiSettings,
+  aiSettingsForm,
+  loadingAiSettings,
+  savingAiSettings,
+  aiSettingsError,
+  aiSettingsSaved,
+  setAiSettingsForm,
+  onSubmit
+}: {
+  aiSettings?: AiSettings;
+  aiSettingsForm: AiSettingsFormState;
+  loadingAiSettings: boolean;
+  savingAiSettings: boolean;
+  aiSettingsError?: string;
+  aiSettingsSaved?: string;
+  setAiSettingsForm: Dispatch<SetStateAction<AiSettingsFormState>>;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className="settings-page">
+      <section className="panel settings-panel">
+        <div className="panel-heading">
+          <h2>AI Settings</h2>
+          {loadingAiSettings ? <span className="muted">Loading</span> : null}
+        </div>
+        <form onSubmit={onSubmit}>
+          <div className="settings-section">
+            <h3>Basic</h3>
+            <div className="form-row">
+              <label>
+                <span>Provider</span>
+                <input
+                  value={aiSettingsForm.provider}
+                  onChange={event => setAiSettingsForm(current => ({ ...current, provider: event.target.value }))}
+                  placeholder="OpenAI, Anthropic, custom"
+                />
+              </label>
+              <label>
+                <span>Model</span>
+                <input
+                  value={aiSettingsForm.model}
+                  onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))}
+                  placeholder="optional default"
+                />
+              </label>
+            </div>
+            <label>
+              <span>Auth Method</span>
+              <select
+                value={aiSettingsForm.authMethod}
+                onChange={event => setAiSettingsForm(current => ({ ...current, authMethod: event.target.value }))}
+              >
+                <option value="ApiKey">API key</option>
+                <option value="CodexSubscription">Codex subscription</option>
+              </select>
+            </label>
+            <label>
+              <span>API Key Secret Name</span>
+              <input
+                value={aiSettingsForm.llmApiKeySecretName}
+                onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKeySecretName: event.target.value }))}
+                placeholder="Kubernetes secret name"
+              />
+            </label>
+            <div className="secret-status">
+              <span>API key</span>
+              <StatusBadge value={aiSettings?.hasApiKeySecret ? "Configured" : "NotConfigured"} />
+            </div>
+          </div>
+          <div className="settings-section">
+            <h3>Advanced</h3>
+            <label>
+              <span>Endpoint / Base URL</span>
+              <input
+                value={aiSettingsForm.endpointUrl}
+                onChange={event => setAiSettingsForm(current => ({ ...current, endpointUrl: event.target.value }))}
+                placeholder="https://api.example.com/v1"
+                type="url"
+              />
+            </label>
+          </div>
+          {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
+          {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
+          <button type="submit" className="primary-button" disabled={savingAiSettings}>
+            {savingAiSettings ? "Saving" : "Save AI Settings"}
+          </button>
+        </form>
+      </section>
+    </section>
+  );
+}
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {
     provider: settings.provider ?? "",
