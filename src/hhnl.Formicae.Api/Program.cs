@@ -75,7 +75,7 @@ app.Use(async (context, next) =>
         return;
     }
 
-    await context.ChallengeAsync();
+    context.Response.Redirect(BuildGitHubChallengeUrl(context.Request));
 });
 
 app.MapGet("/api/auth/current-user", (ClaimsPrincipal user) =>
@@ -99,12 +99,8 @@ app.MapPost("/api/auth/logout", async (HttpContext context) =>
     return Results.NoContent();
 });
 
-app.MapGet("/api/auth/external-challenge", (HttpContext context) =>
-{
-    var redirectUri = context.Request.Query["returnUrl"].FirstOrDefault();
-    redirectUri = string.IsNullOrWhiteSpace(redirectUri) ? "/" : redirectUri;
-    return Results.Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, ["GitHub"]);
-});
+app.MapGet("/api/auth/external-challenge", (HttpContext context)
+    => Results.Redirect(BuildGitHubChallengeUrl(context.Request)));
 
 app.MapGet("/api/auth/github/challenge", async (
     Guid? integrationId,
@@ -482,6 +478,21 @@ app.Run();
 
 static Uri GetRequestBaseUri(HttpRequest request)
     => new($"{request.Scheme}://{request.Host}");
+
+static string BuildGitHubChallengeUrl(HttpRequest request)
+{
+    var returnUrl = request.Query["returnUrl"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(returnUrl) || returnUrl[0] != '/')
+    {
+        returnUrl = request.PathBase.Add(request.Path).Add(request.QueryString).ToString();
+        if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            returnUrl = "/";
+        }
+    }
+
+    return $"/api/auth/github/challenge?returnUrl={Uri.EscapeDataString(returnUrl)}";
+}
 
 static Uri GetPublicBaseUri(HttpRequest request)
 {
