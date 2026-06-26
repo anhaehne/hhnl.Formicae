@@ -16,8 +16,13 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }
 
 a {
@@ -159,7 +164,8 @@ label span {
 }
 
 input,
-select {
+select,
+textarea {
   background: #fbfcfa;
   border: 1px solid #bdc6bd;
   border-radius: 6px;
@@ -169,8 +175,13 @@ select {
   width: 100%;
 }
 
+textarea {
+  resize: vertical;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: #12625d;
   box-shadow: 0 0 0 3px rgb(18 98 93 / 16%);
   outline: none;

@@ -75,6 +75,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(integration => integration.ProviderType).HasConversion<string>();
             entity.Property(integration => integration.DisplayName).IsRequired();
             entity.Property(integration => integration.GitHubAppClientId).IsRequired();
+            entity.Property(integration => integration.GitHubAppPrivateKey);
             entity.Property(integration => integration.WebhookSecret).IsRequired();
             entity.Property(integration => integration.WebhookUrl).IsRequired();
             entity.HasMany(integration => integration.Repositories)

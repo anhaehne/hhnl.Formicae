@@ -97,6 +97,7 @@ export type IntegrationSummary = {
   providerType: string;
   displayName: string;
   gitHubAppClientId: string;
+  gitHubAppSlug?: string | null;
   webhookUrl: string;
   identityProviderEnabled: boolean;
   requiresRestart: boolean;
@@ -106,6 +107,8 @@ export type IntegrationSummary = {
 
 export type GitHubSetupInstructions = {
   callbackUrl: string;
+  installationCallbackUrl: string;
+  installationUrl: string;
   webhookUrl: string;
   webhookSecret: string;
   requiredRepositoryPermissions: string[];
@@ -144,7 +147,8 @@ export type IntegrationDetail = IntegrationSummary & {
 export type CreateGitHubIntegrationRequest = {
   displayName: string;
   clientId: string;
-  clientSecretReference: string;
+  clientSecretReference?: string | null;
+  privateKey: string;
   webhookSecret?: string | null;
 };
 
@@ -187,12 +191,14 @@ export async function rotateWebhookSecret(integrationId: string): Promise<Integr
   return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
 }
 
+
 export async function deleteIntegration(integrationId: string): Promise<void> {
   await sendNoContent(`/api/integrations/${encodeURIComponent(integrationId)}`, { method: "DELETE" });
 }
 
-export async function listGitHubUserRepositories(): Promise<GitHubUserRepository[]> {
-  return send<GitHubUserRepository[]>("/api/auth/github/repositories");
+export async function listGitHubUserRepositories(integrationId?: string): Promise<GitHubUserRepository[]> {
+  const query = integrationId ? `?integrationId=${encodeURIComponent(integrationId)}` : "";
+  return send<GitHubUserRepository[]>(`/api/auth/github/repositories${query}`);
 }
 
 export async function addConnectedRepository(integrationId: string, request: AddConnectedRepositoryRequest): Promise<ConnectedRepository> {

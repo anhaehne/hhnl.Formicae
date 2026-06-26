@@ -19,7 +19,9 @@ public sealed class DevOpsIntegration
     public DevOpsProviderType ProviderType { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string GitHubAppClientId { get; set; } = string.Empty;
+    public string? GitHubAppSlug { get; set; }
     public string? GitHubAppClientSecretReference { get; set; }
+    public string? GitHubAppPrivateKey { get; set; }
     public string? GitHubOAuthAccessToken { get; set; }
     public string WebhookSecret { get; set; } = string.Empty;
     public string WebhookUrl { get; set; } = string.Empty;

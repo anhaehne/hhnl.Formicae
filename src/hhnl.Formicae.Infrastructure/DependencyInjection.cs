@@ -61,7 +61,8 @@ public static class DependencyInjection
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
 
-        services.AddSingleton<IGitHubClientFactory, GitHubClientFactory>();
+        services.AddScoped<IGitHubAppClient, GitHubAppClient>();
+        services.AddScoped<IGitHubClientFactory, GitHubClientFactory>();
 
         if (IsMode(configuration, "WorkItemMode", "Fake"))
         {
@@ -69,7 +70,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<IWorkItemProvider>(serviceProvider =>
+            services.AddScoped<IWorkItemProvider>(serviceProvider =>
                 new GitHubWorkItemProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
         }
 
@@ -79,7 +80,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<ISourceControlProvider>(serviceProvider =>
+            services.AddScoped<ISourceControlProvider>(serviceProvider =>
                 new GitHubSourceControlProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
         }
 

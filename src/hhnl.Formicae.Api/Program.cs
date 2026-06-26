@@ -210,45 +210,73 @@ app.MapGet("/api/auth/github/callback", async (
 
 app.MapGet("/api/auth/external-callback", () => Results.Redirect("/"));
 
-app.MapGet("/api/auth/github/repositories", async (
-    HttpContext context,
+app.MapGet("/api/auth/github/installations/callback", async (
+    string? state,
+    long? installation_id,
+    string? setup_action,
+    DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
-    if (context.User.Identity?.IsAuthenticated != true)
+    Guid? integrationId = Guid.TryParse(state, out var parsedIntegrationId) ? parsedIntegrationId : null;
+    if (!integrationId.HasValue)
     {
-        return Results.Unauthorized();
+        integrationId = (await integrations.GetDefaultGitHubIntegrationAsync(cancellationToken))?.Id;
     }
 
-    var accessToken = await context.GetTokenAsync("access_token");
-    if (string.IsNullOrWhiteSpace(accessToken))
+    var query = new QueryString()
+        .Add("page", "repositories");
+    if (integrationId.HasValue)
     {
-        return Results.Unauthorized();
+        query = query.Add("integrationId", integrationId.Value.ToString());
     }
 
-    var client = new GitHubClient(new ProductHeaderValue("hhnl-formicae"))
+    if (installation_id.HasValue)
     {
-        Credentials = new Credentials(accessToken)
-    };
+        query = query.Add("installationId", installation_id.Value.ToString());
+    }
 
-    var installations = await client.GitHubApps.GetAllInstallationsForCurrentUser();
-    var repositories = new List<GitHubUserRepositoryResponse>();
-    foreach (var installation in installations.Installations)
+    if (!string.IsNullOrWhiteSpace(setup_action))
     {
-        var installedRepositories = await client.GitHubApps.Installation.GetAllRepositoriesForCurrentUser(installation.Id);
-        repositories.AddRange(installedRepositories.Repositories.Select(repository => new GitHubUserRepositoryResponse(
-            repository.Owner.Login,
+        query = query.Add("setupAction", setup_action);
+    }
+
+    return Results.Redirect($"/{query}");
+});
+
+app.MapGet("/api/auth/github/repositories", async (
+    Guid? integrationId,
+    DevOpsIntegrationService integrations,
+    IGitHubAppClient gitHubAppClient,
+    CancellationToken cancellationToken) =>
+{
+    var integration = integrationId.HasValue
+        ? await integrations.GetRawAsync(integrationId.Value, cancellationToken)
+        : await integrations.GetDefaultGitHubIntegrationAsync(cancellationToken);
+    if (integration is null)
+    {
+        return Results.NotFound();
+    }
+
+    try
+    {
+        var repositories = await gitHubAppClient.ListInstallationRepositoriesAsync(integration, cancellationToken);
+        return Results.Ok(repositories.Select(repository => new GitHubUserRepositoryResponse(
+            repository.Owner,
             repository.Name,
-            repository.HtmlUrl,
+            repository.RepositoryUrl,
             repository.DefaultBranch,
             repository.Private,
-            installation.Id,
-            installation.Account?.Login)));
+            repository.InstallationId,
+            repository.InstallationAccount)).ToArray());
     }
-
-    return Results.Ok(repositories
-        .OrderBy(repository => repository.Owner, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(repository => repository.Name, StringComparer.OrdinalIgnoreCase)
-        .ToArray());
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (Octokit.ApiException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
 
 app.MapGet("/api/workflows", async (
@@ -319,6 +347,14 @@ app.MapPost("/api/integrations/github", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (Octokit.ApiException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
 
 app.MapGet("/api/integrations/{integrationId:guid}", async (
@@ -357,8 +393,15 @@ app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (Octokit.ApiException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
-
 app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
     Guid integrationId,
     HttpRequest httpRequest,
@@ -421,8 +464,15 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
-    var integration = await integrations.SetIdentityProviderEnabledAsync(integrationId, request.Enabled, GetRequestBaseUri(httpRequest), cancellationToken);
-    return integration is null ? Results.NotFound() : Results.Ok(integration);
+    try
+    {
+        var integration = await integrations.SetIdentityProviderEnabledAsync(integrationId, request.Enabled, GetRequestBaseUri(httpRequest), cancellationToken);
+        return integration is null ? Results.NotFound() : Results.Ok(integration);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
 
 app.MapPost("/api/integrations/{integrationId:guid}/identity-provider/restart", async (

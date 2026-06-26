@@ -7,6 +7,7 @@ namespace hhnl.Formicae.Tests;
 public sealed class DevOpsIntegrationServiceTests
 {
     private static readonly Uri RequestBaseUri = new("https://formicae.example");
+    private const string ValidPrivateKey = "-----BEGIN RSA PRIVATE KEY-----\\nkey\\n-----END RSA PRIVATE KEY-----";
 
     [Fact]
     public async Task CreateGitHubIntegrationAsync_generates_secret_and_setup_urls()
@@ -14,7 +15,7 @@ public sealed class DevOpsIntegrationServiceTests
         var service = CreateService();
 
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub Prod", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub Prod", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
 
@@ -27,14 +28,14 @@ public sealed class DevOpsIntegrationServiceTests
     }
 
     [Theory]
-    [InlineData("", "client-secret-ref")]
+    [InlineData("", ValidPrivateKey)]
     [InlineData("client-id", "")]
-    public async Task CreateGitHubIntegrationAsync_validates_required_fields(string clientId, string secretReference)
+    public async Task CreateGitHubIntegrationAsync_validates_required_fields(string clientId, string privateKey)
     {
         var service = CreateService();
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", clientId, secretReference, null),
+            new CreateGitHubIntegrationRequest("GitHub", clientId, "client-secret-ref", privateKey, null),
             RequestBaseUri,
             CancellationToken.None));
     }
@@ -66,7 +67,7 @@ public sealed class DevOpsIntegrationServiceTests
     {
         var service = CreateService();
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
 
@@ -82,7 +83,7 @@ public sealed class DevOpsIntegrationServiceTests
     {
         var service = CreateService();
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
 
@@ -97,7 +98,7 @@ public sealed class DevOpsIntegrationServiceTests
     {
         var service = CreateService();
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
         var repository = await service.AddRepositoryAsync(
@@ -117,7 +118,7 @@ public sealed class DevOpsIntegrationServiceTests
     {
         var service = CreateService();
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
         await service.AddRepositoryAsync(
@@ -139,7 +140,7 @@ public sealed class DevOpsIntegrationServiceTests
     {
         var service = CreateService();
         var integration = await service.CreateGitHubIntegrationAsync(
-            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
         integration = await service.SetIdentityProviderEnabledAsync(integration.Id, true, RequestBaseUri, CancellationToken.None);

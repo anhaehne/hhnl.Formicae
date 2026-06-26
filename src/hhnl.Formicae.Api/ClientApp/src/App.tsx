@@ -29,6 +29,7 @@ import {
   startWorkflow,
   TaskRun,
   updateAiSettings,
+
   WorkflowChatMessage,
   WorkflowEvent,
   WorkflowLog,
@@ -62,6 +63,7 @@ type GitHubIntegrationFormState = {
   displayName: string;
   clientId: string;
   clientSecretReference: string;
+  privateKey: string;
 };
 
 type DetailState = {
@@ -93,7 +95,8 @@ const initialAiSettingsForm: AiSettingsFormState = {
 const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
   displayName: "GitHub",
   clientId: "",
-  clientSecretReference: ""
+  clientSecretReference: "",
+  privateKey: ""
 };
 
 export default function App() {
@@ -160,6 +163,25 @@ export default function App() {
   }, [refreshWorkflows]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get("page");
+    const integrationId = params.get("integrationId");
+    const installationId = params.get("installationId");
+    const setupAction = params.get("setupAction");
+    if (page === "repositories") {
+      setActivePage("repositories");
+      if (integrationId) {
+        setSelectedIntegrationId(integrationId);
+      }
+      if (installationId) {
+        setRepositorySaved(`GitHub App ${setupAction ?? "installation"} completed for installation ${installationId}.`);
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+
+  useEffect(() => {
     let ignore = false;
     async function loadAiSettings() {
       setLoadingAiSettings(true);
@@ -205,7 +227,8 @@ export default function App() {
       const nextSelectedId = selectedIntegrationId ?? items[0]?.id;
       setSelectedIntegrationId(nextSelectedId);
       if (nextSelectedId) {
-        setIntegrationDetail(await getIntegration(nextSelectedId));
+        const detail = await getIntegration(nextSelectedId);
+        setIntegrationDetail(detail);
       } else {
         setIntegrationDetail(undefined);
       }
@@ -217,16 +240,21 @@ export default function App() {
   }, [selectedIntegrationId]);
 
   const refreshAvailableRepositories = useCallback(async () => {
+    if (!selectedIntegrationId) {
+      setAvailableRepositories([]);
+      return;
+    }
+
     setLoadingAvailableRepositories(true);
     setRepositoryError(undefined);
     try {
-      setAvailableRepositories(await listGitHubUserRepositories());
+      setAvailableRepositories(await listGitHubUserRepositories(selectedIntegrationId));
     } catch (error) {
       setRepositoryError(error instanceof Error ? error.message : "Could not load GitHub repositories.");
     } finally {
       setLoadingAvailableRepositories(false);
     }
-  }, []);
+  }, [selectedIntegrationId]);
 
   useEffect(() => {
     if (activePage === "integrations" || activePage === "repositories") {
@@ -407,7 +435,8 @@ export default function App() {
       const integration = await createGitHubIntegration({
         displayName: githubIntegrationForm.displayName.trim() || "GitHub",
         clientId: githubIntegrationForm.clientId.trim(),
-        clientSecretReference: githubIntegrationForm.clientSecretReference.trim(),
+        clientSecretReference: githubIntegrationForm.clientSecretReference.trim() || null,
+        privateKey: githubIntegrationForm.privateKey.trim(),
         webhookSecret: null
       });
       setIntegrationDetail(integration);
@@ -427,7 +456,8 @@ export default function App() {
     setIntegrationError(undefined);
     setIntegrationSaved(undefined);
     try {
-      setIntegrationDetail(await getIntegration(integrationId));
+      const detail = await getIntegration(integrationId);
+      setIntegrationDetail(detail);
     } catch (error) {
       setIntegrationError(error instanceof Error ? error.message : "Could not load integration.");
     }
@@ -527,13 +557,13 @@ export default function App() {
     }
   }
 
-  function handleGitHubRepositoryLogin() {
-    const query = new URLSearchParams({ returnUrl: "/" });
-    if (selectedIntegrationId) {
-      query.set("integrationId", selectedIntegrationId);
+  function handleInstallGitHubApp() {
+    if (!integrationDetail?.setupInstructions.installationUrl) {
+      setRepositoryError("Select an integration with a discovered GitHub App installation URL.");
+      return;
     }
 
-    window.location.href = `/api/auth/github/challenge?${query.toString()}`;
+    window.location.href = integrationDetail.setupInstructions.installationUrl;
   }
 
   async function handleIdentityToggle(enabled: boolean) {
@@ -903,7 +933,7 @@ export default function App() {
           setRepositorySearch={setRepositorySearch}
           setConnectedRepositorySearch={setConnectedRepositorySearch}
           onSelectIntegration={handleSelectIntegration}
-          onAuthenticate={handleGitHubRepositoryLogin}
+          onInstallGitHubApp={handleInstallGitHubApp}
           onAddRepository={handleAddRepository}
           onRemoveRepository={handleRemoveRepository}
         />
@@ -985,7 +1015,16 @@ function IntegrationsPage({
               <input
                 value={githubIntegrationForm.clientSecretReference}
                 onChange={event => setGitHubIntegrationForm(current => ({ ...current, clientSecretReference: event.target.value }))}
-                placeholder="Kubernetes secret key or secure reference"
+                placeholder="Optional, required only for identity provider login"
+              />
+            </label>
+            <label>
+              <span>Private Key PEM</span>
+              <textarea
+                rows={8}
+                value={githubIntegrationForm.privateKey}
+                onChange={event => setGitHubIntegrationForm(current => ({ ...current, privateKey: event.target.value }))}
+                placeholder="-----BEGIN RSA PRIVATE KEY-----"
               />
             </label>
             <button type="submit" className="primary-button" disabled={creatingIntegration}>
@@ -1026,6 +1065,8 @@ function IntegrationsPage({
             <div className="detail-stack">
               <div className="summary-list compact">
                 <SummaryItem label="Client ID" value={integrationDetail.gitHubAppClientId} mono />
+                <SummaryItem label="App Slug" value={integrationDetail.gitHubAppSlug ?? "Not discovered"} mono />
+                <SummaryItem label="Install URL" value={integrationDetail.setupInstructions.installationUrl || "Not available"} mono />
                 <SummaryItem label="Webhook URL" value={integrationDetail.webhookUrl} mono />
                 <SummaryItem label="Webhook Secret" value={integrationDetail.webhookSecret} mono />
                 <SummaryItem label="Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
@@ -1105,7 +1146,7 @@ function RepositoriesPage({
   setRepositorySearch,
   setConnectedRepositorySearch,
   onSelectIntegration,
-  onAuthenticate,
+  onInstallGitHubApp,
   onAddRepository,
   onRemoveRepository
 }: {
@@ -1123,7 +1164,7 @@ function RepositoriesPage({
   setRepositorySearch: Dispatch<SetStateAction<string>>;
   setConnectedRepositorySearch: Dispatch<SetStateAction<string>>;
   onSelectIntegration: (integrationId: string) => void;
-  onAuthenticate: () => void;
+  onInstallGitHubApp: () => void;
   onAddRepository: (repository: GitHubUserRepository) => void;
   onRemoveRepository: (repository: ConnectedRepository) => void;
 }) {
@@ -1141,7 +1182,7 @@ function RepositoriesPage({
             {integrations.map(integration => <option key={integration.id} value={integration.id}>{integration.displayName}</option>)}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={onAuthenticate}>Authenticate GitHub</button>
+        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl}>Install GitHub App</button>
       </section>
 
       {repositoryError ? <p className="error-text repository-message">{repositoryError}</p> : null}
@@ -1170,7 +1211,7 @@ function RepositoriesPage({
                 />
               );
             })}
-            {available.length === 0 ? <p className="muted">No repositories available. Authenticate GitHub or adjust the search.</p> : null}
+            {available.length === 0 ? <p className="muted">No repositories available. Install or grant the GitHub App access, then refresh the repository list.</p> : null}
           </div>
         </section>
 

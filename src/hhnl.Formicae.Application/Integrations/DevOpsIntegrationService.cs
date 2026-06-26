@@ -3,7 +3,7 @@ using hhnl.Formicae.Application.Workflows;
 
 namespace hhnl.Formicae.Application.Integrations;
 
-public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClock clock)
+public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClock clock, IGitHubAppClient? githubAppClient = null)
 {
     private static readonly IntegrationCapability[] GitHubCapabilities =
     [
@@ -18,7 +18,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         Uri requestBaseUri,
         CancellationToken cancellationToken)
     {
-        ValidateGitHubAppFields(request.ClientId, request.ClientSecretReference);
+        ValidateGitHubAppFields(request.ClientId, request.PrivateKey);
 
         var now = clock.UtcNow;
         var integration = new DevOpsIntegration
@@ -26,12 +26,15 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             ProviderType = DevOpsProviderType.GitHub,
             DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? "GitHub" : request.DisplayName.Trim(),
             GitHubAppClientId = request.ClientId.Trim(),
-            GitHubAppClientSecretReference = request.ClientSecretReference.Trim(),
+            GitHubAppClientSecretReference = NormalizeOptional(request.ClientSecretReference),
+            GitHubAppPrivateKey = NormalizePrivateKey(request.PrivateKey),
             WebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? GenerateWebhookSecret() : request.WebhookSecret.Trim(),
             WebhookUrl = BuildWebhookUrl(requestBaseUri),
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        await RefreshGitHubAppMetadataAsync(integration, cancellationToken);
 
         return ToDetail(await store.CreateAsync(integration, cancellationToken), requestBaseUri, []);
     }
@@ -69,8 +72,6 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         Uri requestBaseUri,
         CancellationToken cancellationToken)
     {
-        ValidateGitHubAppFields(request.ClientId, request.ClientSecretReference);
-
         var integration = await store.GetAsync(integrationId, cancellationToken);
         if (integration is null)
         {
@@ -78,11 +79,24 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
 
         EnsureGitHub(integration);
+        var privateKey = NormalizeOptionalPrivateKey(request.PrivateKey);
+        if (privateKey is null && string.IsNullOrWhiteSpace(integration.GitHubAppPrivateKey))
+        {
+            throw new ArgumentException("GitHub App private key is required.", nameof(request.PrivateKey));
+        }
+
+        ValidateGitHubAppFields(request.ClientId, privateKey ?? integration.GitHubAppPrivateKey);
         integration.DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? integration.DisplayName : request.DisplayName.Trim();
         integration.GitHubAppClientId = request.ClientId.Trim();
-        integration.GitHubAppClientSecretReference = request.ClientSecretReference.Trim();
+        integration.GitHubAppClientSecretReference = NormalizeOptional(request.ClientSecretReference);
+        if (privateKey is not null)
+        {
+            integration.GitHubAppPrivateKey = privateKey;
+        }
+
         integration.WebhookUrl = BuildWebhookUrl(requestBaseUri);
         integration.UpdatedAt = clock.UtcNow;
+        await RefreshGitHubAppMetadataAsync(integration, cancellationToken);
 
         await store.UpdateAsync(integration, cancellationToken);
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
@@ -118,7 +132,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         EnsureGitHub(integration);
         if (!request.InstallationId.HasValue)
         {
-            throw new InvalidOperationException("Repository must be selected from a GitHub App installation. Install or grant the GitHub App access to this repository, authenticate GitHub again, and add the repository from the available installation repositories list.");
+            throw new InvalidOperationException("Repository must be selected from a GitHub App installation. Install or grant the GitHub App access to this repository, refresh the repository list, and add the repository from the available installation repositories list.");
         }
 
         var repository = ParseGitHubRepositoryUrl(request.RepositoryUrl);
@@ -176,6 +190,11 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
 
         EnsureGitHub(integration);
+        if (enabled && string.IsNullOrWhiteSpace(integration.GitHubAppClientSecretReference))
+        {
+            throw new InvalidOperationException("GitHub App client secret reference is required before enabling the identity provider.");
+        }
+
         integration.IdentityProviderEnabled = enabled;
         integration.RequiresRestart = enabled;
         integration.UpdatedAt = clock.UtcNow;
@@ -203,6 +222,23 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
 
     public static string BuildWebhookUrl(Uri requestBaseUri)
         => new Uri(requestBaseUri, "/api/webhooks/github").ToString();
+
+    public static string BuildInstallationCallbackUrl(Uri requestBaseUri)
+        => new Uri(requestBaseUri, "/api/auth/github/installations/callback").ToString();
+
+    public static string BuildInstallationUrl(DevOpsIntegration integration)
+    {
+        if (string.IsNullOrWhiteSpace(integration.GitHubAppSlug))
+        {
+            return string.Empty;
+        }
+
+        var builder = new UriBuilder($"https://github.com/apps/{Uri.EscapeDataString(integration.GitHubAppSlug)}/installations/new")
+        {
+            Query = $"state={Uri.EscapeDataString(integration.Id.ToString())}"
+        };
+        return builder.Uri.ToString();
+    }
 
     public static string GenerateWebhookSecret()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
@@ -234,18 +270,48 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         return new GitHubRepositoryReference(parts[0], name, $"https://github.com/{parts[0]}/{name}");
     }
 
-    private static void ValidateGitHubAppFields(string clientId, string? clientSecretReference)
+    private async Task RefreshGitHubAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
+    {
+        if (githubAppClient is null)
+        {
+            return;
+        }
+
+        var metadata = await githubAppClient.GetAppMetadataAsync(integration, cancellationToken);
+        integration.GitHubAppSlug = metadata.Slug;
+    }
+
+    private static void ValidateGitHubAppFields(string clientId, string? privateKey)
     {
         if (string.IsNullOrWhiteSpace(clientId))
         {
             throw new ArgumentException("GitHub App client id is required.", nameof(clientId));
         }
 
-        if (string.IsNullOrWhiteSpace(clientSecretReference))
-        {
-            throw new ArgumentException("GitHub App client secret reference is required.", nameof(clientSecretReference));
-        }
+        _ = NormalizePrivateKey(privateKey);
     }
+
+    public static string NormalizePrivateKey(string? privateKey)
+    {
+        if (string.IsNullOrWhiteSpace(privateKey))
+        {
+            throw new ArgumentException("GitHub App private key is required.", nameof(privateKey));
+        }
+
+        var normalized = privateKey.Trim().Replace("\\n", "\n", StringComparison.Ordinal);
+        if (!normalized.Contains("BEGIN", StringComparison.Ordinal) || !normalized.Contains("PRIVATE KEY", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("GitHub App private key must be a PEM private key.", nameof(privateKey));
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeOptionalPrivateKey(string? privateKey)
+        => string.IsNullOrWhiteSpace(privateKey) ? null : NormalizePrivateKey(privateKey);
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static void EnsureGitHub(DevOpsIntegration integration)
     {
@@ -261,6 +327,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.ProviderType.ToString(),
             integration.DisplayName,
             integration.GitHubAppClientId,
+            integration.GitHubAppSlug,
             integration.WebhookUrl,
             integration.IdentityProviderEnabled,
             integration.RequiresRestart,
@@ -276,6 +343,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.ProviderType.ToString(),
             integration.DisplayName,
             integration.GitHubAppClientId,
+            integration.GitHubAppSlug,
             integration.WebhookUrl,
             integration.WebhookSecret,
             integration.IdentityProviderEnabled,
@@ -283,6 +351,8 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             GitHubCapabilities.Select(capability => capability.ToString()).ToArray(),
             new GitHubSetupInstructions(
                 new Uri(requestBaseUri, "/api/auth/github/callback").ToString(),
+                BuildInstallationCallbackUrl(requestBaseUri),
+                BuildInstallationUrl(integration),
                 integration.WebhookUrl,
                 integration.WebhookSecret,
                 ["Issues: read/write", "Pull requests: read/write", "Contents: read/write", "Metadata: read-only"],
@@ -307,13 +377,15 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
 public sealed record CreateGitHubIntegrationRequest(
     string DisplayName,
     string ClientId,
-    string ClientSecretReference,
+    string? ClientSecretReference,
+    string PrivateKey,
     string? WebhookSecret);
 
 public sealed record UpdateGitHubAppRequest(
     string? DisplayName,
     string ClientId,
-    string ClientSecretReference);
+    string? ClientSecretReference,
+    string? PrivateKey);
 
 public sealed record AddConnectedRepositoryRequest(
     string RepositoryUrl,
@@ -328,6 +400,7 @@ public sealed record IntegrationSummary(
     string ProviderType,
     string DisplayName,
     string GitHubAppClientId,
+    string? GitHubAppSlug,
     string WebhookUrl,
     bool IdentityProviderEnabled,
     bool RequiresRestart,
@@ -339,6 +412,7 @@ public sealed record IntegrationDetail(
     string ProviderType,
     string DisplayName,
     string GitHubAppClientId,
+    string? GitHubAppSlug,
     string WebhookUrl,
     string WebhookSecret,
     bool IdentityProviderEnabled,
@@ -351,6 +425,8 @@ public sealed record IntegrationDetail(
 
 public sealed record GitHubSetupInstructions(
     string CallbackUrl,
+    string InstallationCallbackUrl,
+    string InstallationUrl,
     string WebhookUrl,
     string WebhookSecret,
     IReadOnlyList<string> RequiredRepositoryPermissions,

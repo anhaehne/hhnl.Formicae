@@ -28,3 +28,22 @@ public interface IDevOpsIntegrationStore
 
     Task<ConnectedRepository?> GetRepositoryByUrlAsync(string repositoryUrl, CancellationToken cancellationToken);
 }
+public interface IGitHubAppClient
+{
+    Task<GitHubAppMetadata> GetAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<GitHubInstallationRepository>> ListInstallationRepositoriesAsync(DevOpsIntegration integration, CancellationToken cancellationToken);
+
+    Task<string> CreateInstallationTokenAsync(DevOpsIntegration integration, long installationId, CancellationToken cancellationToken);
+}
+
+public sealed record GitHubAppMetadata(string Slug, string HtmlUrl);
+
+public sealed record GitHubInstallationRepository(
+    string Owner,
+    string Name,
+    string RepositoryUrl,
+    string DefaultBranch,
+    bool Private,
+    long InstallationId,
+    string? InstallationAccount);

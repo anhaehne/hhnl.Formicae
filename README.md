@@ -130,13 +130,14 @@ Important settings:
 
 ## GitHub Integrations
 
-The Integrations page creates GitHub App configuration records, generates the webhook secret, displays the public webhook and callback URLs, and stores connected repositories after the GitHub App is installed or granted access. Client secrets are represented by a secure reference and are not returned by the API as clear text. Formicae no longer reads a shared `GITHUB_TOKEN` from Kubernetes secrets; GitHub access comes from configured integrations. After a user authenticates GitHub for an integration, Formicae stores that OAuth token with the integration and uses it for background issue, branch, pull request, reaction, and comment operations on connected repositories. The Repositories page lists repositories from the authenticated user's GitHub App installations, not from general public repository visibility, because workflow writes require the app installation to include that repository.
+The Integrations page creates GitHub App configuration records, stores the GitHub App private key PEM, discovers the app slug from GitHub, generates the webhook secret, and displays the public webhook, callback, and installation URLs. Formicae no longer reads a shared `GITHUB_TOKEN` from Kubernetes secrets; repository workflow access comes from GitHub App installation tokens minted with the configured private key. The Repositories page links to the GitHub App installation flow and lists repositories from the app installations, not from general public repository visibility, because workflow writes require the app installation to include that repository.
 
 Connected repositories can be removed from the Repositories page. Removing an integration from the Integrations page also removes its connected repository records.
 
 For a GitHub App, configure:
 
-- Callback URL: `<public Formicae URL>/api/auth/github/callback`
+- Callback URL: `<public Formicae URL>/api/auth/github/callback` for optional identity-provider login
+- Setup URL: `<public Formicae URL>/api/auth/github/installations/callback` for GitHub App installation callbacks
 - Webhook URL: `<public Formicae URL>/api/webhooks/github`
 - Webhook content type: `application/json`
 - Repository permissions: issues read/write, pull requests read/write, contents read/write, and metadata read-only

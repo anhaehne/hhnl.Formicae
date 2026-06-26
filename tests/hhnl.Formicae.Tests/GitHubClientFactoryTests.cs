@@ -25,7 +25,7 @@ public sealed class GitHubClientFactoryTests
     }
 
     [Fact]
-    public async Task CreateClientForRepositoryAsync_uses_connected_integration_token()
+    public async Task CreateClientForRepositoryAsync_uses_installation_token()
     {
         var store = new InMemoryDevOpsIntegrationStore();
         var integration = await store.CreateAsync(new DevOpsIntegration
@@ -33,7 +33,7 @@ public sealed class GitHubClientFactoryTests
             ProviderType = DevOpsProviderType.GitHub,
             DisplayName = "GitHub",
             GitHubAppClientId = "client-id",
-            GitHubOAuthAccessToken = "integration-token",
+            GitHubAppPrivateKey = "private-key",
             WebhookSecret = "webhook-secret",
             WebhookUrl = "https://formicae.example/api/webhooks/github",
             CreatedAt = DateTimeOffset.UtcNow,
@@ -48,12 +48,14 @@ public sealed class GitHubClientFactoryTests
             DefaultBranch = "main",
             InstallationId = 123
         }, CancellationToken.None);
+        var appClient = new RecordingGitHubAppClient("installation-token");
 
-        var client = await new GitHubClientFactory(store).CreateClientForRepositoryAsync("https://github.com/acme/widgets", CancellationToken.None);
+        var client = await new GitHubClientFactory(store, appClient).CreateClientForRepositoryAsync("https://github.com/acme/widgets", CancellationToken.None);
 
         Assert.NotEqual(Credentials.Anonymous, client.Credentials);
+        Assert.Equal(123, appClient.InstallationId);
+        Assert.Equal(integration.Id, appClient.IntegrationId);
     }
-
 
     [Fact]
     public async Task CreateClientForRepositoryAsync_rejects_repository_without_installation()
@@ -64,7 +66,7 @@ public sealed class GitHubClientFactoryTests
             ProviderType = DevOpsProviderType.GitHub,
             DisplayName = "GitHub",
             GitHubAppClientId = "client-id",
-            GitHubOAuthAccessToken = "integration-token",
+            GitHubAppPrivateKey = "private-key",
             WebhookSecret = "webhook-secret",
             WebhookUrl = "https://formicae.example/api/webhooks/github",
             CreatedAt = DateTimeOffset.UtcNow,
@@ -80,12 +82,13 @@ public sealed class GitHubClientFactoryTests
         }, CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new GitHubClientFactory(store).CreateClientForRepositoryAsync("https://github.com/acme/widgets", CancellationToken.None));
+            new GitHubClientFactory(store, new RecordingGitHubAppClient("installation-token")).CreateClientForRepositoryAsync("https://github.com/acme/widgets", CancellationToken.None));
 
         Assert.Contains("GitHub App installation", exception.Message);
     }
+
     [Fact]
-    public async Task CreateClientForRepositoryAsync_rejects_unauthenticated_integration()
+    public async Task CreateClientForRepositoryAsync_requires_github_app_client()
     {
         var store = new InMemoryDevOpsIntegrationStore();
         var integration = await store.CreateAsync(new DevOpsIntegration
@@ -93,6 +96,7 @@ public sealed class GitHubClientFactoryTests
             ProviderType = DevOpsProviderType.GitHub,
             DisplayName = "GitHub",
             GitHubAppClientId = "client-id",
+            GitHubAppPrivateKey = "private-key",
             WebhookSecret = "webhook-secret",
             WebhookUrl = "https://formicae.example/api/webhooks/github",
             CreatedAt = DateTimeOffset.UtcNow,
@@ -111,6 +115,25 @@ public sealed class GitHubClientFactoryTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new GitHubClientFactory(store).CreateClientForRepositoryAsync("https://github.com/acme/widgets", CancellationToken.None));
 
-        Assert.Contains("is not authenticated", exception.Message);
+        Assert.Contains("GitHub App client", exception.Message);
+    }
+
+    private sealed class RecordingGitHubAppClient(string token) : IGitHubAppClient
+    {
+        public Guid? IntegrationId { get; private set; }
+        public long? InstallationId { get; private set; }
+
+        public Task<GitHubAppMetadata> GetAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
+            => Task.FromResult(new GitHubAppMetadata("formicae-test", "https://github.com/apps/formicae-test"));
+
+        public Task<IReadOnlyList<GitHubInstallationRepository>> ListInstallationRepositoriesAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<GitHubInstallationRepository>>([]);
+
+        public Task<string> CreateInstallationTokenAsync(DevOpsIntegration integration, long installationId, CancellationToken cancellationToken)
+        {
+            IntegrationId = integration.Id;
+            InstallationId = installationId;
+            return Task.FromResult(token);
+        }
     }
 }
