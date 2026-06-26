@@ -132,6 +132,8 @@ Important settings:
 
 The Integrations page creates GitHub App configuration records, generates the webhook secret, displays the public webhook and callback URLs, and stores connected repositories after the GitHub App is installed or granted access. Client secrets are represented by a secure reference and are not returned by the API as clear text. Formicae no longer reads a shared `GITHUB_TOKEN` from Kubernetes secrets; GitHub access comes from configured integrations. After a user authenticates GitHub for an integration, Formicae stores that OAuth token with the integration and uses it for background issue, branch, pull request, reaction, and comment operations on connected repositories.
 
+Connected repositories can be removed from the Repositories page. Removing an integration from the Integrations page also removes its connected repository records.
+
 For a GitHub App, configure:
 
 - Callback URL: `<public Formicae URL>/api/auth/external-callback`

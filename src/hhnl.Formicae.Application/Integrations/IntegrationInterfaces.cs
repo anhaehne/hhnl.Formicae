@@ -14,11 +14,15 @@ public interface IDevOpsIntegrationStore
 
     Task UpdateAsync(DevOpsIntegration integration, CancellationToken cancellationToken);
 
+    Task<bool> DeleteAsync(Guid integrationId, CancellationToken cancellationToken);
+
     Task<ConnectedRepository> AddRepositoryAsync(ConnectedRepository repository, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ConnectedRepository>> ListRepositoriesAsync(Guid integrationId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ConnectedRepository>> ListAllRepositoriesAsync(CancellationToken cancellationToken);
+
+    Task<bool> DeleteRepositoryAsync(Guid integrationId, Guid repositoryId, CancellationToken cancellationToken);
 
     Task<ConnectedRepository?> GetRepositoryByUrlAsync(Guid integrationId, string repositoryUrl, CancellationToken cancellationToken);
 

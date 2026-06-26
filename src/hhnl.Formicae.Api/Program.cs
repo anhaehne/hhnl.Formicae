@@ -327,6 +327,16 @@ app.MapGet("/api/integrations/{integrationId:guid}", async (
     return integration is null ? Results.NotFound() : Results.Ok(integration);
 });
 
+app.MapDelete("/api/integrations/{integrationId:guid}", async (
+    Guid integrationId,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    return await integrations.DeleteAsync(integrationId, cancellationToken)
+        ? Results.NoContent()
+        : Results.NotFound();
+});
+
 app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     Guid integrationId,
     UpdateGitHubAppRequest request,
@@ -383,6 +393,21 @@ app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
 {
     var repositories = await integrations.ListRepositoriesAsync(integrationId, cancellationToken);
     return repositories is null ? Results.NotFound() : Results.Ok(repositories);
+});
+
+app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId:guid}", async (
+    Guid integrationId,
+    Guid repositoryId,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    var removed = await integrations.DeleteRepositoryAsync(integrationId, repositoryId, cancellationToken);
+    return removed switch
+    {
+        null => Results.NotFound(),
+        true => Results.NoContent(),
+        false => Results.NotFound()
+    };
 });
 
 app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (

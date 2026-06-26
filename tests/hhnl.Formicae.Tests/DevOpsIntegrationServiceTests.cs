@@ -76,6 +76,48 @@ public sealed class DevOpsIntegrationServiceTests
     }
 
     [Fact]
+    public async Task DeleteRepositoryAsync_removes_connected_repository()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGitHubIntegrationAsync(
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            RequestBaseUri,
+            CancellationToken.None);
+        var repository = await service.AddRepositoryAsync(
+            integration.Id,
+            new AddConnectedRepositoryRequest("https://github.com/acme/widgets", "main", 123, "acme"),
+            CancellationToken.None);
+
+        var removed = await service.DeleteRepositoryAsync(integration.Id, repository!.Id, CancellationToken.None);
+        var repositories = await service.ListRepositoriesAsync(integration.Id, CancellationToken.None);
+
+        Assert.True(removed);
+        Assert.Empty(repositories!);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_removes_integration_and_repositories()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGitHubIntegrationAsync(
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", null),
+            RequestBaseUri,
+            CancellationToken.None);
+        await service.AddRepositoryAsync(
+            integration.Id,
+            new AddConnectedRepositoryRequest("https://github.com/acme/widgets", "main", 123, "acme"),
+            CancellationToken.None);
+
+        var removed = await service.DeleteAsync(integration.Id, CancellationToken.None);
+        var deletedIntegration = await service.GetAsync(integration.Id, RequestBaseUri, CancellationToken.None);
+        var repositories = await service.ListRepositoriesAsync(integration.Id, CancellationToken.None);
+
+        Assert.True(removed);
+        Assert.Null(deletedIntegration);
+        Assert.Null(repositories);
+    }
+
+    [Fact]
     public async Task MarkIdentityProviderRestartedAsync_clears_restart_flag()
     {
         var service = CreateService();

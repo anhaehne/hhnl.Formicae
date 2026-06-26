@@ -5,6 +5,8 @@ import {
   AiSettings,
   ConnectedRepository,
   createGitHubIntegration,
+  deleteConnectedRepository,
+  deleteIntegration,
   getAiSettings,
   getIntegration,
   getWorkflow,
@@ -118,6 +120,7 @@ export default function App() {
   const [integrationError, setIntegrationError] = useState<string>();
   const [integrationSaved, setIntegrationSaved] = useState<string>();
   const [creatingIntegration, setCreatingIntegration] = useState(false);
+  const [deletingIntegration, setDeletingIntegration] = useState(false);
   const [restartingIdentityProvider, setRestartingIdentityProvider] = useState(false);
   const [githubIntegrationForm, setGitHubIntegrationForm] = useState<GitHubIntegrationFormState>(initialGitHubIntegrationForm);
   const [availableRepositories, setAvailableRepositories] = useState<GitHubUserRepository[]>([]);
@@ -127,6 +130,7 @@ export default function App() {
   const [repositorySaved, setRepositorySaved] = useState<string>();
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [addingRepositoryUrl, setAddingRepositoryUrl] = useState<string>();
+  const [removingRepositoryId, setRemovingRepositoryId] = useState<string>();
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -425,6 +429,33 @@ export default function App() {
     }
   }
 
+  async function handleDeleteIntegration() {
+    if (!selectedIntegrationId || !integrationDetail) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove ${integrationDetail.displayName}? Connected repositories for this integration will also be removed.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIntegrationError(undefined);
+    setIntegrationSaved(undefined);
+    setDeletingIntegration(true);
+    try {
+      await deleteIntegration(selectedIntegrationId);
+      setSelectedIntegrationId(undefined);
+      setIntegrationDetail(undefined);
+      setRepositorySaved(undefined);
+      setIntegrationSaved("Integration removed.");
+      await refreshIntegrations();
+    } catch (error) {
+      setIntegrationError(error instanceof Error ? error.message : "Could not remove integration.");
+    } finally {
+      setDeletingIntegration(false);
+    }
+  }
+
   async function handleAddRepository(repository: GitHubUserRepository) {
     if (!selectedIntegrationId) {
       setRepositoryError("Select a GitHub integration before adding repositories.");
@@ -448,6 +479,32 @@ export default function App() {
       setRepositoryError(error instanceof Error ? error.message : "Could not connect repository.");
     } finally {
       setAddingRepositoryUrl(undefined);
+    }
+  }
+
+  async function handleRemoveRepository(repository: ConnectedRepository) {
+    if (!selectedIntegrationId) {
+      setRepositoryError("Select a GitHub integration before removing repositories.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove ${repository.owner}/${repository.name} from this integration?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setRepositoryError(undefined);
+    setRepositorySaved(undefined);
+    setRemovingRepositoryId(repository.id);
+    try {
+      await deleteConnectedRepository(selectedIntegrationId, repository.id);
+      setIntegrationDetail(await getIntegration(selectedIntegrationId));
+      setRepositorySaved(`${repository.owner}/${repository.name} removed.`);
+      await refreshIntegrations();
+    } catch (error) {
+      setRepositoryError(error instanceof Error ? error.message : "Could not remove repository.");
+    } finally {
+      setRemovingRepositoryId(undefined);
     }
   }
 
@@ -785,11 +842,13 @@ export default function App() {
           integrationSaved={integrationSaved}
           githubIntegrationForm={githubIntegrationForm}
           creatingIntegration={creatingIntegration}
+          deletingIntegration={deletingIntegration}
           restartingIdentityProvider={restartingIdentityProvider}
           setGitHubIntegrationForm={setGitHubIntegrationForm}
           onCreateIntegration={handleCreateIntegration}
           onSelectIntegration={handleSelectIntegration}
           onRotateWebhookSecret={handleRotateWebhookSecret}
+          onDeleteIntegration={handleDeleteIntegration}
           onIdentityToggle={handleIdentityToggle}
           onIdentityRestart={handleIdentityRestart}
         />
@@ -805,11 +864,13 @@ export default function App() {
           repositorySaved={repositorySaved}
           loadingAvailableRepositories={loadingAvailableRepositories}
           addingRepositoryUrl={addingRepositoryUrl}
+          removingRepositoryId={removingRepositoryId}
           setRepositorySearch={setRepositorySearch}
           setConnectedRepositorySearch={setConnectedRepositorySearch}
           onSelectIntegration={handleSelectIntegration}
           onAuthenticate={handleGitHubRepositoryLogin}
           onAddRepository={handleAddRepository}
+          onRemoveRepository={handleRemoveRepository}
         />
       ) : (
         <SettingsPage
@@ -835,11 +896,13 @@ function IntegrationsPage({
   integrationSaved,
   githubIntegrationForm,
   creatingIntegration,
+  deletingIntegration,
   restartingIdentityProvider,
   setGitHubIntegrationForm,
   onCreateIntegration,
   onSelectIntegration,
   onRotateWebhookSecret,
+  onDeleteIntegration,
   onIdentityToggle,
   onIdentityRestart
 }: {
@@ -850,11 +913,13 @@ function IntegrationsPage({
   integrationSaved?: string;
   githubIntegrationForm: GitHubIntegrationFormState;
   creatingIntegration: boolean;
+  deletingIntegration: boolean;
   restartingIdentityProvider: boolean;
   setGitHubIntegrationForm: Dispatch<SetStateAction<GitHubIntegrationFormState>>;
   onCreateIntegration: (event: FormEvent<HTMLFormElement>) => void;
   onSelectIntegration: (integrationId: string) => void;
   onRotateWebhookSecret: () => void;
+  onDeleteIntegration: () => void;
   onIdentityToggle: (enabled: boolean) => void;
   onIdentityRestart: () => void;
 }) {
@@ -933,6 +998,9 @@ function IntegrationsPage({
 
               <div className="button-row">
                 <button type="button" className="secondary-button" onClick={onRotateWebhookSecret}>Rotate Webhook Secret</button>
+                <button type="button" className="secondary-button danger-button" onClick={onDeleteIntegration} disabled={deletingIntegration}>
+                  {deletingIntegration ? "Removing" : "Remove Integration"}
+                </button>
               </div>
 
               <section className="settings-section">
@@ -998,11 +1066,13 @@ function RepositoriesPage({
   repositorySaved,
   loadingAvailableRepositories,
   addingRepositoryUrl,
+  removingRepositoryId,
   setRepositorySearch,
   setConnectedRepositorySearch,
   onSelectIntegration,
   onAuthenticate,
-  onAddRepository
+  onAddRepository,
+  onRemoveRepository
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -1014,11 +1084,13 @@ function RepositoriesPage({
   repositorySaved?: string;
   loadingAvailableRepositories: boolean;
   addingRepositoryUrl?: string;
+  removingRepositoryId?: string;
   setRepositorySearch: Dispatch<SetStateAction<string>>;
   setConnectedRepositorySearch: Dispatch<SetStateAction<string>>;
   onSelectIntegration: (integrationId: string) => void;
   onAuthenticate: () => void;
   onAddRepository: (repository: GitHubUserRepository) => void;
+  onRemoveRepository: (repository: ConnectedRepository) => void;
 }) {
   const connectedUrls = new Set((integrationDetail?.repositories ?? []).map(repository => repository.repositoryUrl.toLowerCase()));
   const available = availableRepositories.filter(repository => matchesRepository(repository, repositorySearch));
@@ -1077,7 +1149,14 @@ function RepositoriesPage({
             <input value={connectedRepositorySearch} onChange={event => setConnectedRepositorySearch(event.target.value)} placeholder="owner, repository, or URL" />
           </label>
           <div className="repository-list">
-            {connected.map(repository => <RepositoryRow repository={repository} key={repository.id} />)}
+            {connected.map(repository => (
+              <RepositoryRow
+                repository={repository}
+                removing={removingRepositoryId === repository.id}
+                onRemove={() => onRemoveRepository(repository)}
+                key={repository.id}
+              />
+            ))}
             {connected.length === 0 ? <p className="muted">No repositories added for this integration.</p> : null}
           </div>
         </section>
@@ -1121,14 +1200,27 @@ function matchesRepository(repository: { owner: string; name: string; repository
   return `${repository.owner}/${repository.name} ${repository.repositoryUrl}`.toLowerCase().includes(normalized);
 }
 
-function RepositoryRow({ repository }: { repository: ConnectedRepository }) {
+function RepositoryRow({
+  repository,
+  removing,
+  onRemove
+}: {
+  repository: ConnectedRepository;
+  removing: boolean;
+  onRemove: () => void;
+}) {
   return (
     <div className="repository-row">
       <div>
         <strong>{repository.owner}/{repository.name}</strong>
         <span>{repository.defaultBranch}</span>
       </div>
-      <ExternalLink href={repository.repositoryUrl}>Open</ExternalLink>
+      <div className="repository-actions">
+        <ExternalLink href={repository.repositoryUrl}>Open</ExternalLink>
+        <button type="button" className="secondary-button danger-button" onClick={onRemove} disabled={removing}>
+          {removing ? "Removing" : "Remove"}
+        </button>
+      </div>
     </div>
   );
 }

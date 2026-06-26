@@ -60,6 +60,9 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
     public Task<DevOpsIntegration?> GetRawAsync(Guid integrationId, CancellationToken cancellationToken)
         => store.GetAsync(integrationId, cancellationToken);
 
+    public Task<bool> DeleteAsync(Guid integrationId, CancellationToken cancellationToken)
+        => store.DeleteAsync(integrationId, cancellationToken);
+
     public async Task<IntegrationDetail?> UpdateGitHubAppAsync(
         Guid integrationId,
         UpdateGitHubAppRequest request,
@@ -143,6 +146,16 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
 
         return (await store.ListRepositoriesAsync(integrationId, cancellationToken)).Select(ToRepository).ToArray();
+    }
+
+    public async Task<bool?> DeleteRepositoryAsync(Guid integrationId, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        if (await store.GetAsync(integrationId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        return await store.DeleteRepositoryAsync(integrationId, repositoryId, cancellationToken);
     }
 
     public async Task<IntegrationDetail?> SetIdentityProviderEnabledAsync(

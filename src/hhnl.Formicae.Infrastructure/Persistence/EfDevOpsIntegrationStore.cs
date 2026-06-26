@@ -41,6 +41,20 @@ public sealed class EfDevOpsIntegrationStore(FormicaeDbContext dbContext) : IDev
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<bool> DeleteAsync(Guid integrationId, CancellationToken cancellationToken)
+    {
+        var integration = await dbContext.DevOpsIntegrations
+            .FirstOrDefaultAsync(integration => integration.Id == integrationId, cancellationToken);
+        if (integration is null)
+        {
+            return false;
+        }
+
+        dbContext.DevOpsIntegrations.Remove(integration);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<ConnectedRepository> AddRepositoryAsync(ConnectedRepository repository, CancellationToken cancellationToken)
     {
         dbContext.ConnectedRepositories.Add(repository);
@@ -62,6 +76,22 @@ public sealed class EfDevOpsIntegrationStore(FormicaeDbContext dbContext) : IDev
             .OrderBy(repository => repository.Owner)
             .ThenBy(repository => repository.Name)
             .ToArrayAsync(cancellationToken);
+
+    public async Task<bool> DeleteRepositoryAsync(Guid integrationId, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var repository = await dbContext.ConnectedRepositories
+            .FirstOrDefaultAsync(
+                repository => repository.DevOpsIntegrationId == integrationId && repository.Id == repositoryId,
+                cancellationToken);
+        if (repository is null)
+        {
+            return false;
+        }
+
+        dbContext.ConnectedRepositories.Remove(repository);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
 
     public async Task<ConnectedRepository?> GetRepositoryByUrlAsync(Guid integrationId, string repositoryUrl, CancellationToken cancellationToken)
         => await dbContext.ConnectedRepositories

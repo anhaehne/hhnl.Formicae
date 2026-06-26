@@ -227,6 +227,11 @@ select:focus {
   color: #202124;
 }
 
+.danger-button {
+  border-color: #d58b83;
+  color: #8f241b;
+}
+
 .run-action-button {
   margin-left: auto;
   min-height: 30px;
@@ -455,6 +460,14 @@ tbody tr:hover {
 .repository-row > div {
   display: grid;
   gap: 2px;
+}
+
+.repository-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .run-list {

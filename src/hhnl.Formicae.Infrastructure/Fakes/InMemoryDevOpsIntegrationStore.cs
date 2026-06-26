@@ -74,6 +74,20 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
         return Task.CompletedTask;
     }
 
+    public Task<bool> DeleteAsync(Guid integrationId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            var removed = integrations.RemoveAll(integration => integration.Id == integrationId) > 0;
+            if (removed)
+            {
+                repositories.RemoveAll(repository => repository.DevOpsIntegrationId == integrationId);
+            }
+
+            return Task.FromResult(removed);
+        }
+    }
+
     public Task<ConnectedRepository> AddRepositoryAsync(ConnectedRepository repository, CancellationToken cancellationToken)
     {
         lock (gate)
@@ -101,6 +115,15 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
             return Task.FromResult<IReadOnlyList<ConnectedRepository>>(repositories
                 .Select(Clone)
                 .ToArray());
+        }
+    }
+
+    public Task<bool> DeleteRepositoryAsync(Guid integrationId, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(repositories.RemoveAll(repository =>
+                repository.DevOpsIntegrationId == integrationId && repository.Id == repositoryId) > 0);
         }
     }
 

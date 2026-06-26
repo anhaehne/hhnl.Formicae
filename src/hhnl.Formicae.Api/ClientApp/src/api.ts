@@ -185,6 +185,10 @@ export async function rotateWebhookSecret(integrationId: string): Promise<Integr
   return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
 }
 
+export async function deleteIntegration(integrationId: string): Promise<void> {
+  await sendNoContent(`/api/integrations/${encodeURIComponent(integrationId)}`, { method: "DELETE" });
+}
+
 export async function listGitHubUserRepositories(): Promise<GitHubUserRepository[]> {
   return send<GitHubUserRepository[]>("/api/auth/github/repositories");
 }
@@ -195,6 +199,10 @@ export async function addConnectedRepository(integrationId: string, request: Add
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)
   });
+}
+
+export async function deleteConnectedRepository(integrationId: string, repositoryId: string): Promise<void> {
+  await sendNoContent(`/api/integrations/${encodeURIComponent(integrationId)}/repositories/${encodeURIComponent(repositoryId)}`, { method: "DELETE" });
 }
 
 export async function setIdentityProviderEnabled(integrationId: string, enabled: boolean): Promise<IntegrationDetail> {
@@ -257,6 +265,14 @@ async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T>
   }
 
   return response.json() as Promise<T>;
+}
+
+async function sendNoContent(input: RequestInfo | URL, init?: RequestInit): Promise<void> {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    const message = await readError(response);
+    throw new Error(message);
+  }
 }
 
 async function readError(response: Response): Promise<string> {

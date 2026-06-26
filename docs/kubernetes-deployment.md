@@ -92,7 +92,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.3.9
+  --set image.tag=0.3.10
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -171,6 +171,8 @@ The management UI includes an Integrations page for GitHub App setup. Create an 
 - Events: issues, issue comments, pull requests, pull request reviews, and pull request review comments
 
 After installing or granting the GitHub App to a repository, add the repository manually in the integration detail view with its GitHub repository URL and default branch. Installation metadata can be stored now and will support a later installation callback flow.
+
+Repositories can be removed from the Repositories page. Removing an integration from the Integrations page removes the integration record and its connected repository records.
 
 Do not store GitHub client secrets in ConfigMaps. Store the real secret in your secret manager or Kubernetes Secret and keep only the secure reference in Formicae.
 
