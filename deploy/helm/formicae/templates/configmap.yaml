@@ -11,6 +11,12 @@ data:
   WorkItemMode: {{ .Values.config.workItemMode | quote }}
   SourceControlMode: {{ .Values.config.sourceControlMode | quote }}
   AgentMode: {{ .Values.config.agentMode | quote }}
+  Auth__Enabled: {{ .Values.config.authEnabled | quote }}
+  Auth__Provider: {{ .Values.config.authProvider | quote }}
+  Auth__CookieName: {{ .Values.config.authCookieName | quote }}
+  Auth__GitHub__ClientId: {{ .Values.config.authGitHubClientId | quote }}
+  Auth__AllowedGitHubLogins__0: {{ .Values.config.authAllowedGitHubLogins | quote }}
+  Auth__AllowedEmails__0: {{ .Values.config.authAllowedEmails | quote }}
   OpenHands__AuthMethod: {{ .Values.config.openHandsAuthMethod | quote }}
   OpenHands__Provider: {{ .Values.config.openHandsProvider | quote }}
   OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}

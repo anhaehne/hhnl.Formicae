@@ -1,10 +1,121 @@
 using hhnl.Formicae.Api;
+using hhnl.Formicae.Application.Auth;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure;
 using hhnl.Formicae.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+var authOptions = builder.Configuration.GetSection("Auth").Get<AuthOptions>() ?? new AuthOptions();
+
+if (authOptions.Enabled)
+{
+    if (!string.Equals(authOptions.Provider, "GitHub", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Only GitHub authentication is supported.");
+    }
+
+    if (string.IsNullOrWhiteSpace(authOptions.GitHub.ClientId) || string.IsNullOrWhiteSpace(authOptions.GitHub.ClientSecret))
+    {
+        throw new InvalidOperationException("Auth:GitHub:ClientId and Auth:GitHub:ClientSecret are required when Auth:Enabled=true.");
+    }
+
+    builder.Services
+        .AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = FormicaeAuth.CookieScheme;
+            options.DefaultSignInScheme = FormicaeAuth.CookieScheme;
+            options.DefaultChallengeScheme = FormicaeAuth.GitHubScheme;
+        })
+        .AddCookie(FormicaeAuth.CookieScheme, options =>
+        {
+            options.Cookie.Name = string.IsNullOrWhiteSpace(authOptions.CookieName) ? "formicae_auth" : authOptions.CookieName;
+            options.Events = new CookieAuthenticationEvents
+            {
+                OnRedirectToLogin = context =>
+                {
+                    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        return Task.CompletedTask;
+                    }
+
+                    context.Response.Redirect(context.RedirectUri);
+                    return Task.CompletedTask;
+                },
+                OnRedirectToAccessDenied = context =>
+                {
+                    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        return Task.CompletedTask;
+                    }
+
+                    context.Response.Redirect(context.RedirectUri);
+                    return Task.CompletedTask;
+                }
+            };
+        })
+        .AddOAuth(FormicaeAuth.GitHubScheme, options =>
+        {
+            options.ClientId = authOptions.GitHub.ClientId;
+            options.ClientSecret = authOptions.GitHub.ClientSecret;
+            options.CallbackPath = "/signin-github";
+            options.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
+            options.TokenEndpoint = "https://github.com/login/oauth/access_token";
+            options.UserInformationEndpoint = "https://api.github.com/user";
+            options.Scope.Add("read:user");
+            options.Scope.Add("user:email");
+            options.SaveTokens = false;
+            options.Events = new OAuthEvents
+            {
+                OnRedirectToAuthorizationEndpoint = context =>
+                {
+                    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
+                        && !context.Request.Path.StartsWithSegments("/api/auth/login", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        return Task.CompletedTask;
+                    }
+
+                    context.Response.Redirect(context.RedirectUri);
+                    return Task.CompletedTask;
+                },
+                OnCreatingTicket = async context =>
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, context.Options.UserInformationEndpoint);
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", context.AccessToken);
+                    request.Headers.UserAgent.ParseAdd("hhnl-formicae");
+                    using var response = await context.Backchannel.SendAsync(request, context.HttpContext.RequestAborted);
+                    response.EnsureSuccessStatusCode();
+
+                    using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(context.HttpContext.RequestAborted));
+                    var root = payload.RootElement;
+                    var id = root.GetProperty("id").GetInt64().ToString();
+                    var login = root.GetProperty("login").GetString() ?? "";
+                    var name = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+                    var email = root.TryGetProperty("email", out var emailElement) ? emailElement.GetString() : null;
+
+                    context.Identity?.AddClaim(new Claim(FormicaeAuth.GitHubUserIdClaim, id));
+                    context.Identity?.AddClaim(new Claim(ClaimTypes.NameIdentifier, id));
+                    context.Identity?.AddClaim(new Claim(FormicaeAuth.GitHubLoginClaim, login));
+                    context.Identity?.AddClaim(new Claim(ClaimTypes.Name, string.IsNullOrWhiteSpace(name) ? login : name));
+                    if (!string.IsNullOrWhiteSpace(email))
+                    {
+                        context.Identity?.AddClaim(new Claim(ClaimTypes.Email, email));
+                    }
+                }
+            };
+        });
+}
 
 builder.Services.AddHealthChecks();
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHubWebhooks"));
@@ -12,6 +123,11 @@ builder.Services.AddSingleton<WorkflowTickNotifier>();
 builder.Services.AddSingleton<IWorkflowTickSignal>(serviceProvider => serviceProvider.GetRequiredService<WorkflowTickNotifier>());
 builder.Services.AddScoped<GitHubWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
+builder.Services.AddScoped<IAuthorizationHandler, ManagementAuthHandler>();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(FormicaeAuth.ManagementPolicy, policy => policy.Requirements.Add(new ManagementAuthRequirement()));
+});
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
 var app = builder.Build();
@@ -27,6 +143,85 @@ if (usesPostgresPersistence)
 }
 
 app.MapHealthChecks("/healthz");
+
+if (authOptions.Enabled)
+{
+    app.UseAuthentication();
+}
+
+app.UseAuthorization();
+
+app.MapGet("/api/auth/session", async (
+    ClaimsPrincipal user,
+    AuthInviteService invites,
+    IOptions<AuthOptions> options,
+    CancellationToken cancellationToken) =>
+{
+    var identity = FormicaeAuth.GetGitHubIdentity(user);
+    var authenticated = user.Identity?.IsAuthenticated == true && identity is not null;
+    var allowed = !options.Value.Enabled || await invites.IsAllowedAsync(identity, cancellationToken);
+
+    return Results.Ok(new AuthSessionResponse(
+        options.Value.Enabled,
+        authenticated,
+        allowed,
+        identity?.GitHubLogin,
+        identity?.DisplayName,
+        identity?.Email));
+}).AllowAnonymous();
+
+app.MapGet("/api/auth/login", (string? returnUrl) =>
+{
+    if (!authOptions.Enabled)
+    {
+        return Results.NoContent();
+    }
+
+    var redirectUri = IsLocalReturnUrl(returnUrl) ? returnUrl! : "/";
+    return Results.Challenge(new AuthenticationProperties { RedirectUri = redirectUri }, [FormicaeAuth.GitHubScheme]);
+}).AllowAnonymous();
+
+var logoutEndpoint = app.MapPost("/api/auth/logout", async (HttpContext context) =>
+{
+    if (authOptions.Enabled)
+    {
+        await context.SignOutAsync(FormicaeAuth.CookieScheme);
+    }
+
+    return Results.NoContent();
+});
+
+if (authOptions.Enabled)
+{
+    logoutEndpoint.RequireAuthorization();
+}
+else
+{
+    logoutEndpoint.AllowAnonymous();
+}
+
+app.MapPost("/api/auth/invite/accept", async (
+    AcceptInviteRequest request,
+    ClaimsPrincipal user,
+    AuthInviteService invites,
+    CancellationToken cancellationToken) =>
+{
+    var identity = FormicaeAuth.GetGitHubIdentity(user);
+    if (user.Identity?.IsAuthenticated != true || identity is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        await invites.AcceptInviteAsync(identity, request.InviteCode, cancellationToken);
+        return Results.Ok(new { allowed = true });
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+}).AllowAnonymous();
 
 app.MapGet("/api/workflows", async (
     int? limit,
@@ -75,7 +270,7 @@ app.MapPut("/api/ai-settings", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(FormicaeAuth.ManagementPolicy);
 
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
@@ -91,7 +286,7 @@ app.MapPost("/api/workflows/github-issue", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-});
+}).RequireAuthorization(FormicaeAuth.ManagementPolicy);
 
 app.MapGet("/api/workflows/{workflowId:guid}", async (
     Guid workflowId,
@@ -132,3 +327,8 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static bool IsLocalReturnUrl(string? returnUrl)
+    => !string.IsNullOrWhiteSpace(returnUrl) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//", StringComparison.Ordinal);
+
+public partial class Program;

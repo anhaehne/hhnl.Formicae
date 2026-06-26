@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.2.0"
+  tag: "0.3.0"
   pullPolicy: IfNotPresent
 
 api:
@@ -39,6 +39,12 @@ config:
   workItemMode: "GitHub"
   sourceControlMode: "GitHub"
   agentMode: "OpenHands"
+  authEnabled: "false"
+  authProvider: "GitHub"
+  authCookieName: "formicae_auth"
+  authGitHubClientId: ""
+  authAllowedGitHubLogins: ""
+  authAllowedEmails: ""
   openHandsAuthMethod: "ApiKey"
   openHandsProvider: ""
   openHandsDefaultModel: ""
@@ -70,6 +76,8 @@ secrets:
   postgresUser: "formicae"
   postgresPassword: ""
   githubWebhookSecret: ""
+  authGitHubClientSecret: ""
+  authInviteCodes: ""
 
 postgres:
   enabled: true

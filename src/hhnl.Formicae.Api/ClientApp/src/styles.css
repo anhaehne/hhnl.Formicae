@@ -34,6 +34,47 @@ a:hover {
   padding: 24px;
 }
 
+.auth-shell {
+  align-items: center;
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-panel {
+  background: #ffffff;
+  border: 1px solid #d7dbd2;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgb(24 31 27 / 8%);
+  margin: 0 auto;
+  max-width: 420px;
+  padding: 24px;
+  width: 100%;
+}
+
+.auth-panel h1 {
+  margin-bottom: 12px;
+}
+
+.auth-panel .primary-button {
+  margin-top: 10px;
+}
+
+.auth-form {
+  margin-top: 18px;
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-actions .primary-button,
+.auth-actions .secondary-button {
+  width: auto;
+}
+
 .topbar {
   align-items: center;
   display: flex;

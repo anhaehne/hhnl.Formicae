@@ -92,6 +92,42 @@ export type UpdateAiSettingsRequest = {
   llmApiKeySecretName?: string | null;
 };
 
+export type AuthSession = {
+  authEnabled: boolean;
+  authenticated: boolean;
+  allowed: boolean;
+  login?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export async function getAuthSession(): Promise<AuthSession> {
+  return send<AuthSession>("/api/auth/session");
+}
+
+export function login(returnUrl = window.location.pathname + window.location.search) {
+  window.location.href = `/api/auth/login?returnUrl=${encodeURIComponent(returnUrl)}`;
+}
+
+export async function logout(): Promise<void> {
+  await sendEmpty("/api/auth/logout", { method: "POST" });
+}
+
+export async function acceptInvite(inviteCode: string): Promise<void> {
+  await sendEmpty("/api/auth/invite/accept", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteCode })
+  });
+}
+
 export async function getAiSettings(): Promise<AiSettings> {
   return send<AiSettings>("/api/ai-settings");
 }
@@ -141,13 +177,25 @@ export async function listChatMessages(workflowId: string): Promise<WorkflowChat
 }
 
 async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, withCredentials(init));
   if (!response.ok) {
     const message = await readError(response);
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
+}
+
+async function sendEmpty(input: RequestInfo | URL, init?: RequestInit): Promise<void> {
+  const response = await fetch(input, withCredentials(init));
+  if (!response.ok) {
+    const message = await readError(response);
+    throw new ApiError(message, response.status);
+  }
+}
+
+function withCredentials(init?: RequestInit): RequestInit {
+  return { ...init, credentials: "same-origin" };
 }
 
 async function readError(response: Response): Promise<string> {

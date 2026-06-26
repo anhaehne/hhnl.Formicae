@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Auth;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
@@ -22,7 +23,9 @@ public static class DependencyInjection
         services.AddScoped<WorkflowObservabilityService>();
         services.AddScoped<WorkerAgentMessageService>();
         services.AddScoped<AiSettingsService>();
+        services.AddScoped<AuthInviteService>();
         services.AddSingleton<IClock, SystemClock>();
+        services.Configure<AuthOptions>(configuration.GetSection("Auth"));
         services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
         services.Configure<OpenHandsOptions>(configuration.GetSection("OpenHands"));
@@ -33,6 +36,7 @@ public static class DependencyInjection
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IAuthUserStore, InMemoryAuthUserStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
             services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
@@ -44,6 +48,7 @@ public static class DependencyInjection
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IAuthUserStore, InMemoryAuthUserStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
         else
@@ -51,6 +56,7 @@ public static class DependencyInjection
             services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
             services.AddScoped<IAiSettingsStore, EfAiSettingsStore>();
+            services.AddScoped<IAuthUserStore, EfAuthUserStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
 

@@ -114,6 +114,7 @@ The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before
 Deployment assets live in `deploy/kubernetes/base` and `deploy/helm/formicae`. They include Dockerfiles, kustomize manifests, a Helm chart, PostgreSQL, the API workload, health probes, placeholder secrets, and RBAC.
 
 See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
+See [docs/authentication.md](docs/authentication.md) for optional GitHub OAuth and invite-code setup for the management UI.
 
 ## Configuration
 
@@ -125,6 +126,7 @@ Important settings:
 - `ConnectionStrings:Formicae` for PostgreSQL.
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the Formicae worker image used by agent Jobs.
+- `Auth:Enabled` for optional protected mode on management mutation endpoints. It defaults to `false`.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
 
 ## Architecture

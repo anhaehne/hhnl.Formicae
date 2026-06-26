@@ -22,6 +22,42 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("hhnl.Formicae.Application.Auth.AuthUser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("text");
+
+                    b.Property<string>("GitHubLogin")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("GitHubUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("InviteCodeHash")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GitHubLogin");
+
+                    b.HasIndex("GitHubUserId")
+                        .IsUnique();
+
+                    b.ToTable("auth_users", (string)null);
+                });
+
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.AiSettings", b =>
                 {
                     b.Property<string>("Id")

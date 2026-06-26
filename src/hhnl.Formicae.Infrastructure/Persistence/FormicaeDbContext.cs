@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Auth;
 using hhnl.Formicae.Application.Workflows;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
+    public DbSet<AuthUser> AuthUsers => Set<AuthUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +62,16 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasKey(settings => settings.Id);
             entity.Property(settings => settings.Id).IsRequired();
             entity.Property(settings => settings.AuthMethod).IsRequired();
+        });
+
+        modelBuilder.Entity<AuthUser>(entity =>
+        {
+            entity.ToTable("auth_users");
+            entity.HasKey(user => user.Id);
+            entity.HasIndex(user => user.GitHubUserId).IsUnique();
+            entity.HasIndex(user => user.GitHubLogin);
+            entity.Property(user => user.GitHubUserId).IsRequired();
+            entity.Property(user => user.GitHubLogin).IsRequired();
         });
     }
 }

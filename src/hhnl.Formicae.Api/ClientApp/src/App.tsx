@@ -1,8 +1,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
+  acceptInvite,
   AiSettings,
+  ApiError,
+  AuthSession,
   getAiSettings,
+  getAuthSession,
   getWorkflow,
   listChatMessages,
   listEvents,
@@ -10,6 +14,8 @@ import {
   listRuns,
   listSignals,
   listWorkflows,
+  login,
+  logout,
   startWorkflow,
   TaskRun,
   updateAiSettings,
@@ -85,13 +91,39 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
+  const [authSession, setAuthSession] = useState<AuthSession>();
+  const [loadingAuthSession, setLoadingAuthSession] = useState(true);
+  const [authError, setAuthError] = useState<string>();
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteError, setInviteError] = useState<string>();
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
     [detail.workflow, selectedWorkflowId, workflows]
   );
 
+  const loadAuthSession = useCallback(async () => {
+    setAuthError(undefined);
+    try {
+      setAuthSession(await getAuthSession());
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not load authentication session.");
+    } finally {
+      setLoadingAuthSession(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAuthSession();
+  }, [loadAuthSession]);
+
   const refreshWorkflows = useCallback(async () => {
+    if (!authSession || authSession.authEnabled && !authSession.allowed) {
+      return;
+    }
+
     setLoadingWorkflows(true);
     setListError(undefined);
     try {
@@ -105,7 +137,7 @@ export default function App() {
     } finally {
       setLoadingWorkflows(false);
     }
-  }, [selectedWorkflowId]);
+  }, [authSession, selectedWorkflowId]);
 
   useEffect(() => {
     void refreshWorkflows();
@@ -114,6 +146,10 @@ export default function App() {
   useEffect(() => {
     let ignore = false;
     async function loadAiSettings() {
+      if (!authSession || authSession.authEnabled && !authSession.allowed) {
+        return;
+      }
+
       setLoadingAiSettings(true);
       setAiSettingsError(undefined);
       try {
@@ -146,7 +182,7 @@ export default function App() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authSession]);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -219,7 +255,10 @@ export default function App() {
       setForm(current => ({ ...current, issueUrl: "", model: "" }));
       await refreshWorkflows();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not start workflow.");
+      setFormError(authMessage(error) ?? (error instanceof Error ? error.message : "Could not start workflow."));
+      if (isAuthError(error)) {
+        void loadAuthSession();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -250,10 +289,83 @@ export default function App() {
       });
       setAiSettingsSaved("Saved. New workflow executions will use these settings.");
     } catch (error) {
-      setAiSettingsError(error instanceof Error ? error.message : "Could not save AI settings.");
+      setAiSettingsError(authMessage(error) ?? (error instanceof Error ? error.message : "Could not save AI settings."));
+      if (isAuthError(error)) {
+        void loadAuthSession();
+      }
     } finally {
       setSavingAiSettings(false);
     }
+  }
+
+  async function handleInviteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviteError(undefined);
+    if (!inviteCode.trim()) {
+      setInviteError("Invite code is required.");
+      return;
+    }
+
+    setAcceptingInvite(true);
+    try {
+      await acceptInvite(inviteCode.trim());
+      setInviteCode("");
+      await loadAuthSession();
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : "Could not accept invite.");
+    } finally {
+      setAcceptingInvite(false);
+    }
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    setAuthError(undefined);
+    try {
+      await logout();
+      await loadAuthSession();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not sign out.");
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  if (loadingAuthSession) {
+    return <AuthShell title="Formicae" message="Loading session" />;
+  }
+
+  if (authSession?.authEnabled && !authSession.authenticated) {
+    return (
+      <AuthShell title="Formicae" message="Sign in with GitHub to manage workflows.">
+        {authError ? <p className="error-text">{authError}</p> : null}
+        <button type="button" className="primary-button" onClick={() => login()}>
+          Sign in with GitHub
+        </button>
+      </AuthShell>
+    );
+  }
+
+  if (authSession?.authEnabled && !authSession.allowed) {
+    return (
+      <AuthShell title="Formicae" message={`Signed in as ${authSession.login ?? "GitHub user"}. Enter an invite code to continue.`}>
+        <form className="auth-form" onSubmit={handleInviteSubmit}>
+          <label>
+            <span>Invite Code</span>
+            <input value={inviteCode} onChange={event => setInviteCode(event.target.value)} autoComplete="one-time-code" />
+          </label>
+          {inviteError ? <p className="error-text">{inviteError}</p> : null}
+          <div className="auth-actions">
+            <button type="submit" className="primary-button" disabled={acceptingInvite}>
+              {acceptingInvite ? "Checking" : "Accept Invite"}
+            </button>
+            <button type="button" className="secondary-button" onClick={() => void handleLogout()} disabled={loggingOut}>
+              {loggingOut ? "Signing out" : "Sign out"}
+            </button>
+          </div>
+        </form>
+      </AuthShell>
+    );
   }
 
   return (
@@ -283,6 +395,11 @@ export default function App() {
           {activePage === "workflows" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
               {loadingWorkflows ? "Refreshing" : "Refresh"}
+            </button>
+          ) : null}
+          {authSession?.authEnabled && authSession.authenticated ? (
+            <button type="button" className="secondary-button" onClick={() => void handleLogout()} disabled={loggingOut}>
+              {loggingOut ? "Signing out" : "Sign out"}
             </button>
           ) : null}
         </div>
@@ -609,6 +726,20 @@ function SettingsPage({
     </section>
   );
 }
+
+function AuthShell({ title, message, children }: { title: string; message: string; children?: ReactNode }) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <p className="eyebrow">{title}</p>
+        <h1>Workflow Management</h1>
+        <p className="muted">{message}</p>
+        {children}
+      </section>
+    </main>
+  );
+}
+
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {
     provider: settings.provider ?? "",
@@ -708,4 +839,16 @@ function shortUrl(value: string) {
   } catch {
     return value;
   }
+}
+
+function isAuthError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function authMessage(error: unknown) {
+  if (!isAuthError(error)) {
+    return undefined;
+  }
+
+  return "Sign in with an allowed GitHub account to perform this action.";
 }
