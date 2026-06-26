@@ -23,6 +23,8 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public string DefaultBranchName { get; set; } = "formicae/mock-branch";
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
     public PullRequestStatus DefaultPullRequestStatus { get; set; } = new(true, false);
+    public Exception? ReactToIssueException { get; set; }
+    public Exception? ReactToPullRequestCommentException { get; set; }
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
         => AddIssueWithLabels(issueUrl, title, body, [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement], comments);
@@ -119,6 +121,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
     {
         ReactToIssueCalls.Add(new ReactToIssueCall(issueUrl, reaction));
+        if (ReactToIssueException is not null)
+        {
+            throw ReactToIssueException;
+        }
+
         return Task.CompletedTask;
     }
 
@@ -161,6 +168,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task ReactToPullRequestCommentAsync(Workflow workflow, PullRequestComment comment, string reaction, CancellationToken cancellationToken)
     {
         ReactToPullRequestCommentCalls.Add(new ReactToPullRequestCommentCall(workflow.Id, comment.Id, comment.Kind, reaction));
+        if (ReactToPullRequestCommentException is not null)
+        {
+            throw ReactToPullRequestCommentException;
+        }
+
         return Task.CompletedTask;
     }
 }

@@ -325,6 +325,47 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Continues_implementation_when_issue_reaction_fails()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/43";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            Output = "Plan output"
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter
+        {
+            ReactToIssueException = new InvalidOperationException("Resource not accessible by integration")
+        };
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var implementRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, CancellationToken.None);
+        var logs = await store.ListLogsAsync(workflow.Id, CancellationToken.None);
+
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.CreatingPullRequest, updated.Status);
+        Assert.Equal(WorkflowStep.CreatePullRequest, updated.CurrentStep);
+        Assert.NotNull(implementRun);
+        Assert.Equal(TaskRunStatus.Succeeded, implementRun.Status);
+        Assert.Single(devOps.CreateBranchCalls);
+        Assert.Contains(logs, log => log.Level == "Warning" && log.Message.Contains("GitHub reaction feedback", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_implement_label_after_planning()
     {
         var store = new InMemoryWorkflowStore();

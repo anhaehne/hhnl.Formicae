@@ -131,7 +131,7 @@ public sealed class WorkflowOrchestrator(
 
         run.FailureReason = null;
         await StartTaskRunAsync(workflow, run, cancellationToken);
-        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
+        await TryReactToIssueAsync(workflow, run.Id, cancellationToken);
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
@@ -236,7 +236,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
+        await TryReactToIssueAsync(workflow, cancellationToken);
         workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.IssueUrl, workflow.Id, cancellationToken);
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
@@ -352,7 +352,7 @@ public sealed class WorkflowOrchestrator(
         await StartTaskRunAsync(workflow, run, cancellationToken);
         foreach (var comment in commentsToAddress)
         {
-            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
+            await TryReactToPullRequestCommentAsync(workflow, run, comment, cancellationToken);
         }
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
@@ -378,6 +378,43 @@ public sealed class WorkflowOrchestrator(
         await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
         return true;
     }
+    private Task TryReactToIssueAsync(Workflow workflow, CancellationToken cancellationToken)
+        => TryReactToIssueAsync(workflow, null, cancellationToken);
+
+    private async Task TryReactToIssueAsync(Workflow workflow, Guid? taskRunId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await AddReactionWarningLogAsync(workflow.Id, taskRunId, exception, cancellationToken);
+        }
+    }
+
+    private async Task TryReactToPullRequestCommentAsync(Workflow workflow, TaskRun run, PullRequestComment comment, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await AddReactionWarningLogAsync(workflow.Id, run.Id, exception, cancellationToken);
+        }
+    }
+
+    private Task AddReactionWarningLogAsync(Guid workflowId, Guid? taskRunId, Exception exception, CancellationToken cancellationToken)
+        => store.AddLogAsync(new WorkflowLog
+        {
+            WorkflowId = workflowId,
+            TaskRunId = taskRunId,
+            Level = "Warning",
+            Message = $"GitHub reaction feedback could not be added: {exception.Message}",
+            CreatedAt = clock.UtcNow
+        }, cancellationToken);
+
     private async Task<AgentRunResult?> TryGetRunningAgentResultAsync(TaskRun run, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(run.ExternalId))
