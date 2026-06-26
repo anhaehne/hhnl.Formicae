@@ -73,6 +73,47 @@ public sealed class GitHubWebhookHandlerTests
         Assert.Contains(logs, log => log.Message.Contains("requeued", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task HandleAsync_Completes_workflow_for_merged_pull_request()
+    {
+        var store = new InMemoryWorkflowStore();
+        var pullRequestUrl = "https://github.com/acme/widgets/pull/23";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/2",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            PullRequestUrl = pullRequestUrl,
+            Status = WorkflowStatus.Reviewing,
+            CurrentStep = WorkflowStep.AddressComments
+        }, CancellationToken.None);
+        var handler = new GitHubWebhookHandler(
+            new WorkflowTickNotifier(),
+            store,
+            Options.Create(new GitHubWebhookOptions()),
+            NullLogger<GitHubWebhookHandler>.Instance);
+        var body = Encoding.UTF8.GetBytes($$"""
+            {
+              "action": "closed",
+              "pull_request": {
+                "html_url": "{{pullRequestUrl}}",
+                "merged": true
+              }
+            }
+            """);
+        var context = new DefaultHttpContext();
+        context.Request.Headers["X-GitHub-Event"] = "pull_request";
+        context.Request.Headers["X-GitHub-Delivery"] = "delivery-merge";
+        context.Request.Body = new MemoryStream(body);
+
+        await handler.HandleAsync(context.Request, CancellationToken.None);
+
+        var completed = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        Assert.NotNull(completed);
+        Assert.Equal(WorkflowStatus.Completed, completed.Status);
+        Assert.Equal(WorkflowStep.Done, completed.CurrentStep);
+        var events = await store.ListEventsAsync(workflow.Id, CancellationToken.None);
+        Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.WorkflowCompleted && evt.Message.Contains("merged", StringComparison.OrdinalIgnoreCase));
+    }
     [Theory]
     [InlineData("issues", "labeled", false, true)]
     [InlineData("issues", "closed", false, false)]

@@ -132,8 +132,8 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         {
             return Task.FromResult<IReadOnlyList<WorkflowEvent>>(events
                 .Where(evt => evt.WorkflowId == workflowId)
-                .OrderBy(evt => evt.CreatedAt)
-                .ThenBy(evt => evt.Id)
+                .OrderByDescending(evt => evt.CreatedAt)
+                .ThenByDescending(evt => evt.Id)
                 .ToArray());
         }
     }

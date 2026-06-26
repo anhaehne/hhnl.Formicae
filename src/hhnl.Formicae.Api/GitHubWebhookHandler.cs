@@ -60,17 +60,59 @@ public sealed class GitHubWebhookHandler(
             return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId });
         }
 
+        var completedWorkflowId = await CompleteMergedPullRequestWorkflowAsync(envelope, eventName, action, cancellationToken);
         var requeuedWorkflowId = await RequeueCompletedPullRequestWorkflowAsync(envelope, eventName, cancellationToken);
         notifier.Signal();
         logger.LogInformation(
-            "Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled. Requeued workflow: {WorkflowId}",
+            "Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled. Completed workflow: {CompletedWorkflowId}; requeued workflow: {RequeuedWorkflowId}",
             deliveryId,
             eventName,
             action,
+            completedWorkflowId,
             requeuedWorkflowId);
-        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, requeuedWorkflowId });
+        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, completedWorkflowId, requeuedWorkflowId });
     }
 
+    private async Task<Guid?> CompleteMergedPullRequestWorkflowAsync(
+        GitHubWebhookEnvelope? envelope,
+        string eventName,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(eventName, "pull_request", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(action, "closed", StringComparison.OrdinalIgnoreCase)
+            || envelope?.PullRequest?.Merged != true
+            || string.IsNullOrWhiteSpace(envelope.PullRequest.HtmlUrl))
+        {
+            return null;
+        }
+
+        var workflow = await store.GetWorkflowByPullRequestUrlAsync(envelope.PullRequest.HtmlUrl, cancellationToken);
+        if (workflow is null || workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
+        {
+            return null;
+        }
+
+        workflow.Status = WorkflowStatus.Completed;
+        workflow.CurrentStep = WorkflowStep.Done;
+        workflow.FailureReason = null;
+        workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        await store.AddEventAsync(new WorkflowEvent
+        {
+            WorkflowId = workflow.Id,
+            Type = WorkflowEventTypes.WorkflowCompleted,
+            Message = "Workflow completed because the pull request was merged.",
+            DetailsJson = JsonSerializer.Serialize(new { pullRequestUrl = workflow.PullRequestUrl, eventName, action }),
+            CreatedAt = workflow.UpdatedAt
+        }, cancellationToken);
+        await store.AddLogAsync(new WorkflowLog
+        {
+            WorkflowId = workflow.Id,
+            Message = "Workflow marked completed from GitHub pull_request closed/merged webhook."
+        }, cancellationToken);
+        return workflow.Id;
+    }
     private async Task<Guid?> RequeueCompletedPullRequestWorkflowAsync(
         GitHubWebhookEnvelope? envelope,
         string eventName,
@@ -165,5 +207,7 @@ public sealed class GitHubWebhookHandler(
         [property: JsonPropertyName("html_url")] string? HtmlUrl,
         [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
 
-    private sealed record GitHubWebhookPullRequest([property: JsonPropertyName("html_url")] string? HtmlUrl);
+    private sealed record GitHubWebhookPullRequest(
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("merged")] bool? Merged);
 }

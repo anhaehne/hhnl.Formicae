@@ -83,8 +83,8 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
     public async Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
         => await dbContext.WorkflowEvents
             .Where(evt => evt.WorkflowId == workflowId)
-            .OrderBy(evt => evt.CreatedAt)
-            .ThenBy(evt => evt.Id)
+            .OrderByDescending(evt => evt.CreatedAt)
+            .ThenByDescending(evt => evt.Id)
             .ToListAsync(cancellationToken);
 
     public async Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken)

@@ -82,7 +82,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             return new PullRequestResult(pullRequest.HtmlUrl);
         }
 
-        var title = $"Formicae workflow for issue {workflow.IssueUrl}";
+        var title = await BuildPullRequestTitleAsync(repository, workflow, cancellationToken);
         var body = BuildPullRequestBody(workflow, taskRuns);
         var created = await api.CreatePullRequestAsync(repository.Owner, repository.Repository, title, branchName, workflow.BaseBranch, body);
         return new PullRequestResult(created.HtmlUrl);
@@ -170,6 +170,23 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
         await api.UpdateFileAsync(repository.Owner, repository.Repository, path, message, content, existing.Sha, branchName);
     }
 
+    private async Task<string> BuildPullRequestTitleAsync(
+        GitHubRepositoryReference repository,
+        Workflow workflow,
+        CancellationToken cancellationToken)
+    {
+        var issue = GitHubIssueReference.Parse(workflow.IssueUrl);
+        if (!string.Equals(repository.Owner, issue.Owner, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(repository.Repository, issue.Repository, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Issue URL must belong to the workflow repository.", nameof(workflow));
+        }
+
+        var gitHubIssue = await api.GetIssueAsync(issue.Owner, issue.Repository, issue.Number);
+        return string.IsNullOrWhiteSpace(gitHubIssue.Title)
+            ? $"Issue #{issue.Number}"
+            : gitHubIssue.Title.Trim();
+    }
     private static string BuildPullRequestBody(Workflow workflow, IReadOnlyList<TaskRun> taskRuns)
     {
         var builder = new StringBuilder();

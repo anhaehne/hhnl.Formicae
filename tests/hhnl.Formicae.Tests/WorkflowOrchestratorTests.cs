@@ -164,12 +164,12 @@ public sealed class WorkflowOrchestratorTests
         await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
 
         var events = await store.ListEventsAsync(started.WorkflowId, CancellationToken.None);
-        Assert.Equal(WorkflowEventTypes.WorkflowQueued, events[0].Type);
+        Assert.Equal(WorkflowEventTypes.WorkflowCompleted, events[0].Type);
         Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.WorkflowTransitioned && evt.Message.Contains("Planning started", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.TaskStarted && evt.Message.Contains("Plan", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.TaskSucceeded && evt.Message.Contains("Plan", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(events, evt => evt.Type == WorkflowEventTypes.PullRequestCreated);
-        Assert.Equal(WorkflowEventTypes.WorkflowCompleted, events[^1].Type);
+        Assert.Equal(WorkflowEventTypes.WorkflowQueued, events[^1].Type);
     }
 
     [Fact]
@@ -814,6 +814,7 @@ public sealed class WorkflowOrchestratorTests
         Assert.Equal("https://github.com/acme/widgets/pull/123", result.Url);
         Assert.NotNull(api.CreatedPullRequest);
         Assert.Equal(false, api.CreatedPullRequest.Draft);
+        Assert.Equal("Issue title", api.CreatedPullRequest.Title);
         Assert.Contains("## Implementation Summary", api.CreatedPullRequest.Body);
         Assert.Contains("Implemented the management UI and recent workflow API.", api.CreatedPullRequest.Body);
         Assert.Collection(api.CreatedFiles, file => Assert.Equal(".formicae/workflows/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md", file.Path));
