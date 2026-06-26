@@ -43,8 +43,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
                 branchName,
                 cancellationToken);
         }
-        catch (ApiException exception) when (exception.StatusCode == HttpStatusCode.UnprocessableEntity
-            || exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+        catch (ApiException exception) when (IsAlreadyExists(exception))
         {
             return branchName;
         }
@@ -52,8 +51,23 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
         {
             return branchName;
         }
-    }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            try
+            {
+                await api.CreateReferenceAsync(repository.Owner, repository.Repository, branchName, baseRef.Object.Sha);
+            }
+            catch (ApiException createReferenceException) when (IsAlreadyExists(createReferenceException))
+            {
+            }
 
+            return branchName;
+        }}
+
+
+    private static bool IsAlreadyExists(ApiException exception)
+        => exception.StatusCode == HttpStatusCode.UnprocessableEntity
+            || exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase);
     public async Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(workflow.RepositoryUrl);

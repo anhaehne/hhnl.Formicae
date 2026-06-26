@@ -670,6 +670,31 @@ public sealed class WorkflowOrchestratorTests
         Assert.Single(api.LinkedBranchCalls);
     }
 
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_CreateBranchAsync_falls_back_to_git_ref_when_linked_branch_fails()
+    {
+        var api = new CapturingGitHubApi { ThrowLinkedBranchUnexpectedly = true };
+        var provider = new GitHubSourceControlProvider(api);
+        var workflowId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+        var branch = await provider.CreateBranchAsync(
+            "https://github.com/acme/widgets",
+            "main",
+            "https://github.com/acme/widgets/issues/42",
+            workflowId,
+            CancellationToken.None);
+
+        Assert.Equal("formicae/cccccccccccccccccccccccccccccccc", branch);
+        Assert.Single(api.LinkedBranchCalls);
+        Assert.Collection(api.CreatedReferences, created =>
+        {
+            Assert.Equal("acme", created.Owner);
+            Assert.Equal("widgets", created.Repository);
+            Assert.Equal("formicae/cccccccccccccccccccccccccccccccc", created.BranchName);
+            Assert.Equal("base-sha", created.Sha);
+        });
+    }
     [Fact]
     public async Task GitHubSourceControlProvider_Adds_implementation_summary_to_created_pull_request_body()
     {
@@ -837,10 +862,12 @@ public sealed class WorkflowOrchestratorTests
     {
         public string? ReferenceName { get; private set; }
         public bool ThrowLinkedBranchAlreadyExists { get; init; }
+        public bool ThrowLinkedBranchUnexpectedly { get; init; }
         public NewPullRequest? CreatedPullRequest { get; private set; }
         public List<IssueComment> IssueComments { get; } = [];
         public List<PullRequestReviewComment> ReviewComments { get; } = [];
         public List<LinkedBranchCall> LinkedBranchCalls { get; } = [];
+        public List<CreatedReference> CreatedReferences { get; } = [];
         public List<CreatedIssueComment> CreatedIssueComments { get; } = [];
         public List<CreatedFile> CreatedFiles { get; } = [];
         public List<ReactionCall> ReactionCalls { get; } = [];
@@ -887,9 +914,20 @@ public sealed class WorkflowOrchestratorTests
                 throw new ApiException("branch already exists", System.Net.HttpStatusCode.UnprocessableEntity);
             }
 
+            if (ThrowLinkedBranchUnexpectedly)
+            {
+                throw new NullReferenceException("GraphQL linked branch failed.");
+            }
+
             return Task.FromResult(branchName);
         }
 
+
+        public Task CreateReferenceAsync(string owner, string repository, string branchName, string sha)
+        {
+            CreatedReferences.Add(new CreatedReference(owner, repository, branchName, sha));
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
             => Task.FromResult<IReadOnlyList<PullRequest>>([]);
 
@@ -943,6 +981,7 @@ public sealed class WorkflowOrchestratorTests
         => Model<User>((nameof(User.Login), login));
 
     private sealed record LinkedBranchCall(string Owner, string Repository, int IssueNumber, string BaseOid, string BranchName);
+    private sealed record CreatedReference(string Owner, string Repository, string BranchName, string Sha);
     private sealed record CreatedIssueComment(string Owner, string Repository, int Number, string Body);
     private sealed record CreatedFile(string Path, string Content, string Branch);
     private sealed record ReactionCall(string Kind, string Owner, string Repository, long SubjectId, string Reaction);
