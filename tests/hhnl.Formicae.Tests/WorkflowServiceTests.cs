@@ -2,6 +2,7 @@ using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace hhnl.Formicae.Tests;
 
@@ -57,6 +58,106 @@ public sealed class WorkflowServiceTests
         var queued = Assert.Single(events);
         Assert.Equal(WorkflowEventTypes.WorkflowQueued, queued.Type);
         Assert.Equal(clock.UtcNow, queued.CreatedAt);
+    }
+
+    [Fact]
+    public async Task AiSettingsService_returns_non_secret_settings_from_defaults()
+    {
+        var service = CreateAiSettingsService(new InMemoryAiSettingsStore(), new OpenHandsOptions
+        {
+            Provider = " OpenAI ",
+            DefaultModel = " gpt-5.2-codex ",
+            EndpointUrl = " https://api.example.com/v1 ",
+            AuthMethod = OpenHandsAuthMethods.ApiKey,
+            LlmApiKeySecretName = " llm-secret "
+        });
+
+        var settings = await service.GetAsync(CancellationToken.None);
+        var json = JsonSerializer.Serialize(settings);
+
+        Assert.Equal("OpenAI", settings.Provider);
+        Assert.Equal("gpt-5.2-codex", settings.Model);
+        Assert.Equal("https://api.example.com/v1", settings.EndpointUrl);
+        Assert.Equal(OpenHandsAuthMethods.ApiKey, settings.AuthMethod);
+        Assert.Equal("llm-secret", settings.LlmApiKeySecretName);
+        Assert.True(settings.HasApiKeySecret);
+        Assert.DoesNotContain("secret-value", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AiSettingsService_persists_non_secret_settings()
+    {
+        var store = new InMemoryAiSettingsStore();
+        var service = CreateAiSettingsService(store);
+
+        var saved = await service.UpdateAsync(new UpdateAiSettingsRequest(
+            " Anthropic ",
+            " claude-sonnet-4 ",
+            " https://llm.example.com ",
+            OpenHandsAuthMethods.ApiKey,
+            " llm-secret "), CancellationToken.None);
+        var loaded = await service.GetAsync(CancellationToken.None);
+
+        Assert.Equal("Anthropic", saved.Provider);
+        Assert.Equal("claude-sonnet-4", loaded.Model);
+        Assert.Equal("https://llm.example.com", loaded.EndpointUrl);
+        Assert.Equal("llm-secret", loaded.LlmApiKeySecretName);
+        Assert.True(loaded.HasApiKeySecret);
+    }
+
+    [Fact]
+    public async Task AiSettingsService_rejects_unknown_auth_method()
+    {
+        var service = CreateAiSettingsService(new InMemoryAiSettingsStore());
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.UpdateAsync(new UpdateAiSettingsRequest(
+            null,
+            null,
+            null,
+            "Unsupported",
+            null), CancellationToken.None));
+
+        Assert.Contains("Unsupported auth method", exception.Message);
+    }
+
+    [Fact]
+    public async Task StartGitHubIssueWorkflowAsync_uses_saved_model_when_request_model_is_blank()
+    {
+        var store = new InMemoryWorkflowStore();
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = CreateAiSettingsService(settingsStore);
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(null, "saved-model", null, OpenHandsAuthMethods.ApiKey, null), CancellationToken.None);
+        var service = new WorkflowService(store, aiSettingsService: settingsService);
+
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            "https://github.com/acme/widgets/issues/7",
+            "https://github.com/acme/widgets",
+            null,
+            " "), CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        Assert.NotNull(workflow);
+        Assert.Equal("saved-model", workflow.Model);
+    }
+
+    [Fact]
+    public async Task StartGitHubIssueWorkflowAsync_preserves_explicit_model_override()
+    {
+        var store = new InMemoryWorkflowStore();
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = CreateAiSettingsService(settingsStore);
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(null, "saved-model", null, OpenHandsAuthMethods.ApiKey, null), CancellationToken.None);
+        var service = new WorkflowService(store, aiSettingsService: settingsService);
+
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            "https://github.com/acme/widgets/issues/8",
+            "https://github.com/acme/widgets",
+            null,
+            "manual-model"), CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        Assert.NotNull(workflow);
+        Assert.Equal("manual-model", workflow.Model);
     }
 
     [Fact]
@@ -149,6 +250,12 @@ public sealed class WorkflowServiceTests
             CreatedAt = createdAt,
             UpdatedAt = createdAt
         }, CancellationToken.None);
+
+    private static AiSettingsService CreateAiSettingsService(InMemoryAiSettingsStore store, OpenHandsOptions? options = null)
+        => new(
+            store,
+            Options.Create(options ?? new OpenHandsOptions()),
+            new FixedClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z")));
 
     private sealed class FixedClock(DateTimeOffset utcNow) : IClock
     {

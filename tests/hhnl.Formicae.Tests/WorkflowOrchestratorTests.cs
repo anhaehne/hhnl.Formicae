@@ -48,6 +48,33 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task DiscoverReadyToPlanWorkflows_uses_saved_ai_settings_model()
+    {
+        var store = new InMemoryWorkflowStore();
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(
+            settingsStore,
+            Options.Create(new OpenHandsOptions()),
+            new MutableClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z")));
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(null, "saved-model", null, OpenHandsAuthMethods.ApiKey, null), CancellationToken.None);
+        var repositoryUrl = "https://github.com/acme/widgets";
+        var issueUrl = "https://github.com/acme/widgets/issues/43";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var discovery = new WorkflowDiscoveryService(store, devOps, Options.Create(new WorkflowDiscoveryOptions
+        {
+            Enabled = true,
+            RepositoryUrl = repositoryUrl,
+            Model = "discovery-model"
+        }), settingsService);
+
+        await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflow = Assert.Single(await store.ListRunnableWorkflowsAsync(CancellationToken.None));
+        Assert.Equal("saved-model", workflow.Model);
+    }
+
+    [Fact]
     public async Task DiscoverReadyToPlanWorkflows_Does_not_duplicate_existing_issue_workflow()
     {
         var store = new InMemoryWorkflowStore();
@@ -1138,6 +1165,41 @@ public sealed class AdapterContractTests
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
         Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
         Assert.Equal(OpenHandsAuthMethods.ApiKey, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+    }
+
+    [Fact]
+    public async Task OpenHands_runner_uses_saved_model_and_endpoint_for_new_jobs()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(
+            settingsStore,
+            Options.Create(new OpenHandsOptions()),
+            new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            "OpenAI",
+            "saved-model",
+            "https://llm.example.com/v1",
+            OpenHandsAuthMethods.ApiKey,
+            "llm-secret"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "openhands:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "option-model" }),
+            settingsService);
+
+        await runner.StartAsync(new AgentTask(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"),
+            TaskRunKind.Plan,
+            "Plan this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("saved-model", jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
+        Assert.Equal("saved-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
+        Assert.Equal("https://llm.example.com/v1", jobRunner.LastSpec.Environment["LLM_BASE_URL"]);
     }
 
     [Fact]

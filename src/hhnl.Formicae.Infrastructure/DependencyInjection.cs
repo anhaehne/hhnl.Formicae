@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<WorkflowOrchestrator>();
         services.AddScoped<WorkflowDiscoveryService>();
         services.AddScoped<WorkflowObservabilityService>();
+        services.AddScoped<AiSettingsService>();
         services.AddSingleton<IClock, SystemClock>();
         services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
@@ -30,6 +31,7 @@ public static class DependencyInjection
         if (configuration.GetValue("UseFakeAdapters", true))
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
+            services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
             services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
@@ -40,12 +42,14 @@ public static class DependencyInjection
         if (IsMode(configuration, "PersistenceMode", "InMemory"))
         {
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
+            services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
         else
         {
             services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
+            services.AddScoped<IAiSettingsStore, EfAiSettingsStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
 

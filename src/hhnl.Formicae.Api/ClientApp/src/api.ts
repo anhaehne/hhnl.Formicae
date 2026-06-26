@@ -75,6 +75,35 @@ export type WorkflowChatMessage = {
   updatedAt: string;
 };
 
+export type AiSettings = {
+  provider?: string | null;
+  model?: string | null;
+  endpointUrl?: string | null;
+  authMethod: string;
+  llmApiKeySecretName?: string | null;
+  hasApiKeySecret: boolean;
+};
+
+export type UpdateAiSettingsRequest = {
+  provider?: string | null;
+  model?: string | null;
+  endpointUrl?: string | null;
+  authMethod: string;
+  llmApiKeySecretName?: string | null;
+};
+
+export async function getAiSettings(): Promise<AiSettings> {
+  return send<AiSettings>("/api/ai-settings");
+}
+
+export async function updateAiSettings(request: UpdateAiSettingsRequest): Promise<AiSettings> {
+  return send<AiSettings>("/api/ai-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
 export async function listWorkflows(limit = 25): Promise<WorkflowSummary[]> {
   return send<WorkflowSummary[]>(`/api/workflows?limit=${encodeURIComponent(limit)}`);
 }

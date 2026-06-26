@@ -15,7 +15,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -104,6 +105,12 @@ h3 {
   align-self: start;
 }
 
+.left-stack {
+  align-self: start;
+  display: grid;
+  gap: 16px;
+}
+
 label {
   display: block;
   margin-bottom: 14px;
@@ -117,7 +124,8 @@ label span {
   margin-bottom: 6px;
 }
 
-input {
+input,
+select {
   background: #fbfcfa;
   border: 1px solid #bdc6bd;
   border-radius: 6px;
@@ -127,10 +135,34 @@ input {
   width: 100%;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: #12625d;
   box-shadow: 0 0 0 3px rgb(18 98 93 / 16%);
   outline: none;
+}
+
+.settings-section {
+  border-top: 1px solid #e2e5de;
+  padding-top: 14px;
+}
+
+.settings-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.secret-status {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.secret-status > span:first-child {
+  color: #4a4f49;
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
 .form-row {
@@ -414,7 +446,8 @@ pre.collapsed-content::after {
 }
 
 .status-completed,
-.status-succeeded {
+.status-succeeded,
+.status-configured {
   background: #e7f5ec;
   border-color: #b8dec3;
   color: #1d5f36;
@@ -447,6 +480,12 @@ pre.collapsed-content::after {
 }
 
 .error-text {
+  font-size: 0.86rem;
+  margin-bottom: 12px;
+}
+
+.success-text {
+  color: #1d5f36;
   font-size: 0.86rem;
   margin-bottom: 12px;
 }

@@ -5,12 +5,14 @@ public sealed class WorkflowService
     private readonly IWorkflowStore store;
     private readonly IWorkItemProvider? workItems;
     private readonly IClock clock;
+    private readonly AiSettingsService? aiSettingsService;
 
-    public WorkflowService(IWorkflowStore store, IWorkItemProvider? workItems = null, IClock? clock = null)
+    public WorkflowService(IWorkflowStore store, IWorkItemProvider? workItems = null, IClock? clock = null, AiSettingsService? aiSettingsService = null)
     {
         this.store = store;
         this.workItems = workItems;
         this.clock = clock ?? new SystemClock();
+        this.aiSettingsService = aiSettingsService;
     }
 
     public async Task<WorkflowSummaryResponse> StartGitHubIssueWorkflowAsync(
@@ -27,12 +29,16 @@ public sealed class WorkflowService
             throw new ArgumentException("RepositoryUrl is required.", nameof(request));
         }
 
+        var model = string.IsNullOrWhiteSpace(request.Model) && aiSettingsService is not null
+            ? (await aiSettingsService.ResolveAsync(cancellationToken)).Model
+            : request.Model;
+
         var workflow = new Workflow
         {
             IssueUrl = request.IssueUrl,
             RepositoryUrl = request.RepositoryUrl,
             BaseBranch = string.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : request.BaseBranch,
-            Model = request.Model,
+            Model = model,
             Status = WorkflowStatus.Queued,
             CurrentStep = WorkflowStep.None
         };

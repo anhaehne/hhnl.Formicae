@@ -93,7 +93,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.27
+  --set image.tag=0.1.28
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -186,6 +186,16 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --set config.openHandsAuthMethod=ApiKey
 ```
+
+### AI Settings
+
+The management UI includes an AI Settings panel for the active provider, model, auth method, Kubernetes API key Secret name, and optional endpoint/base URL. ConfigMap and Helm values such as `config.openHandsProvider`, `config.openHandsDefaultModel`, `config.openHandsEndpointUrl`, `config.openHandsAuthMethod`, and `config.openHandsLlmApiKeySecretName` are bootstrap defaults; after a value is saved in the UI, the non-secret settings are persisted in PostgreSQL.
+
+API key values remain in Kubernetes Secrets and are never returned or shown in clear text. The UI stores and displays only the Secret name and whether a Secret name is configured.
+
+Saved AI settings apply to newly queued or newly started workflow executions. Already-created and running agent Jobs keep the settings that were resolved when those Jobs were created.
+
+This release supports one active AI configuration. Full OpenHands-style multi-profile switching is out of scope.
 
 ### Codex Subscription Auth
 

@@ -12,7 +12,9 @@ data:
   SourceControlMode: {{ .Values.config.sourceControlMode | quote }}
   AgentMode: {{ .Values.config.agentMode | quote }}
   OpenHands__AuthMethod: {{ .Values.config.openHandsAuthMethod | quote }}
+  OpenHands__Provider: {{ .Values.config.openHandsProvider | quote }}
   OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}
+  OpenHands__EndpointUrl: {{ .Values.config.openHandsEndpointUrl | quote }}
   WorkflowDiscovery__Enabled: {{ .Values.config.workflowDiscoveryEnabled | quote }}
   WorkflowDiscovery__RepositoryUrl: {{ .Values.config.workflowDiscoveryRepositoryUrl | quote }}
   WorkflowDiscovery__BaseBranch: {{ .Values.config.workflowDiscoveryBaseBranch | quote }}
