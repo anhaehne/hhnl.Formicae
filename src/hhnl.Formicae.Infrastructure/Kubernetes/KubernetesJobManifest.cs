@@ -16,7 +16,7 @@ public static class KubernetesJobManifest
         builder.AppendLine("    spec:");
         builder.AppendLine("      restartPolicy: Never");
         builder.AppendLine("      containers:");
-        builder.AppendLine("        - name: openhands");
+        builder.AppendLine("        - name: worker");
         builder.AppendLine($"          image: {spec.Image}");
         builder.AppendLine("          env:");
         foreach (var (key, value) in spec.Environment.OrderBy(pair => pair.Key))

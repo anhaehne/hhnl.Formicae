@@ -37,6 +37,22 @@ app.MapGet("/api/workflows", async (
     return Results.Ok(await workflowService.ListRecentWorkflowsAsync(clampedLimit, cancellationToken));
 });
 
+app.MapPost("/api/worker/agent-messages", async (
+    WorkerAgentMessageRequest request,
+    WorkerAgentMessageService workerMessages,
+    WorkflowTickNotifier notifier,
+    CancellationToken cancellationToken) =>
+{
+    var accepted = await workerMessages.RecordAsync(request, cancellationToken);
+    if (!accepted)
+    {
+        return Results.NotFound();
+    }
+
+    notifier.Signal();
+    return Results.Accepted();
+});
+
 app.MapPost("/api/webhooks/github", async (
     HttpRequest request,
     GitHubWebhookHandler handler,

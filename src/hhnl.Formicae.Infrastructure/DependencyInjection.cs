@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<WorkflowOrchestrator>();
         services.AddScoped<WorkflowDiscoveryService>();
         services.AddScoped<WorkflowObservabilityService>();
+        services.AddScoped<WorkerAgentMessageService>();
         services.AddScoped<AiSettingsService>();
         services.AddSingleton<IClock, SystemClock>();
         services.Configure<WorkflowObservabilityOptions>(configuration.GetSection("WorkflowObservability"));

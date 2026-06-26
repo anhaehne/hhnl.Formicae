@@ -21,17 +21,18 @@ data:
   WorkflowDiscovery__Model: ""
   OpenHands__LlmApiKeySecretName: "openhands-llm-api-key"
   OpenHands__Shell: "/bin/sh"
-  OpenHands__BootstrapCommand: 'pip install -q uv && uv tool install openhands --python 3.12 && export PATH="/root/.local/bin:$PATH"'
-  OpenHands__Command: 'openhands --headless --json --override-with-envs -t "$FORMICAE_TASK_PROMPT"'
-  OpenHands__CodexSubscriptionImage: "mcr.microsoft.com/dotnet/sdk:10.0"
-  OpenHands__CodexSubscriptionBootstrapCommand: 'apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gnupg && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*'
-  OpenHands__CodexSubscriptionCommand: 'mkdir -p "$CODEX_HOME" /workspace && if [ -f /root/.codex/auth.json ]; then cp /root/.codex/auth.json "$CODEX_HOME/auth.json" && chmod 600 "$CODEX_HOME/auth.json"; fi && repo="${FORMICAE_REPOSITORY_URL#https://}" && if [ "$FORMICAE_TASK_KIND" = "Implement" ] || [ "$FORMICAE_TASK_KIND" = "AddressComments" ]; then if [ -z "$GITHUB_TOKEN" ]; then echo "GITHUB_TOKEN is required to push workflow changes." >&2; exit 1; fi; git clone "https://x-access-token:${GITHUB_TOKEN}@${repo}" /workspace/repo && cd /workspace/repo && git checkout "$FORMICAE_BRANCH" && git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@${repo}" && git config user.email "formicae@example.invalid" && git config user.name "Formicae Agent"; else cd /workspace; fi && codex_model_args="" && if [ -n "$FORMICAE_MODEL" ]; then codex_model_args="-m $FORMICAE_MODEL"; fi && npx -y @openai/codex exec $codex_model_args -C "$PWD" --skip-git-repo-check --json --dangerously-bypass-approvals-and-sandbox "$FORMICAE_TASK_PROMPT" && if [ "$FORMICAE_TASK_KIND" = "Implement" ] || [ "$FORMICAE_TASK_KIND" = "AddressComments" ]; then git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@${repo}" && git add -A && if git diff --cached --quiet; then echo "Codex completed without uncommitted file changes."; else commit_subject="Implement Formicae workflow ${FORMICAE_WORKFLOW_ID}" && if [ "$FORMICAE_TASK_KIND" = "AddressComments" ]; then commit_subject="Address comments for Formicae workflow ${FORMICAE_WORKFLOW_ID}"; fi && git commit -m "$commit_subject"; fi && git push origin "$FORMICAE_BRANCH"; fi'
+  OpenHands__BootstrapCommand: ""
+  OpenHands__Command: ""
+  OpenHands__CodexSubscriptionImage: ""
+  OpenHands__CodexSubscriptionBootstrapCommand: ""
+  OpenHands__CodexSubscriptionCommand: ""
   KubernetesJobs__Namespace: "formicae"
-  KubernetesJobs__Image: "python:3.12-slim"
+  KubernetesJobs__Image: "docker.io/limeray/hhnl-formicae-worker:0.2.0"
   KubernetesJobs__WorkspaceVolumeClaim: "formicae-workspaces"
   KubernetesJobs__TimeoutSeconds: "1800"
   KubernetesJobs__PollIntervalSeconds: "5"
   KubernetesJobs__DeleteFinishedJobs: "false"
+  KubernetesJobs__WorkerCallbackUrl: "http://formicae-api.formicae.svc.cluster.local/api/worker/agent-messages"
   KubernetesJobs__RuntimeSecretName: "formicae-runtime-secrets"
   KubernetesJobs__LlmApiKeySecretName: "openhands-llm-api-key"
   KubernetesJobs__CodexAuthSecretName: ""

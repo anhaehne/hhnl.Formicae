@@ -1,13 +1,13 @@
 # hhnl.Formicae
 
-hhnl.Formicae is a Kubernetes-native MVP for running agent workflows from DevOps work items. The first vertical slice accepts a GitHub issue URL, runs a static plan -> implement -> draft pull request workflow, and keeps external systems behind interfaces so agents can iterate locally with fake adapters.
+hhnl.Formicae is a Kubernetes-native MVP for running agent workflows from DevOps work items. The first vertical slice accepts a GitHub issue URL, runs a static plan -> implement -> pull request workflow, and keeps external systems behind interfaces so agents can iterate locally with fake adapters.
 
 ## Current MVP
 
 - ASP.NET Core API for manual workflow triggers and workflow reads.
 - Background orchestration loop that advances queued workflows.
 - PostgreSQL-ready EF Core persistence with an initial migration.
-- OpenHands headless runner wired through a Kubernetes Job boundary.
+- Worker-based agent execution: the API schedules Kubernetes worker Jobs, workers run OpenHands/Codex inside the worker container, and live agent messages stream back to the API.
 - Fake work item, source control, agent, and store adapters enabled by default for local development.
 
 ## Install
@@ -124,12 +124,13 @@ Important settings:
 
 - `ConnectionStrings:Formicae` for PostgreSQL.
 - `OpenHands:DefaultModel` for the default OpenHands model.
-- `KubernetesJobs:Image` for the OpenHands-capable job image.
+- `KubernetesJobs:Image` for the Formicae worker image used by agent Jobs.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
 
 ## Architecture
 
 - `hhnl.Formicae.Application` owns workflow state, interfaces, and orchestration logic.
 - `hhnl.Formicae.Infrastructure` owns persistence and external adapters.
-- `hhnl.Formicae.Api` owns HTTP endpoints and the distributed-lock-protected background orchestration loop.
+- `hhnl.Formicae.Api` owns HTTP endpoints, the distributed-lock-protected background orchestration loop, and worker message ingestion.
+- `hhnl.Formicae.Worker` owns in-container agent execution and streams live agent output back to the API.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.

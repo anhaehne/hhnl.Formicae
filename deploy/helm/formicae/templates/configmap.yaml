@@ -27,11 +27,12 @@ data:
   OpenHands__CodexSubscriptionBootstrapCommand: {{ .Values.config.openHandsCodexSubscriptionBootstrapCommand | quote }}
   OpenHands__CodexSubscriptionCommand: {{ .Values.config.openHandsCodexSubscriptionCommand | quote }}
   KubernetesJobs__Namespace: {{ default .Release.Namespace .Values.config.kubernetesJobsNamespace | quote }}
-  KubernetesJobs__Image: {{ .Values.config.kubernetesJobsImage | quote }}
+  KubernetesJobs__Image: {{ default (include "formicae.image" (dict "root" . "repository" .Values.worker.image.repository)) .Values.config.kubernetesJobsImage | quote }}
   KubernetesJobs__WorkspaceVolumeClaim: {{ .Values.config.kubernetesJobsWorkspaceVolumeClaim | quote }}
   KubernetesJobs__TimeoutSeconds: {{ .Values.config.kubernetesJobsTimeoutSeconds | quote }}
   KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
   KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
+  KubernetesJobs__WorkerCallbackUrl: {{ default (printf "http://%s-api.%s.svc.cluster.local/api/worker/agent-messages" (include "formicae.fullname" .) .Release.Namespace) .Values.config.kubernetesJobsWorkerCallbackUrl | quote }}
   KubernetesJobs__RuntimeSecretName: {{ .Values.secrets.runtimeSecretName | quote }}
   KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
   KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.agentJobs.codexAuth.secretName "" .Values.agentJobs.codexAuth.enabled | quote }}

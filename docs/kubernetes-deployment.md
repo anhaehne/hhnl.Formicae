@@ -93,7 +93,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.1.33
+  --set image.tag=0.2.0
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -177,7 +177,7 @@ Apply the runtime Secret:
 kubectl apply -f formicae-runtime-secrets.yaml
 ```
 
-By default, agent Jobs use `python:3.12-slim`, install the current OpenHands CLI with `uv`, and run `openhands --headless --json --override-with-envs`. OpenHands requires `LLM_API_KEY` and `LLM_MODEL` for this mode.
+By default, agent Jobs run the Formicae worker image published as `hhnl-formicae-worker:<version>`. The API creates one worker Job for each agent task and passes workflow metadata, prompt text, model settings, context mount path, auth mode, and `FORMICAE_WORKER_CALLBACK_URL` through environment variables. The worker runs OpenHands or Codex inside the worker container, streams supported JSON agent messages back to `/api/worker/agent-messages`, and still writes stdout/stderr to Kubernetes pod logs as the durable fallback. The worker image includes the .NET SDK, Git, Node.js 22, Python tooling, `uv`, and OpenHands so agent Jobs do not install those requirements at runtime. API-key OpenHands mode requires `LLM_API_KEY` and `LLM_MODEL`.
 
 Use the default API-key auth mode explicitly with:
 
@@ -233,7 +233,7 @@ helm upgrade --install formicae formicae/formicae `
   --set agentJobs.codexAuth.enabled=true
 ```
 
-With `config.openHandsAuthMethod=CodexSubscription`, Formicae uses the configured Codex subscription image and command instead of the OpenHands API-key command. The default Codex subscription image is `mcr.microsoft.com/dotnet/sdk:10.0`; its bootstrap command installs Git, certificates, curl, gnupg, and Node.js 22 so agent Jobs can run `dotnet` and `npx @openai/codex` in the same container. For implementation and pull request comment-addressing tasks, the wrapper checks out the workflow branch with `GITHUB_TOKEN`, resets `origin` to the token-authenticated URL before pushing, commits any uncommitted changes, and pushes the branch after Codex exits. The chart configures agent Jobs created by Formicae to mount the Secret as `/root/.codex/auth.json`. If your agent image runs as a different user, override the `.codex` directory path:
+With `config.openHandsAuthMethod=CodexSubscription`, the worker runs `npx -y @openai/codex exec` instead of OpenHands API-key mode. For implementation and pull request comment-addressing tasks, the worker checks out the workflow branch with `GITHUB_TOKEN`, resets `origin` to the token-authenticated URL before pushing, commits any uncommitted changes, and pushes the branch after Codex exits. The chart configures agent Jobs created by Formicae to mount the Secret as `/root/.codex/auth.json`. If your agent image runs as a different user, override the `.codex` directory path:
 
 ```powershell
 helm upgrade --install formicae formicae/formicae `

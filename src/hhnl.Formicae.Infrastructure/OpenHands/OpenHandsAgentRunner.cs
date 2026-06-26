@@ -8,6 +8,8 @@ namespace hhnl.Formicae.Infrastructure.OpenHands;
 
 public sealed class OpenHandsAgentRunner : IAgentRunner
 {
+    private static readonly IReadOnlyList<string> WorkerCommand = ["dotnet", "hhnl.Formicae.Worker.dll"];
+
     private readonly IKubernetesJobRunner jobRunner;
     private readonly IOptions<KubernetesJobOptions> jobOptions;
     private readonly IOptions<OpenHandsOptions> openHandsOptions;
@@ -57,16 +59,16 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private KubernetesJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings)
     {
-        var command = ResolveCommand(openHandsOptions.Value, settings.AuthMethod);
-        var model = ResolveModel(task, settings, command.AuthMethod);
+        var authMethod = ResolveAuthMethod(settings.AuthMethod);
+        var model = ResolveModel(task, settings, authMethod);
         var jobName = BuildJobName(task);
-        var environment = BuildEnvironment(task, model, settings.EndpointUrl, command.AuthMethod);
+        var environment = BuildEnvironment(task, jobName, model, settings.EndpointUrl, authMethod, jobOptions.Value);
         return new KubernetesJobSpec(
             jobName,
-            command.Image ?? jobOptions.Value.Image,
+            jobOptions.Value.Image,
             environment,
-            [openHandsOptions.Value.Shell, "-lc", BuildShellCommand(command.BootstrapCommand, command.Command)],
-            command.AuthMethod,
+            WorkerCommand,
+            ToKubernetesAuthMethod(authMethod),
             task.ContextFiles?.Select(file => new KubernetesJobContextFile(file.FileName, file.Content)).ToArray());
     }
 
@@ -154,7 +156,13 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             : string.Empty;
     }
 
-    private static Dictionary<string, string> BuildEnvironment(AgentTask task, string model, string? endpointUrl, string authMethod)
+    private static Dictionary<string, string> BuildEnvironment(
+        AgentTask task,
+        string jobName,
+        string model,
+        string? endpointUrl,
+        string authMethod,
+        KubernetesJobOptions options)
     {
         var environment = new Dictionary<string, string>
         {
@@ -164,8 +172,15 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             ["FORMICAE_BRANCH"] = task.BranchName,
             ["FORMICAE_TASK_PROMPT"] = task.Prompt,
             ["FORMICAE_OPENHANDS_AUTH_METHOD"] = authMethod,
-            ["FORMICAE_MODEL"] = model
+            ["FORMICAE_MODEL"] = model,
+            ["FORMICAE_EXTERNAL_ID"] = jobName,
+            ["FORMICAE_CONTEXT_PATH"] = "/workspace/formicae/context"
         };
+
+        if (!string.IsNullOrWhiteSpace(options.WorkerCallbackUrl))
+        {
+            environment["FORMICAE_WORKER_CALLBACK_URL"] = options.WorkerCallbackUrl;
+        }
 
         if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
         {
@@ -187,28 +202,25 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         return environment;
     }
 
-    private static SelectedOpenHandsCommand ResolveCommand(OpenHandsOptions options, string authMethod)
+    private static string ResolveAuthMethod(string authMethod)
     {
         if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
-            return new SelectedOpenHandsCommand(
-                KubernetesJobAuthMethods.CodexSubscription,
-                options.CodexSubscriptionImage,
-                options.CodexSubscriptionBootstrapCommand,
-                options.CodexSubscriptionCommand);
+            return OpenHandsAuthMethods.CodexSubscription;
         }
 
         if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
         {
-            return new SelectedOpenHandsCommand(
-                KubernetesJobAuthMethods.ApiKey,
-                null,
-                options.BootstrapCommand,
-                options.Command);
+            return OpenHandsAuthMethods.ApiKey;
         }
 
         throw new InvalidOperationException($"Unsupported OpenHands auth method '{authMethod}'. Supported values are '{OpenHandsAuthMethods.ApiKey}' and '{OpenHandsAuthMethods.CodexSubscription}'.");
     }
+
+    private static string ToKubernetesAuthMethod(string authMethod)
+        => IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription)
+            ? KubernetesJobAuthMethods.CodexSubscription
+            : KubernetesJobAuthMethods.ApiKey;
 
     private static bool IsAuthMethod(string? actual, string expected)
         => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
@@ -233,11 +245,4 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var trimmed = value?.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
-
-    private static string BuildShellCommand(string bootstrapCommand, string command)
-        => string.IsNullOrWhiteSpace(bootstrapCommand)
-            ? command
-            : $"{bootstrapCommand} && {command}";
-
-    private sealed record SelectedOpenHandsCommand(string AuthMethod, string? Image, string BootstrapCommand, string Command);
 }

@@ -156,8 +156,10 @@ export default function App() {
 
     const workflowId = selectedWorkflowId;
     let ignore = false;
-    async function loadDetail() {
-      setDetail(current => ({ ...current, loading: true, error: undefined }));
+    async function loadDetail(showLoading = true) {
+      if (showLoading) {
+        setDetail(current => ({ ...current, loading: true, error: undefined }));
+      }
       try {
         const [workflow, runs, logs, events, signals, chatMessages] = await Promise.all([
           getWorkflow(workflowId),
@@ -187,8 +189,12 @@ export default function App() {
     }
 
     void loadDetail();
+    const refreshInterval = window.setInterval(() => {
+      void loadDetail(false);
+    }, 3000);
     return () => {
       ignore = true;
+      window.clearInterval(refreshInterval);
     };
   }, [selectedWorkflowId, workflows]);
 

@@ -68,3 +68,17 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
             org.opencontainers.image.revision=${{ github.sha }}
+      - name: Build Worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: src/hhnl.Formicae.Worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-worker:${{ steps.version.outputs.value }}
+            ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-worker:latest
+            ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/hhnl-formicae-worker:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}

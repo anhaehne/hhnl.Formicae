@@ -33,7 +33,7 @@ public static class KubernetesJobAuthMethods
 public sealed class KubernetesJobOptions
 {
     public string Namespace { get; set; } = "default";
-    public string Image { get; set; } = "ghcr.io/openhands/openhands:latest";
+    public string Image { get; set; } = "docker.io/limeray/hhnl-formicae-worker:latest";
     public string WorkspaceVolumeClaim { get; set; } = "formicae-workspaces";
     public int TimeoutSeconds { get; set; } = 1800;
     public int PollIntervalSeconds { get; set; } = 5;
@@ -43,6 +43,7 @@ public sealed class KubernetesJobOptions
     public string CodexAuthSecretName { get; set; } = string.Empty;
     public string CodexAuthSecretKey { get; set; } = "auth.json";
     public string CodexAuthMountPath { get; set; } = "/root/.codex";
+    public string WorkerCallbackUrl { get; set; } = string.Empty;
 }
 
 public interface IKubernetesJobApi
@@ -113,7 +114,7 @@ public sealed class KubernetesJobRunner(
     Microsoft.Extensions.Options.IOptions<KubernetesJobOptions> options,
     IEnumerable<IWorkflowTickSignal> tickSignals) : IKubernetesJobRunner
 {
-    private const string ContainerName = "openhands";
+    private const string ContainerName = "worker";
     private const string ManagedByLabel = "app.kubernetes.io/managed-by";
     private const string ManagedByValue = "formicae";
 
