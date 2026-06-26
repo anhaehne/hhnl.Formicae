@@ -1,4 +1,5 @@
 using hhnl.Formicae.Application.Integrations;
+using hhnl.Formicae.Application.Management;
 using hhnl.Formicae.Application.Workflows;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
+    public DbSet<InviteCode> InviteCodes => Set<InviteCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -93,6 +95,15 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(repository => repository.RepositoryUrl).IsRequired();
             entity.Property(repository => repository.DefaultBranch).IsRequired();
             entity.HasIndex(repository => new { repository.DevOpsIntegrationId, repository.RepositoryUrl }).IsUnique();
+        });
+
+        modelBuilder.Entity<InviteCode>(entity =>
+        {
+            entity.ToTable("invite_codes");
+            entity.HasKey(invite => invite.Id);
+            entity.Property(invite => invite.CodeHash).IsRequired();
+            entity.Property(invite => invite.CreatedByUserId).IsRequired();
+            entity.HasIndex(invite => invite.CodeHash).IsUnique();
         });
     }
 }

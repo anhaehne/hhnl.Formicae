@@ -126,7 +126,9 @@ Important settings:
 - `ConnectionStrings:Formicae` for PostgreSQL.
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the Formicae worker image used by agent Jobs.
+- `KubernetesJobs:WorkerCallbackSecret` for optionally requiring worker callbacks to include `X-Formicae-Worker-Callback-Secret` when posting live agent messages.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
+- `ManagementAuth:Enabled` controls authorization for mutating management APIs. It defaults to `false` for local development. Set `ManagementAuth:InviteCodeExpiration` to control invite lifetime and `ManagementAuth:BypassForLocalDevelopment=true` only for trusted development environments.
 
 ## GitHub Integrations
 
@@ -143,7 +145,9 @@ For a GitHub App, configure:
 - Repository permissions: issues read/write, pull requests read/write, contents read/write, and metadata read-only
 - Webhook events: issues, issue comments, pull requests, pull request reviews, and pull request review comments
 
-GitHub can be enabled as an external identity provider from an integration detail page. Enabling currently persists `requiresRestart=true`; restart the API so the GitHub OAuth scheme uses the persisted integration. Once any integration has identity-provider mode enabled, Formicae requires authenticated access for app/API routes except health checks, static assets, auth endpoints, and webhooks.
+GitHub can be enabled as an external identity provider from an integration detail page. The GitHub App callback URL must be `<public Formicae URL>/api/auth/github/callback`. External users are stored as ASP.NET Core Identity users and linked through `AspNetUserLogins` with provider `GitHub` and the GitHub numeric user id as the provider key. Future providers should link users through the same Identity external-login tables.
+
+When `ManagementAuth:Enabled=true`, mutating management endpoints require the Identity user to have the `AuthorizedUser` role. The first authenticated external user who enables an identity provider is granted `AuthorizedUser` in the same operation. Authorized users can create invite codes from the UI; invite codes are shown once, stored only as hashes, expire according to `ManagementAuth:InviteCodeExpiration`, and grant `AuthorizedUser` when redeemed by another authenticated external user. When management auth is disabled, local usage remains fully usable without login.
 
 ## Architecture
 

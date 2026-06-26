@@ -159,6 +159,42 @@ export type AddConnectedRepositoryRequest = {
   installationAccount?: string | null;
 };
 
+export type CurrentUser = {
+  authenticated: boolean;
+  authorized: boolean;
+  name?: string | null;
+  email?: string | null;
+  provider?: string | null;
+};
+
+export type InviteCode = {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt?: string | null;
+  code?: string | null;
+};
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  return send<CurrentUser>("/api/auth/current-user");
+}
+
+export async function createInvite(): Promise<InviteCode> {
+  return send<InviteCode>("/api/auth/invites", { method: "POST" });
+}
+
+export async function redeemInvite(code: string): Promise<void> {
+  await sendNoContent("/api/auth/invites/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
+}
+
+export async function logout(): Promise<void> {
+  await sendNoContent("/api/auth/logout", { method: "POST" });
+}
+
 export async function getAiSettings(): Promise<AiSettings> {
   return send<AiSettings>("/api/ai-settings");
 }

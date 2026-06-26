@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.3.15"
+  tag: "0.3.16"
   pullPolicy: IfNotPresent
 
 api:
@@ -47,6 +47,9 @@ config:
   workflowDiscoveryRepositoryUrl: "https://github.com/anhaehne/hhnl.Formicae"
   workflowDiscoveryBaseBranch: "main"
   workflowDiscoveryModel: ""
+  managementAuthEnabled: "false"
+  managementAuthInviteCodeExpiration: "7.00:00:00"
+  managementAuthBypassForLocalDevelopment: "false"
   openHandsLlmApiKeySecretName: "openhands-llm-api-key"
   openHandsShell: "/bin/sh"
   openHandsBootstrapCommand: ""
@@ -69,6 +72,7 @@ secrets:
   postgresUser: "formicae"
   postgresPassword: ""
   githubWebhookSecret: ""
+  workerCallbackSecret: ""
 
 postgres:
   enabled: true

@@ -182,6 +182,11 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             environment["FORMICAE_WORKER_CALLBACK_URL"] = options.WorkerCallbackUrl;
         }
 
+        if (!string.IsNullOrWhiteSpace(options.WorkerCallbackSecret))
+        {
+            environment["FORMICAE_WORKER_CALLBACK_SECRET"] = options.WorkerCallbackSecret;
+        }
+
         if (IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey))
         {
             environment["LLM_MODEL"] = model;
