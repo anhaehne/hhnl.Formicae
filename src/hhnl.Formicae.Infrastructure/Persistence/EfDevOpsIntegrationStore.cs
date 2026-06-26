@@ -70,4 +70,10 @@ public sealed class EfDevOpsIntegrationStore(FormicaeDbContext dbContext) : IDev
                 repository => repository.DevOpsIntegrationId == integrationId
                     && repository.RepositoryUrl.ToLower() == repositoryUrl.ToLower(),
                 cancellationToken);
+
+    public async Task<ConnectedRepository?> GetRepositoryByUrlAsync(string repositoryUrl, CancellationToken cancellationToken)
+        => await dbContext.ConnectedRepositories
+            .AsNoTracking()
+            .Include(repository => repository.DevOpsIntegration)
+            .FirstOrDefaultAsync(repository => repository.RepositoryUrl.ToLower() == repositoryUrl.ToLower(), cancellationToken);
 }

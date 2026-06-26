@@ -182,6 +182,10 @@ app.MapGet("/api/auth/github/callback", async (
         integration.GitHubAppClientSecretReference,
         code));
     client.Credentials = new Credentials(token.AccessToken);
+    integration.GitHubOAuthAccessToken = token.AccessToken;
+    integration.UpdatedAt = DateTimeOffset.UtcNow;
+    await context.RequestServices.GetRequiredService<IDevOpsIntegrationStore>().UpdateAsync(integration, cancellationToken);
+
     var user = await client.User.Current();
 
     var claims = new List<Claim>

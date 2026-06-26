@@ -70,7 +70,7 @@ public static class DependencyInjection
         else
         {
             services.AddSingleton<IWorkItemProvider>(serviceProvider =>
-                new GitHubWorkItemProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>().CreateClient(requireToken: false)));
+                new GitHubWorkItemProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
         }
 
         if (IsMode(configuration, "SourceControlMode", "Fake"))
@@ -80,7 +80,7 @@ public static class DependencyInjection
         else
         {
             services.AddSingleton<ISourceControlProvider>(serviceProvider =>
-                new GitHubSourceControlProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>().CreateClient(requireToken: true)));
+                new GitHubSourceControlProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
         }
 
         if (IsMode(configuration, "AgentMode", "Fake"))

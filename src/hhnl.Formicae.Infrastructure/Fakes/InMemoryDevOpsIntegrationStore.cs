@@ -116,6 +116,26 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
         }
     }
 
+
+    public Task<ConnectedRepository?> GetRepositoryByUrlAsync(string repositoryUrl, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            var repository = repositories
+                .Where(repository => string.Equals(repository.RepositoryUrl, repositoryUrl, StringComparison.OrdinalIgnoreCase))
+                .Select(Clone)
+                .FirstOrDefault();
+            if (repository is not null)
+            {
+                repository.DevOpsIntegration = integrations
+                    .Where(integration => integration.Id == repository.DevOpsIntegrationId)
+                    .Select(Clone)
+                    .FirstOrDefault();
+            }
+
+            return Task.FromResult(repository);
+        }
+    }
     private static DevOpsIntegration Clone(DevOpsIntegration integration)
         => new()
         {
@@ -124,6 +144,7 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
             DisplayName = integration.DisplayName,
             GitHubAppClientId = integration.GitHubAppClientId,
             GitHubAppClientSecretReference = integration.GitHubAppClientSecretReference,
+            GitHubOAuthAccessToken = integration.GitHubOAuthAccessToken,
             WebhookSecret = integration.WebhookSecret,
             WebhookUrl = integration.WebhookUrl,
             IdentityProviderEnabled = integration.IdentityProviderEnabled,

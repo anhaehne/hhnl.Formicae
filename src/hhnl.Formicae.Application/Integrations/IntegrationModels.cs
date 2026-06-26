@@ -20,6 +20,7 @@ public sealed class DevOpsIntegration
     public string DisplayName { get; set; } = string.Empty;
     public string GitHubAppClientId { get; set; } = string.Empty;
     public string? GitHubAppClientSecretReference { get; set; }
+    public string? GitHubOAuthAccessToken { get; set; }
     public string WebhookSecret { get; set; } = string.Empty;
     public string WebhookUrl { get; set; } = string.Empty;
     public bool IdentityProviderEnabled { get; set; }

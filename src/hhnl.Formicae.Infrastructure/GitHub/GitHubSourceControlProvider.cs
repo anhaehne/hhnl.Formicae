@@ -8,7 +8,12 @@ namespace hhnl.Formicae.Infrastructure.GitHub;
 
 public sealed class GitHubSourceControlProvider : ISourceControlProvider
 {
-    private readonly IGitHubApi api;
+    private readonly Func<string, CancellationToken, Task<IGitHubApi>> createApi;
+
+    public GitHubSourceControlProvider(IGitHubClientFactory clientFactory)
+        : this(async (repositoryUrl, cancellationToken) => new OctokitGitHubApi(await clientFactory.CreateClientForRepositoryAsync(repositoryUrl, cancellationToken)))
+    {
+    }
 
     public GitHubSourceControlProvider(GitHubClient client)
         : this(new OctokitGitHubApi(client))
@@ -16,8 +21,13 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     }
 
     internal GitHubSourceControlProvider(IGitHubApi api)
+        : this((_, _) => Task.FromResult(api))
     {
-        this.api = api;
+    }
+
+    private GitHubSourceControlProvider(Func<string, CancellationToken, Task<IGitHubApi>> createApi)
+    {
+        this.createApi = createApi;
     }
 
     public async Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
@@ -30,6 +40,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             throw new ArgumentException("Issue URL must belong to the workflow repository.", nameof(issueUrl));
         }
 
+        var api = await createApi(repositoryUrl, cancellationToken);
         var branchName = $"formicae/{workflowId:N}";
         var baseRef = await api.GetReferenceAsync(repository.Owner, repository.Repository, $"heads/{baseBranch}");
 
@@ -62,18 +73,16 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             }
 
             return branchName;
-        }}
+        }
+    }
 
-
-    private static bool IsAlreadyExists(ApiException exception)
-        => exception.StatusCode == HttpStatusCode.UnprocessableEntity
-            || exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase);
     public async Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(workflow.RepositoryUrl);
+        var api = await createApi(workflow.RepositoryUrl, cancellationToken);
         var branchName = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before creating a pull request.");
 
-        await UpsertWorkflowSummaryAsync(repository, workflow, taskRuns, branchName, cancellationToken);
+        await UpsertWorkflowSummaryAsync(api, repository, workflow, taskRuns, branchName, cancellationToken);
 
         var existing = await api.ListPullRequestsAsync(repository.Owner, repository.Repository, repository.Owner, branchName);
         var pullRequest = existing.FirstOrDefault();
@@ -82,7 +91,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             return new PullRequestResult(pullRequest.HtmlUrl);
         }
 
-        var title = await BuildPullRequestTitleAsync(repository, workflow, cancellationToken);
+        var title = await BuildPullRequestTitleAsync(api, repository, workflow, cancellationToken);
         var body = BuildPullRequestBody(workflow, taskRuns);
         var created = await api.CreatePullRequestAsync(repository.Owner, repository.Repository, title, branchName, workflow.BaseBranch, body);
         return new PullRequestResult(created.HtmlUrl);
@@ -92,6 +101,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reading pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var api = await createApi(pullRequest.RepositoryUrl, cancellationToken);
 
         var issueComments = await api.GetIssueCommentsAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number);
         var reviewComments = await api.GetPullRequestReviewCommentsAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number);
@@ -122,6 +132,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reading pull request status.");
         var pullRequestReference = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var api = await createApi(pullRequestReference.RepositoryUrl, cancellationToken);
         var pullRequest = await api.GetPullRequestAsync(pullRequestReference.Owner, pullRequestReference.Repository, pullRequestReference.Number);
 
         return new PullRequestStatus(pullRequest.State.Value == ItemState.Open, pullRequest.Merged);
@@ -131,6 +142,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before writing pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var api = await createApi(pullRequest.RepositoryUrl, cancellationToken);
 
         await api.CreateIssueCommentAsync(pullRequest.Owner, pullRequest.Repository, pullRequest.Number, body);
     }
@@ -139,6 +151,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     {
         var pullRequestUrl = workflow.PullRequestUrl ?? throw new InvalidOperationException("Workflow pull request URL is required before reacting to pull request comments.");
         var pullRequest = GitHubPullRequestReference.Parse(pullRequestUrl);
+        var api = await createApi(pullRequest.RepositoryUrl, cancellationToken);
 
         var (kind, id) = ParseCommentReference(comment.Id);
         if (kind == PullRequestCommentKind.IssueComment)
@@ -151,6 +164,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     }
 
     private async Task UpsertWorkflowSummaryAsync(
+        IGitHubApi api,
         GitHubRepositoryReference repository,
         Workflow workflow,
         IReadOnlyList<TaskRun> taskRuns,
@@ -180,6 +194,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
     }
 
     private async Task<string> BuildPullRequestTitleAsync(
+        IGitHubApi api,
         GitHubRepositoryReference repository,
         Workflow workflow,
         CancellationToken cancellationToken)
@@ -196,6 +211,7 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
             ? $"Issue #{issue.Number}"
             : gitHubIssue.Title.Trim();
     }
+
     private static string BuildPullRequestBody(Workflow workflow, IReadOnlyList<TaskRun> taskRuns)
     {
         var builder = new StringBuilder();
@@ -249,6 +265,10 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
         return builder.ToString();
     }
 
+    private static bool IsAlreadyExists(ApiException exception)
+        => exception.StatusCode == HttpStatusCode.UnprocessableEntity
+            || exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase);
+
     private static (PullRequestCommentKind Kind, long Id) ParseCommentReference(string commentId)
     {
         var parts = commentId.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -267,6 +287,8 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
 
 internal sealed record GitHubRepositoryReference(string Owner, string Repository)
 {
+    public string RepositoryUrl => $"https://github.com/{Owner}/{Repository}";
+
     public static GitHubRepositoryReference Parse(string repositoryUrl)
     {
         var uri = new Uri(repositoryUrl);
@@ -282,6 +304,8 @@ internal sealed record GitHubRepositoryReference(string Owner, string Repository
 
 internal sealed record GitHubPullRequestReference(string Owner, string Repository, int Number)
 {
+    public string RepositoryUrl => $"https://github.com/{Owner}/{Repository}";
+
     public static GitHubPullRequestReference Parse(string pullRequestUrl)
     {
         var uri = new Uri(pullRequestUrl);

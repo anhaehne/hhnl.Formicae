@@ -33,7 +33,6 @@ Required keys:
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `LLM_API_KEY`
-- `GITHUB_TOKEN`
 
 The API always applies EF Core migrations on startup when PostgreSQL persistence is configured. The Kubernetes ConfigMap sets `UseFakeAdapters=false` and `PersistenceMode=Postgres`, so deployments migrate automatically before serving traffic.
 
@@ -93,7 +92,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.2.2
+  --set image.tag=0.3.8
 ```
 
 By default, the chart installs bundled PostgreSQL and generates a database password in the chart-managed `formicae-secrets` Secret. On upgrades, the chart reuses the password already stored in that Secret. To use bundled PostgreSQL with a fixed password, set only `secrets.postgresPassword`:
@@ -117,25 +116,14 @@ helm upgrade --install formicae formicae/formicae `
 
 Create runtime credentials separately after the chart is installed.
 
+GitHub workflow access comes from the configured GitHub integration. Authenticate GitHub from the Repositories page after creating the integration; Formicae stores the OAuth access token with that integration and uses it for background issue, branch, pull request, reaction, and comment operations for connected repositories.
+
 For the default OpenHands CLI runner, create an `openhands-llm-api-key` Secret:
 
 ```powershell
 kubectl create secret generic openhands-llm-api-key `
   --namespace formicae `
   --from-literal=LLM_API_KEY='<replace-me>'
-```
-
-Create GitHub/runtime credentials in `formicae-runtime-secrets`:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: formicae-runtime-secrets
-  namespace: formicae
-type: Opaque
-stringData:
-  GITHUB_TOKEN: "<replace-me>"
 ```
 
 ### GitHub Webhooks
@@ -187,12 +175,6 @@ After installing or granting the GitHub App to a repository, add the repository 
 Do not store GitHub client secrets in ConfigMaps. Store the real secret in your secret manager or Kubernetes Secret and keep only the secure reference in Formicae.
 
 GitHub identity-provider mode can be enabled from the integration detail view by an authenticated user. This release persists `requiresRestart=true` after enabling; restart the API so the OAuth scheme reads the persisted GitHub integration. When any integration has identity-provider mode enabled, Formicae requires authenticated access for app/API routes except `/healthz`, static assets, `/api/auth/*`, and `/api/webhooks/*`.
-
-Apply the runtime Secret:
-
-```powershell
-kubectl apply -f formicae-runtime-secrets.yaml
-```
 
 By default, agent Jobs run the Formicae worker image published as `hhnl-formicae-worker:<version>`. The API creates one worker Job for each agent task and passes workflow metadata, prompt text, model settings, context mount path, auth mode, and `FORMICAE_WORKER_CALLBACK_URL` through environment variables. The worker runs OpenHands or Codex inside the worker container, streams supported JSON agent messages back to `/api/worker/agent-messages`, and still writes stdout/stderr to Kubernetes pod logs as the durable fallback. The worker image includes the .NET SDK, Git, Node.js 22, Python tooling, `uv`, and OpenHands so agent Jobs do not install those requirements at runtime. API-key OpenHands mode requires `LLM_API_KEY` and `LLM_MODEL`.
 

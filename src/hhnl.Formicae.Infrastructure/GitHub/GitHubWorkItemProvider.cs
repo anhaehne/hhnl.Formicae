@@ -5,7 +5,12 @@ namespace hhnl.Formicae.Infrastructure.GitHub;
 
 public sealed class GitHubWorkItemProvider : IWorkItemProvider
 {
-    private readonly IGitHubApi api;
+    private readonly Func<string, CancellationToken, Task<IGitHubApi>> createApi;
+
+    public GitHubWorkItemProvider(IGitHubClientFactory clientFactory)
+        : this(async (repositoryUrl, cancellationToken) => new OctokitGitHubApi(await clientFactory.CreateClientForRepositoryAsync(repositoryUrl, cancellationToken)))
+    {
+    }
 
     public GitHubWorkItemProvider(GitHubClient client)
         : this(new OctokitGitHubApi(client))
@@ -13,13 +18,19 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
     }
 
     internal GitHubWorkItemProvider(IGitHubApi api)
+        : this((_, _) => Task.FromResult(api))
     {
-        this.api = api;
+    }
+
+    private GitHubWorkItemProvider(Func<string, CancellationToken, Task<IGitHubApi>> createApi)
+    {
+        this.createApi = createApi;
     }
 
     public async Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
+        var api = await createApi(issue.RepositoryUrl, cancellationToken);
 
         var issueResponse = await api.GetIssueAsync(issue.Owner, issue.Repository, issue.Number);
         var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
@@ -33,6 +44,7 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(repositoryUrl);
+        var api = await createApi(repositoryUrl, cancellationToken);
         var issues = await api.ListIssuesWithLabelAsync(repository.Owner, repository.Repository, label);
 
         return issues
@@ -48,6 +60,7 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
+        var api = await createApi(issue.RepositoryUrl, cancellationToken);
         var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
         var existing = comments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
 
@@ -63,12 +76,14 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
     public async Task AddIssueCommentAsync(string issueUrl, string body, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
+        var api = await createApi(issue.RepositoryUrl, cancellationToken);
         await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
     }
 
     public async Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
+        var api = await createApi(issue.RepositoryUrl, cancellationToken);
         await api.ReactToIssueAsync(issue.Owner, issue.Repository, issue.Number, reaction);
     }
 
@@ -91,6 +106,8 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
 
 internal sealed record GitHubIssueReference(string Owner, string Repository, int Number)
 {
+    public string RepositoryUrl => $"https://github.com/{Owner}/{Repository}";
+
     public static GitHubIssueReference Parse(string issueUrl)
     {
         var uri = new Uri(issueUrl);
