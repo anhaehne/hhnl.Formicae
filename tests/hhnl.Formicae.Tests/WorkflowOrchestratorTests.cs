@@ -1569,6 +1569,51 @@ public sealed class AdapterContractTests
         Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
     }
     [Fact]
+    public async Task OpenHands_runner_injects_github_installation_token_for_repository_work()
+    {
+        var jobRunner = new CapturingJobRunner();
+        var integrationStore = new InMemoryDevOpsIntegrationStore();
+        var integration = await integrationStore.CreateAsync(new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.GitHub,
+            DisplayName = "GitHub",
+            GitHubAppClientId = "client-id",
+            GitHubAppPrivateKey = "private-key",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "widgets",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            DefaultBranch = "main",
+            InstallationId = 123
+        }, CancellationToken.None);
+        var gitHubAppClient = new RecordingOpenHandsGitHubAppClient("installation-token");
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions { AuthMethod = OpenHandsAuthMethods.CodexSubscription }),
+            null,
+            integrationStore,
+            gitHubAppClient);
+
+        await runner.StartAsync(new AgentTask(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"),
+            TaskRunKind.Implement,
+            "Implement this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("installation-token", jobRunner.LastSpec.Environment["FORMICAE_GIT_ACCESS_TOKEN"]);
+        Assert.Equal(integration.Id, gitHubAppClient.IntegrationId);
+        Assert.Equal(123, gitHubAppClient.InstallationId);
+    }
+    [Fact]
     public async Task OpenHands_runner_allows_codex_subscription_without_configured_model()
     {
         var jobRunner = new CapturingJobRunner();
@@ -1840,6 +1885,24 @@ public sealed class AdapterContractTests
         Assert.Contains("agent error", result.Logs);
     }
 
+    private sealed class RecordingOpenHandsGitHubAppClient(string token) : IGitHubAppClient
+    {
+        public Guid? IntegrationId { get; private set; }
+        public long? InstallationId { get; private set; }
+
+        public Task<GitHubAppMetadata> GetAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
+            => Task.FromResult(new GitHubAppMetadata("formicae-test", "https://github.com/apps/formicae-test"));
+
+        public Task<IReadOnlyList<GitHubInstallationRepository>> ListInstallationRepositoriesAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<GitHubInstallationRepository>>([]);
+
+        public Task<string> CreateInstallationTokenAsync(DevOpsIntegration integration, long installationId, CancellationToken cancellationToken)
+        {
+            IntegrationId = integration.Id;
+            InstallationId = installationId;
+            return Task.FromResult(token);
+        }
+    }
     private sealed class CapturingJobRunner : IKubernetesJobRunner
     {
         public KubernetesJobSpec? LastSpec { get; private set; }

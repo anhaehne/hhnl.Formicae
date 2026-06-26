@@ -9,6 +9,7 @@ using hhnl.Formicae.Infrastructure.Prompts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Octokit;
 
 namespace hhnl.Formicae.Infrastructure;
@@ -92,7 +93,13 @@ public static class DependencyInjection
         {
             services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
             services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
-            services.AddSingleton<IAgentRunner, OpenHandsAgentRunner>();
+            services.AddScoped<IAgentRunner>(serviceProvider => new OpenHandsAgentRunner(
+                serviceProvider.GetRequiredService<IKubernetesJobRunner>(),
+                serviceProvider.GetRequiredService<IOptions<KubernetesJobOptions>>(),
+                serviceProvider.GetRequiredService<IOptions<OpenHandsOptions>>(),
+                serviceProvider.GetService<AiSettingsService>(),
+                serviceProvider.GetRequiredService<IDevOpsIntegrationStore>(),
+                serviceProvider.GetRequiredService<IGitHubAppClient>()));
         }
 
         return services;

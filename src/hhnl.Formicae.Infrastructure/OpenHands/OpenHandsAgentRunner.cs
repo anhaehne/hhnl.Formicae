@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
     private readonly IOptions<KubernetesJobOptions> jobOptions;
     private readonly IOptions<OpenHandsOptions> openHandsOptions;
     private readonly AiSettingsService? aiSettingsService;
+    private readonly IDevOpsIntegrationStore? integrationStore;
+    private readonly IGitHubAppClient? gitHubAppClient;
 
     public OpenHandsAgentRunner(
         IKubernetesJobRunner jobRunner,
@@ -27,12 +30,16 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         IKubernetesJobRunner jobRunner,
         IOptions<KubernetesJobOptions> jobOptions,
         IOptions<OpenHandsOptions> openHandsOptions,
-        AiSettingsService? aiSettingsService)
+        AiSettingsService? aiSettingsService,
+        IDevOpsIntegrationStore? integrationStore = null,
+        IGitHubAppClient? gitHubAppClient = null)
     {
         this.jobRunner = jobRunner;
         this.jobOptions = jobOptions;
         this.openHandsOptions = openHandsOptions;
         this.aiSettingsService = aiSettingsService;
+        this.integrationStore = integrationStore;
+        this.gitHubAppClient = gitHubAppClient;
     }
 
     public async Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
@@ -40,7 +47,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var settings = aiSettingsService is null
             ? ResolveSettingsFromOptions(openHandsOptions.Value)
             : await aiSettingsService.ResolveAsync(cancellationToken);
-        var spec = BuildSpec(task, settings);
+        var gitAccessToken = await CreateGitAccessTokenAsync(task, cancellationToken);
+        var spec = BuildSpec(task, settings, gitAccessToken);
         var start = await jobRunner.StartJobAsync(spec, cancellationToken);
         return new AgentRunStartResult(start.JobName);
     }
@@ -57,12 +65,12 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
     }
 
-    private KubernetesJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings)
+    private KubernetesJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
     {
         var authMethod = ResolveAuthMethod(settings.AuthMethod);
         var model = ResolveModel(task, settings, authMethod);
         var jobName = BuildJobName(task);
-        var environment = BuildEnvironment(task, jobName, model, settings.EndpointUrl, authMethod, jobOptions.Value);
+        var environment = BuildEnvironment(task, jobName, model, settings.EndpointUrl, authMethod, jobOptions.Value, gitAccessToken);
         return new KubernetesJobSpec(
             jobName,
             jobOptions.Value.Image,
@@ -70,6 +78,31 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             WorkerCommand,
             ToKubernetesAuthMethod(authMethod),
             task.ContextFiles?.Select(file => new KubernetesJobContextFile(file.FileName, file.Content)).ToArray());
+    }
+
+    private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
+    {
+        if (task.Kind is not (TaskRunKind.Implement or TaskRunKind.AddressComments)
+            || integrationStore is null
+            || gitHubAppClient is null)
+        {
+            return null;
+        }
+
+        var connectedRepository = await integrationStore.GetRepositoryByUrlAsync(task.RepositoryUrl, cancellationToken);
+        if (connectedRepository?.InstallationId is not { } installationId)
+        {
+            return null;
+        }
+
+        var integration = connectedRepository.DevOpsIntegration
+            ?? await integrationStore.GetAsync(connectedRepository.DevOpsIntegrationId, cancellationToken);
+        if (integration is null)
+        {
+            return null;
+        }
+
+        return await gitHubAppClient.CreateInstallationTokenAsync(integration, installationId, cancellationToken);
     }
 
     private static string BuildJobName(AgentTask task)
@@ -162,7 +195,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         string model,
         string? endpointUrl,
         string authMethod,
-        KubernetesJobOptions options)
+        KubernetesJobOptions options,
+        string? gitAccessToken)
     {
         var environment = new Dictionary<string, string>
         {
@@ -176,6 +210,11 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             ["FORMICAE_EXTERNAL_ID"] = jobName,
             ["FORMICAE_CONTEXT_PATH"] = "/workspace/formicae/context"
         };
+
+        if (!string.IsNullOrWhiteSpace(gitAccessToken))
+        {
+            environment["FORMICAE_GIT_ACCESS_TOKEN"] = gitAccessToken;
+        }
 
         if (!string.IsNullOrWhiteSpace(options.WorkerCallbackUrl))
         {
