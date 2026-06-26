@@ -151,10 +151,17 @@ app.MapGet("/api/auth/github/challenge", async (
 app.MapGet("/api/auth/github/callback", async (
     string? code,
     string? state,
+    long? installation_id,
+    string? setup_action,
     HttpContext context,
     DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
+    if (installation_id.HasValue || !string.IsNullOrWhiteSpace(setup_action))
+    {
+        return await RedirectToGitHubInstallationResultAsync(state, installation_id, setup_action, integrations, cancellationToken);
+    }
+
     if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
     {
         return Results.Redirect("/?auth=failed");
@@ -217,30 +224,7 @@ app.MapGet("/api/auth/github/installations/callback", async (
     DevOpsIntegrationService integrations,
     CancellationToken cancellationToken) =>
 {
-    Guid? integrationId = Guid.TryParse(state, out var parsedIntegrationId) ? parsedIntegrationId : null;
-    if (!integrationId.HasValue)
-    {
-        integrationId = (await integrations.GetDefaultGitHubIntegrationAsync(cancellationToken))?.Id;
-    }
-
-    var query = new QueryString()
-        .Add("page", "repositories");
-    if (integrationId.HasValue)
-    {
-        query = query.Add("integrationId", integrationId.Value.ToString());
-    }
-
-    if (installation_id.HasValue)
-    {
-        query = query.Add("installationId", installation_id.Value.ToString());
-    }
-
-    if (!string.IsNullOrWhiteSpace(setup_action))
-    {
-        query = query.Add("setupAction", setup_action);
-    }
-
-    return Results.Redirect($"/{query}");
+    return await RedirectToGitHubInstallationResultAsync(state, installation_id, setup_action, integrations, cancellationToken);
 });
 
 app.MapGet("/api/auth/github/repositories", async (
@@ -606,6 +590,38 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
+static async Task<IResult> RedirectToGitHubInstallationResultAsync(
+    string? state,
+    long? installationId,
+    string? setupAction,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken)
+{
+    Guid? integrationId = Guid.TryParse(state, out var parsedIntegrationId) ? parsedIntegrationId : null;
+    if (!integrationId.HasValue)
+    {
+        integrationId = (await integrations.GetDefaultGitHubIntegrationAsync(cancellationToken))?.Id;
+    }
+
+    var query = new QueryString()
+        .Add("page", "repositories");
+    if (integrationId.HasValue)
+    {
+        query = query.Add("integrationId", integrationId.Value.ToString());
+    }
+
+    if (installationId.HasValue)
+    {
+        query = query.Add("installationId", installationId.Value.ToString());
+    }
+
+    if (!string.IsNullOrWhiteSpace(setupAction))
+    {
+        query = query.Add("setupAction", setupAction);
+    }
+
+    return Results.Redirect($"/{query}");
+}
 static Uri GetRequestBaseUri(HttpRequest request)
     => new($"{request.Scheme}://{request.Host}");
 
