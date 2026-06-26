@@ -23,6 +23,7 @@ import {
   listWorkflows,
   restartIdentityProvider,
   retryTaskRun,
+  retryWorkflow,
   rotateWebhookSecret,
   setIdentityProviderEnabled,
   startWorkflow,
@@ -328,22 +329,13 @@ export default function App() {
     setListError(undefined);
     setDetail(current => ({ ...current, error: undefined }));
     try {
-      const runs = await listRuns(workflow.workflowId);
-      const failedRun = [...runs].reverse().find(run => formatEnum(run.status, taskRunStatuses) === "Failed");
-      if (!failedRun) {
-        setListError("No failed task run found for this workflow.");
-        return;
-      }
-
-      setRetryingRunId(failedRun.id);
-      const retriedWorkflow = await retryTaskRun(workflow.workflowId, failedRun.id);
-      setDetail(current => ({ ...current, workflow: retriedWorkflow, runs, loading: false }));
+      const retriedWorkflow = await retryWorkflow(workflow.workflowId);
+      setDetail(current => ({ ...current, workflow: retriedWorkflow, loading: false }));
       await refreshWorkflowDetail(workflow.workflowId);
       await refreshWorkflows();
     } catch (error) {
       setListError(error instanceof Error ? error.message : "Could not retry workflow.");
     } finally {
-      setRetryingRunId(undefined);
       setRetryingWorkflowId(undefined);
     }
   }

@@ -138,6 +138,58 @@ public sealed class WorkflowService
         return workflow.ToSummary();
     }
 
+    public async Task<WorkflowSummaryResponse?> RetryWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        var workflow = await store.GetWorkflowAsync(workflowId, cancellationToken);
+        if (workflow is null)
+        {
+            return null;
+        }
+
+        if (workflow.Status != WorkflowStatus.Failed)
+        {
+            throw new InvalidOperationException("Only failed workflows can be retried.");
+        }
+
+        var runs = await store.ListTaskRunsAsync(workflowId, cancellationToken);
+        var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed);
+        if (failedRun is not null)
+        {
+            return await RetryTaskRunAsync(workflowId, failedRun.Id, cancellationToken);
+        }
+
+        var retryState = GetRetryWorkflowState(workflow.CurrentStep);
+        var now = clock.UtcNow;
+        workflow.Status = retryState.Status;
+        workflow.CurrentStep = retryState.Step;
+        workflow.FailureReason = null;
+        workflow.UpdatedAt = now;
+        await store.UpdateWorkflowAsync(workflow, cancellationToken);
+
+        var message = retryState.Step == WorkflowStep.None
+            ? "Workflow queued for retry."
+            : $"{retryState.Step} workflow step queued for retry.";
+        await store.AddEventAsync(new WorkflowEvent
+        {
+            WorkflowId = workflow.Id,
+            Type = WorkflowEventTypes.WorkflowTransitioned,
+            Message = message,
+            DetailsJson = JsonSerializer.Serialize(new
+            {
+                workflowStep = retryState.Step.ToString()
+            }),
+            CreatedAt = now
+        }, cancellationToken);
+        await store.AddLogAsync(new WorkflowLog
+        {
+            WorkflowId = workflow.Id,
+            Message = message,
+            CreatedAt = now
+        }, cancellationToken);
+
+        return workflow.ToSummary();
+    }
+
     public async Task<WorkflowEventResponse[]> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)
         => (await store.ListEventsAsync(workflowId, cancellationToken))
             .Select(evt => evt.ToResponse())
@@ -174,5 +226,16 @@ public sealed class WorkflowService
             TaskRunKind.CreatePullRequest => (WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest),
             TaskRunKind.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
+        };
+
+    private static (WorkflowStatus Status, WorkflowStep Step) GetRetryWorkflowState(WorkflowStep step)
+        => step switch
+        {
+            WorkflowStep.None => (WorkflowStatus.Queued, WorkflowStep.None),
+            WorkflowStep.Plan => (WorkflowStatus.Planning, WorkflowStep.Plan),
+            WorkflowStep.Implement => (WorkflowStatus.Implementing, WorkflowStep.Implement),
+            WorkflowStep.CreatePullRequest => (WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest),
+            WorkflowStep.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
+            _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
 }

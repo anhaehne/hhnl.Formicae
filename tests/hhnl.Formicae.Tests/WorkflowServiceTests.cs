@@ -135,6 +135,79 @@ public sealed class WorkflowServiceTests
     }
 
     [Fact]
+    public async Task RetryWorkflowAsync_requeues_failed_workflow_without_task_runs()
+    {
+        var store = new InMemoryWorkflowStore();
+        var clock = new FixedClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z"));
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/11",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Failed,
+            CurrentStep = WorkflowStep.Implement,
+            FailureReason = "Requires authentication",
+            UpdatedAt = clock.UtcNow.AddMinutes(-10)
+        }, CancellationToken.None);
+        var service = new WorkflowService(store, clock: clock);
+
+        var retried = await service.RetryWorkflowAsync(workflow.Id, CancellationToken.None);
+
+        Assert.NotNull(retried);
+        Assert.Equal(WorkflowStatus.Implementing, retried.Status);
+        Assert.Equal(WorkflowStep.Implement, retried.CurrentStep);
+        Assert.Null(retried.FailureReason);
+        Assert.Empty(await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None));
+
+        var retryEvent = Assert.Single(await store.ListEventsAsync(workflow.Id, CancellationToken.None));
+        Assert.Equal(WorkflowEventTypes.WorkflowTransitioned, retryEvent.Type);
+        Assert.Null(retryEvent.TaskRunId);
+    }
+
+    [Fact]
+    public async Task RetryWorkflowAsync_retries_latest_failed_task_run_when_present()
+    {
+        var store = new InMemoryWorkflowStore();
+        var clock = new FixedClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z"));
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/12",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Failed,
+            CurrentStep = WorkflowStep.AddressComments,
+            FailureReason = "Address comments failed.",
+            UpdatedAt = clock.UtcNow.AddMinutes(-10)
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Implement,
+            Status = TaskRunStatus.Succeeded,
+            CreatedAt = clock.UtcNow.AddMinutes(-7)
+        }, CancellationToken.None);
+        var failedRun = await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.AddressComments,
+            Status = TaskRunStatus.Failed,
+            FailureReason = "Review failed.",
+            CreatedAt = clock.UtcNow.AddMinutes(-5),
+            UpdatedAt = clock.UtcNow.AddMinutes(-5)
+        }, CancellationToken.None);
+        var service = new WorkflowService(store, clock: clock);
+
+        var retried = await service.RetryWorkflowAsync(workflow.Id, CancellationToken.None);
+
+        Assert.NotNull(retried);
+        Assert.Equal(WorkflowStatus.Reviewing, retried.Status);
+        Assert.Equal(WorkflowStep.AddressComments, retried.CurrentStep);
+
+        var runs = await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None);
+        var storedRun = Assert.Single(runs, run => run.Id == failedRun.Id);
+        Assert.Equal(TaskRunStatus.Queued, storedRun.Status);
+        Assert.Null(storedRun.FailureReason);
+    }
+
+    [Fact]
     public async Task AiSettingsService_returns_non_secret_settings_from_defaults()
     {
         var service = CreateAiSettingsService(new InMemoryAiSettingsStore(), new OpenHandsOptions

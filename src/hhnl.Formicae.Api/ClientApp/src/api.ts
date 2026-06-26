@@ -241,6 +241,10 @@ export async function retryTaskRun(workflowId: string, taskRunId: string): Promi
   return send<WorkflowSummary>(`/api/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(taskRunId)}/retry`, { method: "POST" });
 }
 
+export async function retryWorkflow(workflowId: string): Promise<WorkflowSummary> {
+  return send<WorkflowSummary>(`/api/workflows/${encodeURIComponent(workflowId)}/retry`, { method: "POST" });
+}
+
 export async function listLogs(workflowId: string): Promise<WorkflowLog[]> {
   return send<WorkflowLog[]>(`/api/workflows/${encodeURIComponent(workflowId)}/logs`);
 }

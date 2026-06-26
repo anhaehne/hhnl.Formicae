@@ -503,6 +503,29 @@ app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", asyn
     }
 });
 
+app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
+    Guid workflowId,
+    WorkflowService workflowService,
+    WorkflowTickNotifier notifier,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var workflow = await workflowService.RetryWorkflowAsync(workflowId, cancellationToken);
+        if (workflow is null)
+        {
+            return Results.NotFound();
+        }
+
+        notifier.Signal();
+        return Results.Ok(workflow);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
 app.MapGet("/api/workflows/{workflowId:guid}/events", async (
     Guid workflowId,
     WorkflowService workflowService,
