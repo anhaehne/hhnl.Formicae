@@ -400,6 +400,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Contains(PullRequestCommentMarkers.Plan(started.WorkflowId), call.Body);
             Assert.Contains("Fake Plan output", call.Body);
         });
+        Assert.Empty(devOps.AddIssueCommentCalls);
 
         devOps.AddIssueWithLabels(
             issueUrl,
@@ -454,6 +455,50 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(PullRequestCommentMarkers.Plan(workflow.Id), call.Marker);
             Assert.Contains("Existing plan output", call.Body);
         });
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Does_not_add_revision_comment_for_deferred_first_plan_with_streamed_output()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var agentRunner = new DeferredAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var run = await store.GetTaskRunAsync(started.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Running, run.Status);
+        Assert.NotNull(run.ExternalId);
+
+        var messageService = new WorkerAgentMessageService(store);
+        await messageService.RecordAsync(new WorkerAgentMessageRequest(
+            started.WorkflowId,
+            "Plan",
+            run.ExternalId,
+            "stdout",
+            "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Partial first plan output\"}}",
+            DateTimeOffset.Parse("2026-06-26T12:00:00Z")), CancellationToken.None);
+
+        agentRunner.Results[run.ExternalId] = new AgentRunResult(true, run.ExternalId, "Deferred plan output", null);
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Equal(PullRequestCommentMarkers.Plan(started.WorkflowId), call.Marker);
+            Assert.Contains("Deferred plan output", call.Body);
+        });
+        Assert.Empty(devOps.AddIssueCommentCalls);
     }
 
 
