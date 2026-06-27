@@ -90,6 +90,23 @@ Ownership boundaries:
 - `hhnl.Formicae.Api` exposes review, CRUD, trigger, and read APIs after the Application layer accepts definitions as valid.
 - `hhnl.Formicae.Worker` executes the already-resolved agent or script payload inside the selected environment.
 
+## CRDT Evaluation
+
+Conflict-free replicated data types are worth evaluating for authoring workflows because multiple people, agents, or integration providers may propose changes to the same workflow at the same time. A CRDT-backed draft can merge independent edits such as adding a task, changing a trigger filter, or updating display metadata without forcing every author through a central lock. This is especially relevant for future chat-based authoring, where an agent may create a structured patch while a user or another integration is editing the same draft.
+
+CRDTs are a weaker fit for enabled workflow definition versions. Enabled versions should remain immutable, reviewed, validated artifacts with stable content hashes. The canonical runtime contract should therefore be a validated `WorkflowDefinitionVersion` snapshot, not a live mutable CRDT document. A CRDT draft may compile into that snapshot after validation, review, permission checks, and approval.
+
+Runtime state also should not use CRDTs as the primary source of truth in the first implementation. `WorkflowRun`, `StepRun`, and `WorkflowRunEvent` transitions need deterministic ordering, idempotent scheduling, secret redaction guarantees, and clear failure semantics. An append-only event stream with optimistic concurrency is simpler to audit and reason about. CRDTs may later help with replicated observability views or offline UI edits, but scheduler decisions should be derived from the authoritative persisted event stream and the selected immutable definition version.
+
+Recommended initial position:
+
+- Use immutable `WorkflowDefinitionVersion` snapshots for enabled workflows.
+- Consider CRDTs only for draft authoring documents or collaborative workflow editors.
+- Compile CRDT drafts into canonical JSON/YAML snapshots before validation and approval.
+- Store the CRDT document id and merge metadata as authoring audit data, not as the runtime definition identity.
+- Keep runtime state event-sourced or append-only with optimistic concurrency; do not merge concurrent scheduler decisions through CRDT conflict resolution.
+- Revisit CRDT-backed runtime state only if Formicae requires multi-primary, disconnected schedulers and can prove deterministic merge semantics for step transitions, retries, cancellations, and secret-scoped work.
+
 ## Integration and Extension Architecture
 
 Integrations may contribute workflow elements:
@@ -332,6 +349,8 @@ Compatible changes may add optional fields with defaults, add new task versions,
 
 Deprecated integration element versions remain loadable for historical runs until all dependent runs and retained audit views no longer require them. Removing a version that is still referenced by retained runs is invalid. A registry snapshot is replayable only when all referenced metadata hashes still match; otherwise the run remains inspectable but cannot be retried from that historical snapshot.
 
+If collaborative authoring uses CRDT-backed drafts, the saved `WorkflowDefinitionVersion` still records the compiled canonical snapshot and content hash. Later CRDT merges create a new draft head and must pass the same validation and approval flow before producing another enabled version. In-flight runs never observe draft merges or partially merged workflow changes.
+
 Example schema evolution:
 
 ```yaml
@@ -443,12 +462,15 @@ Subagent review challenged the draft on provider trust boundaries, reproducibili
 
 The document now requires provider allowlisting, signatures, provenance, content hashes, per-provider capability scoping, immutable registry snapshots, exact resolved element versions, secret injection boundaries, output scanning, network constraints for secret-scoped work, audited generated-definition approval, normalized DSL fragments, clearer bounded loop semantics, and separate architecture/runtime status for #9 through #22.
 
+Pull request review also requested evaluating CRDTs for workflow definitions and runtime state. The document now treats CRDTs as a possible collaborative draft-authoring mechanism, but keeps enabled workflow versions immutable and runtime state append-only until deterministic merge semantics are proven.
+
 ## Open Decisions
 
 - Exact DSL schema and expression language.
-- Whether canonical storage is YAML, JSON, or normalized database rows.
+- Whether canonical storage is YAML, JSON, normalized database rows, or compiled snapshots produced from CRDT-backed drafts.
 - Whether CUE or Dhall should be supported as optional authoring frontends.
 - How integration metadata packages are signed and distributed.
 - Whether custom validators are metadata-only, WebAssembly, worker-executed containers, or not supported.
 - How much of the workflow graph should be editable in the first UI slice.
 - Retention period for old integration element versions required by historical runs.
+- Whether CRDTs are useful enough for collaborative draft authoring to justify the extra storage, validation, and merge-audit complexity.
