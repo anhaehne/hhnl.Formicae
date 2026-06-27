@@ -249,7 +249,17 @@ public sealed class WorkflowOrchestrator(
         }
 
         await TryReactToIssueAsync(workflow, cancellationToken);
-        workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.IssueUrl, workflow.Id, cancellationToken);
+        if (workflow.BranchName is null)
+        {
+            workflow.BranchName = await sourceControl.CreateBranchAsync(
+                new CreateBranchRequest(
+                    workflow.RepositoryUrl,
+                    workflow.BaseBranch,
+                    $"formicae/{workflow.Id:N}",
+                    workflow.IssueUrl),
+                cancellationToken);
+        }
+
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
 
