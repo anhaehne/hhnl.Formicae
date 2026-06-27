@@ -610,7 +610,6 @@ public sealed class WorkflowOrchestratorTests
         var devOps = new MockDevOpsAdapter()
             .AddIssue(issueUrl, "Scripted issue", "Scripted issue body", "Scripted comment")
             .AddPullRequestComment("1", "reviewer", "Please address this before merging.", PullRequestCommentKind.ReviewComment);
-        devOps.DefaultBranchName = "formicae/scripted-branch";
         devOps.DefaultPullRequestUrl = "https://github.com/acme/widgets/pull/123";
         var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
             issueUrl,
@@ -629,7 +628,7 @@ public sealed class WorkflowOrchestratorTests
 
         Assert.NotNull(workflow);
         Assert.Equal(WorkflowStatus.Completed, workflow.Status);
-        Assert.Equal("formicae/scripted-branch", workflow.BranchName);
+        Assert.Equal($"formicae/{started.WorkflowId:N}", workflow.BranchName);
         Assert.Equal("https://github.com/acme/widgets/pull/123", workflow.PullRequestUrl);
         Assert.Equal(2, devOps.GetIssueCalls.Count);
         Assert.All(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
@@ -642,16 +641,16 @@ public sealed class WorkflowOrchestratorTests
 
         Assert.Collection(devOps.CreateBranchCalls, call =>
         {
-            Assert.Equal(repositoryUrl, call.RepositoryUrl);
-            Assert.Equal("develop", call.BaseBranch);
-            Assert.Equal(issueUrl, call.IssueUrl);
-            Assert.Equal(started.WorkflowId, call.WorkflowId);
+            Assert.Equal(repositoryUrl, call.Request.RepositoryUrl);
+            Assert.Equal("develop", call.Request.BaseBranch);
+            Assert.Equal($"formicae/{started.WorkflowId:N}", call.Request.BranchName);
+            Assert.Equal(issueUrl, call.Request.LinkedWorkItemUrl);
         });
         Assert.Collection(devOps.CreatePullRequestCalls, call =>
         {
             Assert.Equal(started.WorkflowId, call.WorkflowId);
             Assert.Equal(repositoryUrl, call.RepositoryUrl);
-            Assert.Equal("formicae/scripted-branch", call.BranchName);
+            Assert.Equal($"formicae/{started.WorkflowId:N}", call.BranchName);
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Plan);
             Assert.Contains(call.TaskRuns, run => run.Kind == TaskRunKind.Implement);
         });
@@ -900,13 +899,12 @@ public sealed class WorkflowOrchestratorTests
     {
         var api = new CapturingGitHubApi();
         var provider = new GitHubSourceControlProvider(api);
-        var workflowId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
-        var branch = await provider.CreateBranchAsync(
+        var branch = await provider.CreateBranchAsync(new CreateBranchRequest(
             "https://github.com/acme/widgets",
             "main",
-            "https://github.com/acme/widgets/issues/42",
-            workflowId,
+            "formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "https://github.com/acme/widgets/issues/42"),
             CancellationToken.None);
 
         Assert.Equal("formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", branch);
@@ -926,13 +924,12 @@ public sealed class WorkflowOrchestratorTests
     {
         var api = new CapturingGitHubApi { ThrowLinkedBranchAlreadyExists = true };
         var provider = new GitHubSourceControlProvider(api);
-        var workflowId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-        var branch = await provider.CreateBranchAsync(
+        var branch = await provider.CreateBranchAsync(new CreateBranchRequest(
             "https://github.com/acme/widgets",
             "main",
-            "https://github.com/acme/widgets/issues/42",
-            workflowId,
+            "formicae/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "https://github.com/acme/widgets/issues/42"),
             CancellationToken.None);
 
         Assert.Equal("formicae/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", branch);
@@ -945,13 +942,12 @@ public sealed class WorkflowOrchestratorTests
     {
         var api = new CapturingGitHubApi { ThrowLinkedBranchUnexpectedly = true };
         var provider = new GitHubSourceControlProvider(api);
-        var workflowId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
-        var branch = await provider.CreateBranchAsync(
+        var branch = await provider.CreateBranchAsync(new CreateBranchRequest(
             "https://github.com/acme/widgets",
             "main",
-            "https://github.com/acme/widgets/issues/42",
-            workflowId,
+            "formicae/cccccccccccccccccccccccccccccccc",
+            "https://github.com/acme/widgets/issues/42"),
             CancellationToken.None);
 
         Assert.Equal("formicae/cccccccccccccccccccccccccccccccc", branch);
@@ -964,6 +960,23 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal("base-sha", created.Sha);
         });
     }
+
+    [Fact]
+    public async Task GitHubSourceControlProvider_CreateBranchAsync_rejects_linked_work_item_from_another_repository()
+    {
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubSourceControlProvider(api);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => provider.CreateBranchAsync(new CreateBranchRequest(
+            "https://github.com/acme/widgets",
+            "main",
+            "formicae/dddddddddddddddddddddddddddddddd",
+            "https://github.com/acme/other/issues/42"),
+            CancellationToken.None));
+
+        Assert.Empty(api.LinkedBranchCalls);
+    }
+
     [Fact]
     public async Task GitHubSourceControlProvider_Adds_implementation_summary_to_created_pull_request_body()
     {

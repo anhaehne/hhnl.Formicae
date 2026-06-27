@@ -45,8 +45,8 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
 
 public sealed class FakeSourceControlProvider : ISourceControlProvider
 {
-    public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
-        => Task.FromResult($"formicae/{workflowId:N}");
+    public Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken)
+        => Task.FromResult(request.BranchName);
 
     public Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
         => Task.FromResult(new PullRequestResult($"{workflow.RepositoryUrl.TrimEnd('/')}/pull/formicae-{workflow.Id:N}"));
