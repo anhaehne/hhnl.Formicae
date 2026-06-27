@@ -162,6 +162,7 @@ export type AddConnectedRepositoryRequest = {
 export type CurrentUser = {
   authenticated: boolean;
   authorized: boolean;
+  authRequired: boolean;
   name?: string | null;
   email?: string | null;
   provider?: string | null;

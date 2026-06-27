@@ -150,9 +150,9 @@ export default function App() {
 
   const processedInvite = useRef<string | undefined>(undefined);
   const processedIdentityActivation = useRef<string | undefined>(undefined);
+  const loginRedirectStarted = useRef(false);
 
-  const canMutate = !currentUser?.authenticated || currentUser.authorized;
-  const inviteLocked = currentUser?.authenticated === true && !currentUser.authorized;
+  const canMutate = currentUser?.authorized === true || currentUser?.authRequired !== true;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -171,12 +171,15 @@ export default function App() {
   useEffect(() => {
     void refreshCurrentUser();
   }, [refreshCurrentUser]);
-
   useEffect(() => {
-    if (currentUser?.authenticated && !currentUser.authorized) {
-      setActivePage("users");
+    if (!currentUser || currentUser.authenticated || !currentUser.authRequired || loginRedirectStarted.current) {
+      return;
     }
+
+    loginRedirectStarted.current = true;
+    handleLogin(window.location.pathname + window.location.search);
   }, [currentUser]);
+
 
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
@@ -222,7 +225,6 @@ export default function App() {
     }
 
     if (invite) {
-      setActivePage("users");
       setRedeemCode(invite);
     }
 
@@ -721,7 +723,7 @@ export default function App() {
   }
 
   function handleLogin(returnUrl?: string) {
-    const target = returnUrl ?? buildReturnUrl({ page: activePage, invite: redeemCode.trim() || undefined });
+    const target = returnUrl ?? window.location.pathname + window.location.search;
     window.location.href = `/api/auth/github/challenge?returnUrl=${encodeURIComponent(target)}`;
   }
 
@@ -730,7 +732,7 @@ export default function App() {
     setAuthError(undefined);
     try {
       await logout();
-      setCurrentUser({ authenticated: false, authorized: false });
+      setCurrentUser(current => ({ authenticated: false, authorized: false, authRequired: current?.authRequired ?? false }));
       setInviteCode(undefined);
       setInviteLink(undefined);
     } catch (error) {
@@ -774,91 +776,114 @@ export default function App() {
     }
   }
 
+  if (!currentUser) {
+    return (
+      <main className="auth-gate-page">
+        <section className="panel auth-gate-panel">
+          <p className="eyebrow">Formicae</p>
+          <h1>Loading Session</h1>
+          <p className="muted">Checking whether this installation requires identity provider login.</p>
+          {authError ? <p className="error-text">{authError}</p> : null}
+        </section>
+      </main>
+    );
+  }
+  if (currentUser.authenticated && currentUser.authRequired && !currentUser.authorized) {
+    return (
+      <InviteCodePage
+        authError={authError}
+        redeemCode={redeemCode}
+        busy={authBusy}
+        setRedeemCode={setRedeemCode}
+        onLogout={handleLogout}
+        onRedeemInvite={handleRedeemInvite}
+      />
+    );
+  }
+
+  if (!currentUser.authenticated && currentUser.authRequired) {
+    return (
+      <main className="auth-gate-page">
+        <section className="panel auth-gate-panel">
+          <p className="eyebrow">Formicae</p>
+          <h1>Redirecting to Login</h1>
+          <p className="muted">This Formicae installation requires an identity provider login.</p>
+          {authError ? <p className="error-text">{authError}</p> : null}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <p className="eyebrow">Formicae</p>
-          <h1>{pageTitle(inviteLocked ? "users" : activePage)}</h1>
+          <h1>{pageTitle(activePage)}</h1>
         </div>
         <div className="topbar-actions">
           <AccountStatus
             currentUser={currentUser}
             busy={authBusy}
-            onLogin={() => handleLogin()}
             onLogout={handleLogout}
           />
           <nav className="app-menu" aria-label="Primary navigation">
             <button
               type="button"
-              className={`menu-button${!inviteLocked && activePage === "workflows" ? " active" : ""}`}
-              onClick={() => setActivePage("workflows")} disabled={inviteLocked}
+              className={`menu-button${activePage === "workflows" ? " active" : ""}`}
+              onClick={() => setActivePage("workflows")}
             >
               Workflows
             </button>
             <button
               type="button"
-              className={`menu-button${!inviteLocked && activePage === "integrations" ? " active" : ""}`}
-              onClick={() => setActivePage("integrations")} disabled={inviteLocked}
+              className={`menu-button${activePage === "integrations" ? " active" : ""}`}
+              onClick={() => setActivePage("integrations")}
             >
               Integrations
             </button>
             <button
               type="button"
-              className={`menu-button${!inviteLocked && activePage === "repositories" ? " active" : ""}`}
-              onClick={() => setActivePage("repositories")} disabled={inviteLocked}
+              className={`menu-button${activePage === "repositories" ? " active" : ""}`}
+              onClick={() => setActivePage("repositories")}
             >
               Repositories
             </button>
             <button
               type="button"
-              className={`menu-button${inviteLocked || activePage === "users" ? " active" : ""}`}
+              className={`menu-button${activePage === "users" ? " active" : ""}`}
               onClick={() => setActivePage("users")}
             >
               Users
             </button>
             <button
               type="button"
-              className={`menu-button${!inviteLocked && activePage === "settings" ? " active" : ""}`}
-              onClick={() => setActivePage("settings")} disabled={inviteLocked}
+              className={`menu-button${activePage === "settings" ? " active" : ""}`}
+              onClick={() => setActivePage("settings")}
             >
               Settings
             </button>
           </nav>
-          {activePage === "workflows" && !inviteLocked ? (
+          {activePage === "workflows" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
               {loadingWorkflows ? "Refreshing" : "Refresh"}
             </button>
-          ) : activePage === "integrations" && !inviteLocked ? (
+          ) : activePage === "integrations" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
               {loadingIntegrations ? "Refreshing" : "Refresh"}
             </button>
-          ) : activePage === "repositories" && !inviteLocked ? (
+          ) : activePage === "repositories" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
               {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
             </button>
-          ) : activePage === "users" || inviteLocked ? (
+          ) : activePage === "users" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
               Refresh
             </button>
           ) : null}
         </div>
       </header>
-      {inviteLocked ? (
-        <UsersPage
-          currentUser={currentUser}
-          authError={authError}
-          inviteCode={inviteCode}
-          inviteLink={inviteLink}
-          redeemCode={redeemCode}
-          busy={authBusy}
-          setRedeemCode={setRedeemCode}
-          onLogin={() => handleLogin()}
-          onLogout={handleLogout}
-          onCreateInvite={handleCreateInvite}
-          onRedeemInvite={handleRedeemInvite}
-        />
-      ) : activePage === "workflows" ? (
+      {activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -1102,7 +1127,7 @@ export default function App() {
         )}
       </section>
         </>
-      ) : !inviteLocked && activePage === "integrations" ? (
+      ) : activePage === "integrations" ? (
         <IntegrationsPage
           integrations={integrations}
           integrationDetail={integrationDetail}
@@ -1122,7 +1147,7 @@ export default function App() {
           onIdentityRestart={handleIdentityRestart}
           canMutate={canMutate}
         />
-      ) : !inviteLocked && activePage === "repositories" ? (
+      ) : activePage === "repositories" ? (
         <RepositoriesPage
           integrations={integrations}
           integrationDetail={integrationDetail}
@@ -1143,19 +1168,15 @@ export default function App() {
           onRemoveRepository={handleRemoveRepository}
           canMutate={canMutate}
         />
-      ) : (inviteLocked || activePage === "users") ? (
+      ) : activePage === "users" ? (
         <UsersPage
           currentUser={currentUser}
           authError={authError}
           inviteCode={inviteCode}
           inviteLink={inviteLink}
-          redeemCode={redeemCode}
           busy={authBusy}
-          setRedeemCode={setRedeemCode}
-          onLogin={() => handleLogin()}
           onLogout={handleLogout}
           onCreateInvite={handleCreateInvite}
-          onRedeemInvite={handleRedeemInvite}
         />
       ) : (
         <SettingsPage
@@ -1177,26 +1198,60 @@ export default function App() {
 function AccountStatus({
   currentUser,
   busy,
-  onLogin,
   onLogout
 }: {
   currentUser?: CurrentUser;
   busy: boolean;
-  onLogin: () => void;
   onLogout: () => void;
 }) {
+  if (!currentUser?.authenticated) {
+    return null;
+  }
+
   return (
     <div className="account-status">
-      {currentUser?.authenticated ? (
-        <>
-          <span className="auth-user">{currentUser.name ?? currentUser.email ?? currentUser.provider ?? "Signed in"}</span>
-          <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} />
-          <button type="button" className="secondary-button compact-button" onClick={onLogout} disabled={busy}>Logout</button>
-        </>
-      ) : (
-        <button type="button" className="secondary-button compact-button" onClick={onLogin} disabled={busy}>Login</button>
-      )}
+      <span className="auth-user">{currentUser.name ?? currentUser.email ?? currentUser.provider ?? "Signed in"}</span>
+      <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} />
+      <button type="button" className="secondary-button compact-button" onClick={onLogout} disabled={busy}>Logout</button>
     </div>
+  );
+}
+
+function InviteCodePage({
+  authError,
+  redeemCode,
+  busy,
+  setRedeemCode,
+  onLogout,
+  onRedeemInvite
+}: {
+  authError?: string;
+  redeemCode: string;
+  busy: boolean;
+  setRedeemCode: Dispatch<SetStateAction<string>>;
+  onLogout: () => void;
+  onRedeemInvite: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <main className="auth-gate-page">
+      <section className="panel auth-gate-panel">
+        <p className="eyebrow">Formicae</p>
+        <div className="panel-heading">
+          <h1>Invite Code Required</h1>
+          <StatusBadge value="InviteRequired" />
+        </div>
+        <p className="muted">Your identity provider login succeeded, but this Formicae installation only allows verified users. Ask an existing verified user to create an invite link, then open it or paste the invite code here.</p>
+        <form onSubmit={onRedeemInvite} className="invite-form">
+          <label>
+            <span>Invite Code</span>
+            <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Paste invite code" autoFocus />
+          </label>
+          <button type="submit" className="primary-button" disabled={busy || !redeemCode.trim()}>{busy ? "Redeeming" : "Redeem Invite"}</button>
+        </form>
+        {authError ? <p className="error-text">{authError}</p> : null}
+        <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
+      </section>
+    </main>
   );
 }
 
@@ -1205,49 +1260,18 @@ function UsersPage({
   authError,
   inviteCode,
   inviteLink,
-  redeemCode,
   busy,
-  setRedeemCode,
-  onLogin,
   onLogout,
-  onCreateInvite,
-  onRedeemInvite
+  onCreateInvite
 }: {
   currentUser?: CurrentUser;
   authError?: string;
   inviteCode?: string;
   inviteLink?: string;
-  redeemCode: string;
   busy: boolean;
-  setRedeemCode: Dispatch<SetStateAction<string>>;
-  onLogin: () => void;
   onLogout: () => void;
   onCreateInvite: () => void;
-  onRedeemInvite: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  if (currentUser?.authenticated && !currentUser.authorized) {
-    return (
-      <section className="users-page locked-users-page">
-        <section className="panel users-panel">
-          <div className="panel-heading">
-            <h2>Invite Required</h2>
-            <StatusBadge value="InviteRequired" />
-          </div>
-          <p className="muted">Your GitHub login is valid, but this Formicae installation only allows verified users. Ask an existing verified user to create an invite link for you, then open it or paste the invite code here.</p>
-          <form onSubmit={onRedeemInvite} className="invite-form">
-            <label>
-              <span>Invite Code</span>
-              <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Paste invite code" autoFocus />
-            </label>
-            <button type="submit" className="primary-button" disabled={busy || !redeemCode.trim()}>{busy ? "Redeeming" : "Redeem Invite"}</button>
-          </form>
-          {authError ? <p className="error-text">{authError}</p> : null}
-          <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
-        </section>
-      </section>
-    );
-  }
-
   return (
     <section className="users-page">
       <section className="workspace-grid">
@@ -1262,13 +1286,11 @@ function UsersPage({
             <SummaryItem label="Email" value={currentUser?.email ?? "None"} />
             <SummaryItem label="Provider" value={currentUser?.provider ?? "None"} />
           </div>
-          <div className="button-row">
-            {currentUser?.authenticated ? (
+          {currentUser?.authenticated ? (
+            <div className="button-row">
               <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
-            ) : (
-              <button type="button" className="primary-button user-action-button" onClick={onLogin} disabled={busy}>Login with GitHub</button>
-            )}
-          </div>
+            </div>
+          ) : null}
           {authError ? <p className="error-text">{authError}</p> : null}
         </section>
 
@@ -1278,7 +1300,7 @@ function UsersPage({
           </div>
           {currentUser?.authorized ? (
             <>
-              <p className="muted">Create an invite link for another GitHub user. The link signs them in first and applies the invite automatically after the login callback.</p>
+              <p className="muted">Create an invite link for another identity provider user. The link signs them in first and applies the invite automatically after the login callback.</p>
               <button type="button" className="primary-button user-action-button" onClick={onCreateInvite} disabled={busy}>{busy ? "Creating" : "Create Invite Link"}</button>
               {inviteLink ? (
                 <div className="invite-result">
@@ -1290,26 +1312,14 @@ function UsersPage({
                 </div>
               ) : null}
             </>
-          ) : currentUser?.authenticated ? (
-            <p className="muted">Verified users can create invite links. Redeem an invite to become verified.</p>
           ) : (
-            <>
-              <p className="muted">If you have an invite code, enter it before logging in. Formicae will apply it automatically after GitHub returns you to the app.</p>
-              <form onSubmit={event => { event.preventDefault(); onLogin(); }} className="invite-form">
-                <label>
-                  <span>Invite Code</span>
-                  <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Optional invite code" />
-                </label>
-                <button type="submit" className="primary-button" disabled={busy}>Login with GitHub</button>
-              </form>
-            </>
+            <p className="muted">Verified users can create invite links.</p>
           )}
         </section>
       </section>
     </section>
   );
-}
-function IntegrationsPage({
+}function IntegrationsPage({
   integrations,
   integrationDetail,
   selectedIntegrationId,

@@ -88,6 +88,21 @@ public sealed class ManagementAuthApiTests
         Assert.True(await factory.IsAuthorizedAsync(user));
     }
 
+
+    [Fact]
+    public async Task CurrentUser_ReturnsAuthRequired_WhenIdentityProviderEnabled()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        await factory.CreateGitHubIntegrationAsync(identityProviderEnabled: true);
+        var client = factory.CreateClient();
+
+        var currentUser = await client.GetFromJsonAsync<CurrentUserResponse>("/api/auth/current-user");
+
+        Assert.NotNull(currentUser);
+        Assert.False(currentUser!.Authenticated);
+        Assert.False(currentUser.Authorized);
+        Assert.True(currentUser.AuthRequired);
+    }
     [Fact]
     public async Task InviteRedemption_AuthorizesSecondExternalUser()
     {
@@ -116,6 +131,7 @@ public sealed class ManagementAuthApiTests
         };
 
     private sealed record InviteResponse(string Code);
+    private sealed record CurrentUserResponse(bool Authenticated, bool Authorized, bool AuthRequired);
 
     private sealed class FormicaeApiFactory(bool managementAuthEnabled) : WebApplicationFactory<Program>
     {
@@ -179,7 +195,7 @@ public sealed class ManagementAuthApiTests
             return user;
         }
 
-        public async Task<DevOpsIntegration> CreateGitHubIntegrationAsync()
+        public async Task<DevOpsIntegration> CreateGitHubIntegrationAsync(bool identityProviderEnabled = false)
         {
             using var scope = Services.CreateScope();
             var store = scope.ServiceProvider.GetRequiredService<IDevOpsIntegrationStore>();
@@ -191,6 +207,7 @@ public sealed class ManagementAuthApiTests
                 GitHubAppClientSecretReference = "client-secret",
                 WebhookSecret = "webhook-secret",
                 WebhookUrl = "https://formicae.example/api/webhooks/github",
+                IdentityProviderEnabled = identityProviderEnabled,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
             }, CancellationToken.None);

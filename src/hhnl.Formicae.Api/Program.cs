@@ -92,11 +92,14 @@ app.UseAuthorization();
 app.MapGet("/api/auth/current-user", async (
     ClaimsPrincipal principal,
     ManagementUserService users,
-    UserManager<FormicaeUser> userManager) =>
+    UserManager<FormicaeUser> userManager,
+    IDevOpsIntegrationStore integrations,
+    CancellationToken cancellationToken) =>
 {
+    var authRequired = await integrations.AnyIdentityProviderEnabledAsync(cancellationToken);
     if (principal.Identity?.IsAuthenticated != true)
     {
-        return Results.Ok(new { authenticated = false, authorized = false });
+        return Results.Ok(new { authenticated = false, authorized = false, authRequired });
     }
 
     var user = await users.GetCurrentUserAsync(principal);
@@ -105,12 +108,12 @@ app.MapGet("/api/auth/current-user", async (
     {
         authenticated = true,
         authorized = await users.IsAuthorizedAsync(principal),
+        authRequired,
         name = user?.DisplayName ?? principal.Identity.Name,
         email = user?.Email,
         provider = logins.FirstOrDefault()?.LoginProvider
     });
 });
-
 app.MapPost("/api/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(IdentityConstants.ApplicationScheme);
