@@ -62,7 +62,7 @@ type AiSettingsFormState = {
   endpointUrl: string;
 };
 
-type Page = "workflows" | "integrations" | "repositories" | "settings";
+type Page = "workflows" | "integrations" | "repositories" | "users" | "settings";
 
 type GitHubIntegrationFormState = {
   displayName: string;
@@ -144,10 +144,15 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser>();
   const [authError, setAuthError] = useState<string>();
   const [inviteCode, setInviteCode] = useState<string>();
+  const [inviteLink, setInviteLink] = useState<string>();
   const [redeemCode, setRedeemCode] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
 
+  const processedInvite = useRef<string | undefined>(undefined);
+  const processedIdentityActivation = useRef<string | undefined>(undefined);
+
   const canMutate = !currentUser?.authenticated || currentUser.authorized;
+  const inviteLocked = currentUser?.authenticated === true && !currentUser.authorized;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -166,6 +171,12 @@ export default function App() {
   useEffect(() => {
     void refreshCurrentUser();
   }, [refreshCurrentUser]);
+
+  useEffect(() => {
+    if (currentUser?.authenticated && !currentUser.authorized) {
+      setActivePage("users");
+    }
+  }, [currentUser]);
 
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
@@ -193,17 +204,39 @@ export default function App() {
     const integrationId = params.get("integrationId");
     const installationId = params.get("installationId");
     const setupAction = params.get("setupAction");
-    if (page === "repositories") {
+    const invite = params.get("invite");
+    const inviteRedeemed = params.get("inviteRedeemed");
+    const inviteError = params.get("inviteError");
+
+    if (page === "repositories" || page === "integrations" || page === "users" || page === "settings" || page === "workflows") {
+      setActivePage(page);
+    }
+
+    if (integrationId) {
+      setSelectedIntegrationId(integrationId);
+    }
+
+    if (installationId) {
       setActivePage("repositories");
-      if (integrationId) {
-        setSelectedIntegrationId(integrationId);
-      }
-      if (installationId) {
-        setRepositorySaved(`GitHub App ${setupAction ?? "installation"} completed for installation ${installationId}.`);
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
+      setRepositorySaved(`GitHub App ${setupAction ?? "installation"} completed for installation ${installationId}.`);
+    }
+
+    if (invite) {
+      setActivePage("users");
+      setRedeemCode(invite);
+    }
+
+    if (inviteRedeemed === "true") {
+      setActivePage("users");
+      setAuthError(undefined);
+    }
+
+    if (inviteError) {
+      setActivePage("users");
+      setAuthError(inviteError);
     }
   }, []);
+
 
 
   useEffect(() => {
@@ -289,6 +322,63 @@ export default function App() {
       void refreshAvailableRepositories();
     }
   }, [activePage, refreshAvailableRepositories, refreshIntegrations]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
+    if (!invite || processedInvite.current === invite || !currentUser.authenticated || currentUser.authorized) {
+      return;
+    }
+
+    processedInvite.current = invite;
+    setAuthBusy(true);
+    setAuthError(undefined);
+    redeemInvite(invite)
+      .then(async () => {
+        setRedeemCode("");
+        await refreshCurrentUser();
+        replaceUrlParams({ page: "users", inviteRedeemed: "true" });
+      })
+      .catch(error => {
+        setAuthError(error instanceof Error ? error.message : "Could not redeem invite.");
+        replaceUrlParams({ page: "users", inviteError: error instanceof Error ? error.message : "Could not redeem invite." });
+      })
+      .finally(() => setAuthBusy(false));
+  }, [currentUser, refreshCurrentUser]);
+
+  useEffect(() => {
+    if (!currentUser?.authenticated) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const integrationId = params.get("enableIdentityProviderId");
+    if (!integrationId || processedIdentityActivation.current === integrationId) {
+      return;
+    }
+
+    processedIdentityActivation.current = integrationId;
+    setActivePage("integrations");
+    setSelectedIntegrationId(integrationId);
+    setIntegrationError(undefined);
+    setIntegrationSaved(undefined);
+    setIdentityProviderEnabled(integrationId, true)
+      .then(async integration => {
+        setIntegrationDetail(integration);
+        setIntegrationSaved("Identity provider enabled and current user authorized.");
+        await refreshCurrentUser();
+        await refreshIntegrations();
+        replaceUrlParams({ page: "integrations", integrationId });
+      })
+      .catch(error => {
+        setIntegrationError(error instanceof Error ? error.message : "Could not enable identity provider.");
+        replaceUrlParams({ page: "integrations", integrationId });
+      });
+  }, [currentUser?.authenticated, refreshCurrentUser, refreshIntegrations]);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -595,8 +685,8 @@ export default function App() {
     if (!selectedIntegrationId) {
       return;
     }
-    if (enabled && currentUser?.authenticated === false) {
-      handleLogin();
+    if (enabled && !currentUser?.authenticated) {
+      handleLogin(buildReturnUrl({ page: "integrations", integrationId: selectedIntegrationId, enableIdentityProviderId: selectedIntegrationId }));
       return;
     }
 
@@ -630,8 +720,9 @@ export default function App() {
     }
   }
 
-  function handleLogin() {
-    window.location.href = `/api/auth/github/challenge?returnUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  function handleLogin(returnUrl?: string) {
+    const target = returnUrl ?? buildReturnUrl({ page: activePage, invite: redeemCode.trim() || undefined });
+    window.location.href = `/api/auth/github/challenge?returnUrl=${encodeURIComponent(target)}`;
   }
 
   async function handleLogout() {
@@ -641,6 +732,7 @@ export default function App() {
       await logout();
       setCurrentUser({ authenticated: false, authorized: false });
       setInviteCode(undefined);
+      setInviteLink(undefined);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not log out.");
     } finally {
@@ -654,6 +746,7 @@ export default function App() {
     try {
       const invite = await createInvite();
       setInviteCode(invite.code ?? undefined);
+      setInviteLink(invite.code ? buildAbsoluteInviteLink(invite.code) : undefined);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not create invite.");
     } finally {
@@ -672,6 +765,7 @@ export default function App() {
     try {
       await redeemInvite(redeemCode.trim());
       setRedeemCode("");
+      replaceUrlParams({ page: "users", inviteRedeemed: "true" });
       await refreshCurrentUser();
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not redeem invite.");
@@ -685,67 +779,86 @@ export default function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Formicae</p>
-          <h1>{activePage === "workflows" ? "Workflow Management" : activePage === "integrations" ? "Integrations" : activePage === "repositories" ? "Repositories" : "Settings"}</h1>
+          <h1>{pageTitle(inviteLocked ? "users" : activePage)}</h1>
         </div>
         <div className="topbar-actions">
-          <AuthControls
+          <AccountStatus
             currentUser={currentUser}
-            authError={authError}
-            inviteCode={inviteCode}
-            redeemCode={redeemCode}
             busy={authBusy}
-            setRedeemCode={setRedeemCode}
-            onLogin={handleLogin}
+            onLogin={() => handleLogin()}
             onLogout={handleLogout}
-            onCreateInvite={handleCreateInvite}
-            onRedeemInvite={handleRedeemInvite}
           />
           <nav className="app-menu" aria-label="Primary navigation">
             <button
               type="button"
-              className={`menu-button${activePage === "workflows" ? " active" : ""}`}
-              onClick={() => setActivePage("workflows")}
+              className={`menu-button${!inviteLocked && activePage === "workflows" ? " active" : ""}`}
+              onClick={() => setActivePage("workflows")} disabled={inviteLocked}
             >
               Workflows
             </button>
             <button
               type="button"
-              className={`menu-button${activePage === "integrations" ? " active" : ""}`}
-              onClick={() => setActivePage("integrations")}
+              className={`menu-button${!inviteLocked && activePage === "integrations" ? " active" : ""}`}
+              onClick={() => setActivePage("integrations")} disabled={inviteLocked}
             >
               Integrations
             </button>
             <button
               type="button"
-              className={`menu-button${activePage === "repositories" ? " active" : ""}`}
-              onClick={() => setActivePage("repositories")}
+              className={`menu-button${!inviteLocked && activePage === "repositories" ? " active" : ""}`}
+              onClick={() => setActivePage("repositories")} disabled={inviteLocked}
             >
               Repositories
             </button>
             <button
               type="button"
-              className={`menu-button${activePage === "settings" ? " active" : ""}`}
-              onClick={() => setActivePage("settings")}
+              className={`menu-button${inviteLocked || activePage === "users" ? " active" : ""}`}
+              onClick={() => setActivePage("users")}
+            >
+              Users
+            </button>
+            <button
+              type="button"
+              className={`menu-button${!inviteLocked && activePage === "settings" ? " active" : ""}`}
+              onClick={() => setActivePage("settings")} disabled={inviteLocked}
             >
               Settings
             </button>
           </nav>
-          {activePage === "workflows" ? (
+          {activePage === "workflows" && !inviteLocked ? (
             <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
               {loadingWorkflows ? "Refreshing" : "Refresh"}
             </button>
-          ) : activePage === "integrations" ? (
+          ) : activePage === "integrations" && !inviteLocked ? (
             <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
               {loadingIntegrations ? "Refreshing" : "Refresh"}
             </button>
-          ) : activePage === "repositories" ? (
+          ) : activePage === "repositories" && !inviteLocked ? (
             <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
               {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
+            </button>
+          ) : activePage === "users" || inviteLocked ? (
+            <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
+              Refresh
             </button>
           ) : null}
         </div>
       </header>
-      {activePage === "workflows" ? (
+      {inviteLocked ? (
+        <UsersPage
+          currentUser={currentUser}
+          authError={authError}
+          inviteCode={inviteCode}
+          inviteLink={inviteLink}
+          redeemCode={redeemCode}
+          busy={authBusy}
+          setRedeemCode={setRedeemCode}
+          onLogin={() => handleLogin()}
+          onLogout={handleLogout}
+          onCreateInvite={handleCreateInvite}
+          onRedeemInvite={handleRedeemInvite}
+        />
+      ) : activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -989,7 +1102,7 @@ export default function App() {
         )}
       </section>
         </>
-      ) : activePage === "integrations" ? (
+      ) : !inviteLocked && activePage === "integrations" ? (
         <IntegrationsPage
           integrations={integrations}
           integrationDetail={integrationDetail}
@@ -1009,7 +1122,7 @@ export default function App() {
           onIdentityRestart={handleIdentityRestart}
           canMutate={canMutate}
         />
-      ) : activePage === "repositories" ? (
+      ) : !inviteLocked && activePage === "repositories" ? (
         <RepositoriesPage
           integrations={integrations}
           integrationDetail={integrationDetail}
@@ -1030,6 +1143,20 @@ export default function App() {
           onRemoveRepository={handleRemoveRepository}
           canMutate={canMutate}
         />
+      ) : (inviteLocked || activePage === "users") ? (
+        <UsersPage
+          currentUser={currentUser}
+          authError={authError}
+          inviteCode={inviteCode}
+          inviteLink={inviteLink}
+          redeemCode={redeemCode}
+          busy={authBusy}
+          setRedeemCode={setRedeemCode}
+          onLogin={() => handleLogin()}
+          onLogout={handleLogout}
+          onCreateInvite={handleCreateInvite}
+          onRedeemInvite={handleRedeemInvite}
+        />
       ) : (
         <SettingsPage
           aiSettings={aiSettings}
@@ -1047,10 +1174,37 @@ export default function App() {
   );
 }
 
-function AuthControls({
+function AccountStatus({
+  currentUser,
+  busy,
+  onLogin,
+  onLogout
+}: {
+  currentUser?: CurrentUser;
+  busy: boolean;
+  onLogin: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="account-status">
+      {currentUser?.authenticated ? (
+        <>
+          <span className="auth-user">{currentUser.name ?? currentUser.email ?? currentUser.provider ?? "Signed in"}</span>
+          <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} />
+          <button type="button" className="secondary-button compact-button" onClick={onLogout} disabled={busy}>Logout</button>
+        </>
+      ) : (
+        <button type="button" className="secondary-button compact-button" onClick={onLogin} disabled={busy}>Login</button>
+      )}
+    </div>
+  );
+}
+
+function UsersPage({
   currentUser,
   authError,
   inviteCode,
+  inviteLink,
   redeemCode,
   busy,
   setRedeemCode,
@@ -1062,6 +1216,7 @@ function AuthControls({
   currentUser?: CurrentUser;
   authError?: string;
   inviteCode?: string;
+  inviteLink?: string;
   redeemCode: string;
   busy: boolean;
   setRedeemCode: Dispatch<SetStateAction<string>>;
@@ -1070,36 +1225,90 @@ function AuthControls({
   onCreateInvite: () => void;
   onRedeemInvite: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  if (currentUser?.authenticated && !currentUser.authorized) {
+    return (
+      <section className="users-page locked-users-page">
+        <section className="panel users-panel">
+          <div className="panel-heading">
+            <h2>Invite Required</h2>
+            <StatusBadge value="InviteRequired" />
+          </div>
+          <p className="muted">Your GitHub login is valid, but this Formicae installation only allows verified users. Ask an existing verified user to create an invite link for you, then open it or paste the invite code here.</p>
+          <form onSubmit={onRedeemInvite} className="invite-form">
+            <label>
+              <span>Invite Code</span>
+              <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Paste invite code" autoFocus />
+            </label>
+            <button type="submit" className="primary-button" disabled={busy || !redeemCode.trim()}>{busy ? "Redeeming" : "Redeem Invite"}</button>
+          </form>
+          {authError ? <p className="error-text">{authError}</p> : null}
+          <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
+        </section>
+      </section>
+    );
+  }
+
   return (
-    <div className="auth-controls">
-      <div className="auth-line">
-        {currentUser?.authenticated ? (
-          <>
-            <span className="auth-user">{currentUser.name ?? currentUser.email ?? currentUser.provider ?? "Signed in"}</span>
-            <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} />
-            <button type="button" className="secondary-button compact-button" onClick={onLogout} disabled={busy}>Logout</button>
-          </>
-        ) : (
-          <button type="button" className="secondary-button compact-button" onClick={onLogin} disabled={busy}>Login</button>
-        )}
-      </div>
-      {currentUser?.authorized ? (
-        <div className="auth-line">
-          <button type="button" className="secondary-button compact-button" onClick={onCreateInvite} disabled={busy}>Create Invite</button>
-          {inviteCode ? <code className="invite-code">{inviteCode}</code> : null}
-        </div>
-      ) : null}
-      {currentUser?.authenticated && !currentUser.authorized ? (
-        <form className="auth-line" onSubmit={onRedeemInvite}>
-          <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Invite code" />
-          <button type="submit" className="secondary-button compact-button" disabled={busy || !redeemCode.trim()}>Redeem</button>
-        </form>
-      ) : null}
-      {authError ? <span className="error-text auth-error">{authError}</span> : null}
-    </div>
+    <section className="users-page">
+      <section className="workspace-grid">
+        <section className="panel users-panel">
+          <div className="panel-heading">
+            <h2>Current User</h2>
+            {currentUser?.authenticated ? <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} /> : <StatusBadge value="Anonymous" />}
+          </div>
+          <div className="summary-list compact">
+            <SummaryItem label="Status" value={currentUser?.authenticated ? "Signed in" : "Not signed in"} />
+            <SummaryItem label="Name" value={currentUser?.name ?? "None"} />
+            <SummaryItem label="Email" value={currentUser?.email ?? "None"} />
+            <SummaryItem label="Provider" value={currentUser?.provider ?? "None"} />
+          </div>
+          <div className="button-row">
+            {currentUser?.authenticated ? (
+              <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
+            ) : (
+              <button type="button" className="primary-button user-action-button" onClick={onLogin} disabled={busy}>Login with GitHub</button>
+            )}
+          </div>
+          {authError ? <p className="error-text">{authError}</p> : null}
+        </section>
+
+        <section className="panel users-panel">
+          <div className="panel-heading">
+            <h2>Invite Links</h2>
+          </div>
+          {currentUser?.authorized ? (
+            <>
+              <p className="muted">Create an invite link for another GitHub user. The link signs them in first and applies the invite automatically after the login callback.</p>
+              <button type="button" className="primary-button user-action-button" onClick={onCreateInvite} disabled={busy}>{busy ? "Creating" : "Create Invite Link"}</button>
+              {inviteLink ? (
+                <div className="invite-result">
+                  <label>
+                    <span>Invite Link</span>
+                    <input value={inviteLink} readOnly onFocus={event => event.currentTarget.select()} />
+                  </label>
+                  {inviteCode ? <code className="invite-code">{inviteCode}</code> : null}
+                </div>
+              ) : null}
+            </>
+          ) : currentUser?.authenticated ? (
+            <p className="muted">Verified users can create invite links. Redeem an invite to become verified.</p>
+          ) : (
+            <>
+              <p className="muted">If you have an invite code, enter it before logging in. Formicae will apply it automatically after GitHub returns you to the app.</p>
+              <form onSubmit={event => { event.preventDefault(); onLogin(); }} className="invite-form">
+                <label>
+                  <span>Invite Code</span>
+                  <input value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="Optional invite code" />
+                </label>
+                <button type="submit" className="primary-button" disabled={busy}>Login with GitHub</button>
+              </form>
+            </>
+          )}
+        </section>
+      </section>
+    </section>
   );
 }
-
 function IntegrationsPage({
   integrations,
   integrationDetail,
@@ -1553,6 +1762,40 @@ function SettingsPage({
       </section>
     </section>
   );
+}
+function pageTitle(page: Page) {
+  switch (page) {
+    case "workflows":
+      return "Workflow Management";
+    case "integrations":
+      return "Integrations";
+    case "repositories":
+      return "Repositories";
+    case "users":
+      return "Users";
+    case "settings":
+      return "Settings";
+  }
+}
+
+function buildReturnUrl(values: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
+}
+
+function buildAbsoluteInviteLink(code: string) {
+  return `${window.location.origin}${buildReturnUrl({ page: "users", invite: code })}`;
+}
+
+function replaceUrlParams(values: Record<string, string | undefined>) {
+  window.history.replaceState({}, document.title, buildReturnUrl(values));
 }
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {

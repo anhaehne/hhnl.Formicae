@@ -62,6 +62,19 @@ public sealed class ManagementAuthApiTests
     }
 
     [Fact]
+    public async Task EnablingIdentityProvider_RequiresAuthenticatedUser_AndDoesNotActivate()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: false);
+        var integration = await factory.CreateGitHubIntegrationAsync();
+        var client = factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync($"/api/integrations/{integration.Id}/identity-provider", new { enabled = true });
+        var stored = await factory.GetIntegrationAsync(integration.Id);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.False(stored!.IdentityProviderEnabled);
+    }
+    [Fact]
     public async Task EnablingIdentityProvider_GrantsCurrentUserAuthorization()
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
@@ -183,6 +196,12 @@ public sealed class ManagementAuthApiTests
             }, CancellationToken.None);
         }
 
+        public async Task<DevOpsIntegration?> GetIntegrationAsync(Guid integrationId)
+        {
+            using var scope = Services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<IDevOpsIntegrationStore>();
+            return await store.GetAsync(integrationId, CancellationToken.None);
+        }
         public async Task<bool> IsAuthorizedAsync(FormicaeUser user)
         {
             using var scope = Services.CreateScope();

@@ -56,13 +56,18 @@ public sealed class InviteService(
 
     public async Task RedeemInviteAsync(ClaimsPrincipal currentPrincipal, string code, CancellationToken cancellationToken)
     {
+        var currentUser = await users.GetCurrentUserAsync(currentPrincipal)
+            ?? throw new UnauthorizedAccessException("Authenticated user is required.");
+
+        await RedeemInviteAsync(currentUser, code, cancellationToken);
+    }
+
+    public async Task RedeemInviteAsync(FormicaeUser currentUser, string code, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(code))
         {
             throw new ArgumentException("Invite code is required.", nameof(code));
         }
-
-        var currentUser = await users.GetCurrentUserAsync(currentPrincipal)
-            ?? throw new UnauthorizedAccessException("Authenticated user is required.");
 
         var codeHash = HashCode(code.Trim());
         var invite = await dbContext.InviteCodes

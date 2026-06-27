@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.WebUtilities;
 using Octokit;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -173,6 +174,7 @@ app.MapGet("/api/auth/github/callback", async (
     HttpContext context,
     DevOpsIntegrationService integrations,
     ManagementUserService managementUsers,
+    InviteService invites,
     SignInManager<FormicaeUser> signInManager,
     CancellationToken cancellationToken) =>
 {
@@ -228,7 +230,7 @@ app.MapGet("/api/auth/github/callback", async (
     ]);
     await signInManager.SignInAsync(user, properties);
 
-    return Results.Redirect(parts[2]);
+    return Results.Redirect(await ApplyInviteFromReturnUrlAsync(parts[2], user, invites, cancellationToken));
 });
 
 app.MapGet("/api/auth/external-callback", () => Results.Redirect("/"));
@@ -531,26 +533,23 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
 {
     try
     {
-        if (authOptions.Value.Enabled
+        if (request.Enabled)
+        {
+            var currentUser = await managementUsers.GetCurrentUserAsync(user);
+            if (currentUser is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            await managementUsers.GrantAuthorizedUserAsync(currentUser, cancellationToken);
+        }
+        else if (authOptions.Value.Enabled
             && !(authOptions.Value.BypassForLocalDevelopment && environment.IsDevelopment()))
         {
-            if (request.Enabled)
+            var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.PolicyName);
+            if (!authResult.Succeeded)
             {
-                var currentUser = await managementUsers.GetCurrentUserAsync(user);
-                if (currentUser is null)
-                {
-                    return Results.Unauthorized();
-                }
-
-                await managementUsers.GrantAuthorizedUserAsync(currentUser, cancellationToken);
-            }
-            else
-            {
-                var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.PolicyName);
-                if (!authResult.Succeeded)
-                {
-                    return user.Identity?.IsAuthenticated == true ? Results.Forbid() : Results.Unauthorized();
-                }
+                return user.Identity?.IsAuthenticated == true ? Results.Forbid() : Results.Unauthorized();
             }
         }
 
@@ -694,6 +693,60 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
+static async Task<string> ApplyInviteFromReturnUrlAsync(
+    string returnUrl,
+    FormicaeUser user,
+    InviteService invites,
+    CancellationToken cancellationToken)
+{
+    var inviteCode = GetReturnUrlQueryValue(returnUrl, "invite");
+    if (string.IsNullOrWhiteSpace(inviteCode))
+    {
+        return returnUrl;
+    }
+
+    try
+    {
+        await invites.RedeemInviteAsync(user, inviteCode, cancellationToken);
+        return BuildReturnUrlWithoutInvite(returnUrl, "inviteRedeemed", "true");
+    }
+    catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+    {
+        return BuildReturnUrlWithoutInvite(returnUrl, "inviteError", exception.Message);
+    }
+}
+
+static string? GetReturnUrlQueryValue(string returnUrl, string key)
+{
+    var queryStart = returnUrl.IndexOf('?', StringComparison.Ordinal);
+    if (queryStart < 0)
+    {
+        return null;
+    }
+
+    var query = returnUrl[queryStart..];
+    return QueryHelpers.ParseQuery(query).TryGetValue(key, out var value) ? value.FirstOrDefault() : null;
+}
+
+static string BuildReturnUrlWithoutInvite(string returnUrl, string statusKey, string statusValue)
+{
+    if (string.IsNullOrWhiteSpace(returnUrl) || returnUrl[0] != '/')
+    {
+        return "/";
+    }
+
+    var queryStart = returnUrl.IndexOf('?', StringComparison.Ordinal);
+    var path = queryStart < 0 ? returnUrl : returnUrl[..queryStart];
+    var query = queryStart < 0 ? string.Empty : returnUrl[queryStart..];
+    var values = QueryHelpers.ParseQuery(query)
+        .Where(pair => !string.Equals(pair.Key, "invite", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(pair.Key, "inviteRedeemed", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(pair.Key, "inviteError", StringComparison.OrdinalIgnoreCase))
+        .SelectMany(pair => pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)))
+        .Append(new KeyValuePair<string, string?>(statusKey, statusValue));
+
+    return path + QueryString.Create(values);
+}
 static async Task<IResult> RedirectToGitHubInstallationResultAsync(
     string? state,
     long? installationId,

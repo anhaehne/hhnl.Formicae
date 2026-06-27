@@ -56,24 +56,12 @@ a:hover {
   justify-content: flex-end;
 }
 
-.auth-controls {
-  align-items: flex-end;
-  display: grid;
-  gap: 6px;
-  justify-items: end;
-}
-
-.auth-line {
+.account-status {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
-}
-
-.auth-line input {
-  min-height: 32px;
-  width: min(220px, 44vw);
 }
 
 .auth-user {
@@ -357,6 +345,37 @@ tbody tr:hover {
   max-width: 960px;
 }
 
+.users-page {
+  margin: 0 auto;
+  max-width: 1440px;
+}
+
+.locked-users-page {
+  max-width: 640px;
+}
+
+.users-panel {
+  align-self: start;
+}
+
+.user-action-button {
+  max-width: 240px;
+}
+
+.invite-form {
+  display: grid;
+  gap: 12px;
+}
+
+.invite-form .primary-button {
+  max-width: 260px;
+}
+
+.invite-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
 .integrations-page,
 .repositories-page {
   margin: 0 auto;
