@@ -20,7 +20,6 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<UpsertPullRequestCommentCall> UpsertPullRequestCommentCalls { get; } = [];
     public List<ReactToPullRequestCommentCall> ReactToPullRequestCommentCalls { get; } = [];
 
-    public string DefaultBranchName { get; set; } = "formicae/mock-branch";
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
     public PullRequestStatus DefaultPullRequestStatus { get; set; } = new(true, false);
     public Exception? ReactToIssueException { get; set; }
@@ -129,10 +128,10 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.CompletedTask;
     }
 
-    public Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
+    public Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken)
     {
-        CreateBranchCalls.Add(new CreateBranchCall(repositoryUrl, baseBranch, issueUrl, workflowId));
-        return Task.FromResult(DefaultBranchName);
+        CreateBranchCalls.Add(new CreateBranchCall(request));
+        return Task.FromResult(request.BranchName);
     }
 
     public Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)
@@ -187,7 +186,7 @@ public sealed record AddIssueCommentCall(string IssueUrl, string Body);
 
 public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
 
-public sealed record CreateBranchCall(string RepositoryUrl, string BaseBranch, string IssueUrl, Guid WorkflowId);
+public sealed record CreateBranchCall(CreateBranchRequest Request);
 
 public sealed record CreatePullRequestCall(
     Guid WorkflowId,

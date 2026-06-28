@@ -28,7 +28,7 @@ public interface IWorkItemProvider
 
 public interface ISourceControlProvider
 {
-    Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken);
+    Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken);
 
     Task<PullRequestResult> CreatePullRequestAsync(
         Workflow workflow,
@@ -54,6 +54,12 @@ public interface ISourceControlProvider
         string reaction,
         CancellationToken cancellationToken);
 }
+
+public sealed record CreateBranchRequest(
+    string RepositoryUrl,
+    string BaseBranch,
+    string BranchName,
+    string LinkedWorkItemUrl);
 
 public interface IAgentRunner
 {

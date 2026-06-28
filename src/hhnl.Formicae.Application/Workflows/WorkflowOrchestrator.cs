@@ -100,7 +100,7 @@ public sealed class WorkflowOrchestrator(
 
         if (existing?.Status == TaskRunStatus.Running)
         {
-            var previousPlanOutput = existing.Output;
+            var runningPlanIsRevision = IsPlanRevision(workflow.PlanArtifact);
             var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
             if (result is null)
             {
@@ -116,7 +116,7 @@ public sealed class WorkflowOrchestrator(
                 return true;
             }
 
-            await CompleteSuccessfulPlanningAsync(workflow, result, IsPlanRevision(previousPlanOutput), cancellationToken);
+            await CompleteSuccessfulPlanningAsync(workflow, result, runningPlanIsRevision, cancellationToken);
             return true;
         }
 
@@ -125,7 +125,19 @@ public sealed class WorkflowOrchestrator(
         var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
         var previousOutput = forceRefresh ? run.Output : null;
-        workflow.PlanArtifact = previousOutput ?? workflow.PlanArtifact;
+        var shouldPersistPreviousPlan = string.IsNullOrWhiteSpace(workflow.PlanArtifact)
+            && !string.IsNullOrWhiteSpace(previousOutput);
+        if (!string.IsNullOrWhiteSpace(previousOutput))
+        {
+            workflow.PlanArtifact = previousOutput;
+        }
+
+        if (shouldPersistPreviousPlan)
+        {
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        }
+
+        var isRevision = IsPlanRevision(workflow.PlanArtifact);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Plan, workflow, issue, cancellationToken);
         var branch = workflow.BranchName ?? $"formicae/{workflow.Id:N}";
 
@@ -150,7 +162,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        await CompleteSuccessfulPlanningAsync(workflow, start.CompletedResult, IsPlanRevision(previousOutput), cancellationToken);
+        await CompleteSuccessfulPlanningAsync(workflow, start.CompletedResult, isRevision, cancellationToken);
         return true;
     }
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
@@ -237,7 +249,17 @@ public sealed class WorkflowOrchestrator(
         }
 
         await TryReactToIssueAsync(workflow, cancellationToken);
-        workflow.BranchName ??= await sourceControl.CreateBranchAsync(workflow.RepositoryUrl, workflow.BaseBranch, workflow.IssueUrl, workflow.Id, cancellationToken);
+        if (workflow.BranchName is null)
+        {
+            workflow.BranchName = await sourceControl.CreateBranchAsync(
+                new CreateBranchRequest(
+                    workflow.RepositoryUrl,
+                    workflow.BaseBranch,
+                    $"formicae/{workflow.Id:N}",
+                    workflow.IssueUrl),
+                cancellationToken);
+        }
+
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
 

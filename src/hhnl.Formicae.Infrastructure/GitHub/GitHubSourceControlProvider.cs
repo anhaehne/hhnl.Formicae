@@ -30,19 +30,18 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
         this.createApi = createApi;
     }
 
-    public async Task<string> CreateBranchAsync(string repositoryUrl, string baseBranch, string issueUrl, Guid workflowId, CancellationToken cancellationToken)
+    public async Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken)
     {
-        var repository = GitHubRepositoryReference.Parse(repositoryUrl);
-        var issue = GitHubIssueReference.Parse(issueUrl);
+        var repository = GitHubRepositoryReference.Parse(request.RepositoryUrl);
+        var issue = GitHubIssueReference.Parse(request.LinkedWorkItemUrl);
         if (!string.Equals(repository.Owner, issue.Owner, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(repository.Repository, issue.Repository, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException("Issue URL must belong to the workflow repository.", nameof(issueUrl));
+            throw new ArgumentException("Linked work item URL must belong to the workflow repository.", nameof(request));
         }
 
-        var api = await createApi(repositoryUrl, cancellationToken);
-        var branchName = $"formicae/{workflowId:N}";
-        var baseRef = await api.GetReferenceAsync(repository.Owner, repository.Repository, $"heads/{baseBranch}");
+        var api = await createApi(request.RepositoryUrl, cancellationToken);
+        var baseRef = await api.GetReferenceAsync(repository.Owner, repository.Repository, $"heads/{request.BaseBranch}");
 
         try
         {
@@ -51,28 +50,28 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
                 repository.Repository,
                 issue.Number,
                 baseRef.Object.Sha,
-                branchName,
+                request.BranchName,
                 cancellationToken);
         }
         catch (ApiException exception) when (IsAlreadyExists(exception))
         {
-            return branchName;
+            return request.BranchName;
         }
         catch (InvalidOperationException exception) when (exception.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
         {
-            return branchName;
+            return request.BranchName;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             try
             {
-                await api.CreateReferenceAsync(repository.Owner, repository.Repository, branchName, baseRef.Object.Sha);
+                await api.CreateReferenceAsync(repository.Owner, repository.Repository, request.BranchName, baseRef.Object.Sha);
             }
             catch (ApiException createReferenceException) when (IsAlreadyExists(createReferenceException))
             {
             }
 
-            return branchName;
+            return request.BranchName;
         }
     }
 
