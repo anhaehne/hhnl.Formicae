@@ -22,6 +22,7 @@ Configurable workflows should first model this exact flow as the built-in defaul
 - Make every workflow run reproducible by persisting the selected workflow definition version and resolved integration element versions.
 - Allow internal and third-party integrations to contribute tasks, triggers, environments, capabilities, MCP servers, container images, and tool installers through explicit schemas.
 - Leave a safe path for future chat-based natural-language authoring without executing unreviewed generated changes.
+- Provide stable APIs and event streams for a future UI workflow editor that can edit definitions, monitor runs, and debug step behavior.
 
 ## Non-Goals
 
@@ -157,6 +158,20 @@ Examples:
 - "Create a reusable task that updates Helm chart docs after deployment files change" produces a draft `TaskDefinition` with inputs, outputs, required repo-write capability, and prompt template.
 - "Add a trigger for GitHub issue label `security-review`" produces a draft `TriggerDefinition` with event schema, label filter, and required issue-read permission.
 - "Run documentation checks in parallel with implementation" produces a workflow diff that adds a bounded parallel group and updates aggregation semantics.
+
+## Workflow Editor, Monitoring, and Debugging
+
+A future UI workflow editor should be a client of the same validated definition and runtime APIs as chat authoring. It should not have a privileged path that bypasses schema validation, reference checks, permission checks, or version approval.
+
+Editing should operate on drafts. The UI may present a graph editor, form editor, or YAML/JSON editor, but all modes should produce the same canonical `WorkflowDefinitionVersion` snapshot before approval. Draft saves can use optimistic concurrency, and collaborative editing may later use CRDT-backed draft documents, but enabled versions remain immutable reviewed snapshots. Publishing from the editor follows the same flow as natural-language authoring: validate, show a diff against the current enabled version, require approval for added capabilities, triggers, environments, MCP servers, images, tools, and secrets, then save a new version.
+
+The editor should discover available tasks, triggers, environments, personas, capabilities, secret reference types, MCP server definitions, tool installers, and container images from the immutable integration registry snapshot. UI controls should be generated from contributed element schemas where possible, but the Application validator remains authoritative. Unknown or unavailable element versions should render as invalid references in drafts and as historical read-only references for retained runs.
+
+Monitoring should read `WorkflowRun`, `StepRun`, and `WorkflowRunEvent` projections rather than deriving state from UI-local graph logic. The UI can render the selected definition graph with runtime overlays for queued, running, succeeded, failed, canceled, retried, and skipped steps. Because each run stores its definition version and registry snapshot, the UI can display historical runs against the exact workflow shape that executed even after later versions are published.
+
+Debugging should expose sanitized step inputs, output summaries, validation errors, retry decisions, external worker ids, timestamps, failure categories, and links to permitted logs or artifacts. Secret values must never be shown, and prompts, logs, events, and outputs shown in the UI must use the same redaction policy as API responses and audit storage. Retry, cancel, rerun-from-step, or approve-version actions should be explicit management commands with permission checks and audit events.
+
+The first UI slice should stay read-only for configurable workflows: list definitions and versions, show the built-in MVP workflow graph, display run progress on that graph, and inspect validation/audit events. Editing, collaborative drafts, chat-generated patches, and step-level debugging commands should come only after validation, versioning, event projections, and permission boundaries are reliable.
 
 ## DSL Examples
 
@@ -436,10 +451,14 @@ flowchart TD
     ElementValidation --> RegistrySnapshot
 
     Chat[Future Formicae chat authoring] --> DraftDefinition[Draft definition or element patch]
+    UI[Future workflow editor] --> DraftDefinition
     DraftDefinition --> DefinitionValidation
     DefinitionValidation --> ReviewDiff[User reviews diff]
     ReviewDiff --> ApprovedVersion[Approved WorkflowDefinitionVersion]
     ApprovedVersion --> DefinitionResolution
+
+    Events --> UI
+    RunCreation --> UI
 ```
 
 ## Migration Strategy
@@ -452,7 +471,8 @@ flowchart TD
 6. Add validation-only APIs for draft definitions.
 7. Add runtime interpretation for a narrow sequential subset.
 8. Add decisions, bounded loops, parallel groups, and script steps incrementally.
-9. Add editing UI and natural-language authoring only after validation, versioning, and review flows are reliable.
+9. Add read-only configurable workflow UI views for definitions, versions, run graphs, and audit events.
+10. Add editing UI and natural-language authoring only after validation, versioning, event projections, permissions, and review flows are reliable.
 
 Deferred work includes database migrations, full runtime implementation, authoring UI, chat integration, third-party package signing, and custom executable validators.
 
@@ -464,6 +484,8 @@ The document now requires provider allowlisting, signatures, provenance, content
 
 Pull request review also requested evaluating CRDTs for workflow definitions and runtime state. The document now treats CRDTs as a possible collaborative draft-authoring mechanism, but keeps enabled workflow versions immutable and runtime state append-only until deterministic merge semantics are proven.
 
+Pull request review requested planning for a future UI workflow editor used for editing, monitoring, and debugging. The document now defines the editor as a client of the same validation, versioning, registry, event, permission, and redaction boundaries as the API and chat authoring path, with read-only graph and audit views as the first UI slice.
+
 ## Open Decisions
 
 - Exact DSL schema and expression language.
@@ -472,5 +494,7 @@ Pull request review also requested evaluating CRDTs for workflow definitions and
 - How integration metadata packages are signed and distributed.
 - Whether custom validators are metadata-only, WebAssembly, worker-executed containers, or not supported.
 - How much of the workflow graph should be editable in the first UI slice.
+- Which UI debugging commands are allowed beyond read-only inspection, such as retry, cancel, rerun-from-step, or approve-version.
+- Which event projections and graph layout metadata are stored server-side versus derived by the UI.
 - Retention period for old integration element versions required by historical runs.
 - Whether CRDTs are useful enough for collaborative draft authoring to justify the extra storage, validation, and merge-audit complexity.
