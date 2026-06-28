@@ -1,0 +1,128 @@
+name: Deploy Formicae
+
+on:
+  workflow_run:
+    workflows:
+      - Build container images
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-formicae
+  cancel-in-progress: false
+
+env:
+  CHART_DIR: deploy/helm/formicae
+  REGISTRY: docker.io
+  DOCKERHUB_NAMESPACE: limeray
+  RELEASE_NAME: ${{ vars.FORMICAE_HELM_RELEASE || 'formicae' }}
+  RELEASE_NAMESPACE: ${{ vars.FORMICAE_HELM_NAMESPACE || 'formicae' }}
+
+jobs:
+  deploy:
+    name: Upgrade Helm release
+    runs-on: ${{ vars.FORMICAE_DEPLOY_RUNNER || 'self-hosted' }}
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main'
+        )
+      }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Read project version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -n 1)"
+          if [ -z "${version}" ]; then
+            echo "Directory.Build.props must contain Project/PropertyGroup/Version." >&2
+            exit 1
+          fi
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure Kubernetes access
+        shell: bash
+        env:
+          FORMICAE_KUBECONFIG_B64: ${{ secrets.FORMICAE_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+
+          kubeconfig="${RUNNER_TEMP}/formicae-kubeconfig"
+          if [ -n "${FORMICAE_KUBECONFIG_B64}" ]; then
+            printf '%s' "${FORMICAE_KUBECONFIG_B64}" | base64 -d > "${kubeconfig}"
+            chmod 600 "${kubeconfig}"
+            echo "KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+
+          service_account_dir="/var/run/secrets/kubernetes.io/serviceaccount"
+          if [ ! -r "${service_account_dir}/token" ] || [ -z "${KUBERNETES_SERVICE_HOST:-}" ]; then
+            echo "No kubeconfig secret was provided and no in-cluster service account is available." >&2
+            exit 1
+          fi
+
+          token="$(cat "${service_account_dir}/token")"
+          namespace="$(cat "${service_account_dir}/namespace")"
+          cluster_port="${KUBERNETES_SERVICE_PORT_HTTPS:-443}"
+          cat > "${kubeconfig}" <<EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - name: in-cluster
+            cluster:
+              certificate-authority: ${service_account_dir}/ca.crt
+              server: https://${KUBERNETES_SERVICE_HOST}:${cluster_port}
+          contexts:
+          - name: in-cluster
+            context:
+              cluster: in-cluster
+              namespace: ${namespace}
+              user: in-cluster
+          current-context: in-cluster
+          users:
+          - name: in-cluster
+            user:
+              token: ${token}
+          EOF
+          chmod 600 "${kubeconfig}"
+          echo "KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+
+      - name: Upgrade Formicae
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+          worker_image="${REGISTRY}/${DOCKERHUB_NAMESPACE}/hhnl-formicae-worker:${version}"
+
+          helm upgrade "${RELEASE_NAME}" "${CHART_DIR}" \
+            --namespace "${RELEASE_NAMESPACE}" \
+            --create-namespace \
+            --reuse-values \
+            --set "image.tag=${version}" \
+            --set "config.kubernetesJobsImage=${worker_image}"
+
+      - name: Wait for API rollout
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl rollout status "deployment/${RELEASE_NAME}-api" \
+            --namespace "${RELEASE_NAMESPACE}" \
+            --timeout=180s
