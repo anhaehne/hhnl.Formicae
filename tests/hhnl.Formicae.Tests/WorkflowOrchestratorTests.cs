@@ -366,6 +366,49 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_keeps_workflow_runnable_when_work_item_provider_is_temporarily_unavailable()
+    {
+        var store = new InMemoryWorkflowStore();
+        var clock = new MutableClock(DateTimeOffset.Parse("2026-06-26T12:00:00Z"));
+        var issueUrl = "https://github.com/acme/widgets/issues/44";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement,
+            UpdatedAt = clock.UtcNow.AddMinutes(-5)
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            Output = "Plan output",
+            UpdatedAt = clock.UtcNow.AddMinutes(-4)
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter
+        {
+            GetIssueException = new WorkItemProviderUnavailableException("GitHub rate limit exceeded.")
+        };
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer(), clock);
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var implementRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, CancellationToken.None);
+        var logs = await store.ListLogsAsync(workflow.Id, CancellationToken.None);
+
+        Assert.Equal(0, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Implementing, updated.Status);
+        Assert.Equal(WorkflowStep.Implement, updated.CurrentStep);
+        Assert.Null(updated.FailureReason);
+        Assert.Null(implementRun);
+        Assert.Empty(devOps.CreateBranchCalls);
+        Assert.Contains(logs, log => log.Level == "Warning" && log.Message.Contains("temporarily unavailable", StringComparison.OrdinalIgnoreCase));
+    }
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Waits_for_ready_to_implement_label_after_planning()
     {
         var store = new InMemoryWorkflowStore();

@@ -52,6 +52,17 @@ public sealed class WorkflowOrchestrator(
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
             }
         }
+        catch (WorkItemProviderUnavailableException exception)
+        {
+            await store.AddLogAsync(new WorkflowLog
+            {
+                WorkflowId = workflow.Id,
+                Level = "Warning",
+                Message = $"Work item provider is temporarily unavailable: {exception.Message}",
+                CreatedAt = clock.UtcNow
+            }, cancellationToken);
+            return false;
+        }
         catch (Exception exception)
         {
             await FailWorkflowAsync(workflow, exception.Message, new

@@ -327,6 +327,23 @@ public sealed class WorkflowServiceTests
     }
 
     [Fact]
+    public async Task ListChatMessagesAsync_returns_empty_when_work_item_provider_is_temporarily_unavailable()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/6";
+        var devOps = new MockDevOpsAdapter
+        {
+            GetIssueException = new WorkItemProviderUnavailableException("GitHub rate limit exceeded.")
+        };
+        var workflow = await CreateWorkflowAsync(store, issueUrl, DateTimeOffset.Parse("2026-06-26T09:00:00Z"));
+        var service = new WorkflowService(store, devOps);
+
+        var messages = await service.ListChatMessagesAsync(workflow.Id, CancellationToken.None);
+
+        Assert.Empty(messages);
+        Assert.Collection(devOps.GetIssueCalls, call => Assert.Equal(issueUrl, call.IssueUrl));
+    }
+    [Fact]
     public void AgentMessageParser_parses_json_lines_and_rejects_malformed_output()
     {
         var parsed = AgentMessageParser.Parse("""

@@ -30,12 +30,14 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
     public async Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
-        var api = await createApi(issue.RepositoryUrl, cancellationToken);
+        return await ExecuteGitHubAsync(async () =>
+        {
+            var api = await createApi(issue.RepositoryUrl, cancellationToken);
+            var issueResponse = await api.GetIssueAsync(issue.Owner, issue.Repository, issue.Number);
+            var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
 
-        var issueResponse = await api.GetIssueAsync(issue.Owner, issue.Repository, issue.Number);
-        var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
-
-        return ToWorkItem(issueUrl, issueResponse, comments);
+            return ToWorkItem(issueUrl, issueResponse, comments);
+        });
     }
 
     public async Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(
@@ -44,13 +46,16 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         CancellationToken cancellationToken)
     {
         var repository = GitHubRepositoryReference.Parse(repositoryUrl);
-        var api = await createApi(repositoryUrl, cancellationToken);
-        var issues = await api.ListIssuesWithLabelAsync(repository.Owner, repository.Repository, label);
+        return await ExecuteGitHubAsync(async () =>
+        {
+            var api = await createApi(repositoryUrl, cancellationToken);
+            var issues = await api.ListIssuesWithLabelAsync(repository.Owner, repository.Repository, label);
 
-        return issues
-            .Where(issue => issue.PullRequest is null)
-            .Select(issue => ToWorkItem(issue.HtmlUrl, issue, []))
-            .ToArray();
+            return issues
+                .Where(issue => issue.PullRequest is null)
+                .Select(issue => ToWorkItem(issue.HtmlUrl, issue, []))
+                .ToArray();
+        });
     }
 
     public async Task UpsertIssueCommentAsync(
@@ -60,31 +65,40 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
-        var api = await createApi(issue.RepositoryUrl, cancellationToken);
-        var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
-        var existing = comments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
-
-        if (existing is null)
+        await ExecuteGitHubAsync(async () =>
         {
-            await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
-            return;
-        }
+            var api = await createApi(issue.RepositoryUrl, cancellationToken);
+            var comments = await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number);
+            var existing = comments.FirstOrDefault(comment => (comment.Body ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase));
 
-        await api.UpdateIssueCommentAsync(issue.Owner, issue.Repository, existing.Id, body);
+            if (existing is null)
+            {
+                await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
+                return;
+            }
+
+            await api.UpdateIssueCommentAsync(issue.Owner, issue.Repository, existing.Id, body);
+        });
     }
 
     public async Task AddIssueCommentAsync(string issueUrl, string body, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
-        var api = await createApi(issue.RepositoryUrl, cancellationToken);
-        await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
+        await ExecuteGitHubAsync(async () =>
+        {
+            var api = await createApi(issue.RepositoryUrl, cancellationToken);
+            await api.CreateIssueCommentAsync(issue.Owner, issue.Repository, issue.Number, body);
+        });
     }
 
     public async Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
     {
         var issue = GitHubIssueReference.Parse(issueUrl);
-        var api = await createApi(issue.RepositoryUrl, cancellationToken);
-        await api.ReactToIssueAsync(issue.Owner, issue.Repository, issue.Number, reaction);
+        await ExecuteGitHubAsync(async () =>
+        {
+            var api = await createApi(issue.RepositoryUrl, cancellationToken);
+            await api.ReactToIssueAsync(issue.Owner, issue.Repository, issue.Number, reaction);
+        });
     }
 
     public async Task ReactToIssueCommentAsync(string issueUrl, WorkItemComment comment, string reaction, CancellationToken cancellationToken)
@@ -95,8 +109,35 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         }
 
         var issue = GitHubIssueReference.Parse(issueUrl);
-        var api = await createApi(issue.RepositoryUrl, cancellationToken);
-        await api.ReactToIssueCommentAsync(issue.Owner, issue.Repository, commentId, reaction);
+        await ExecuteGitHubAsync(async () =>
+        {
+            var api = await createApi(issue.RepositoryUrl, cancellationToken);
+            await api.ReactToIssueCommentAsync(issue.Owner, issue.Repository, commentId, reaction);
+        });
+    }
+
+    private static async Task<T> ExecuteGitHubAsync<T>(Func<Task<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (RateLimitExceededException exception)
+        {
+            throw new WorkItemProviderUnavailableException("GitHub rate limit exceeded.", exception);
+        }
+    }
+
+    private static async Task ExecuteGitHubAsync(Func<Task> operation)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (RateLimitExceededException exception)
+        {
+            throw new WorkItemProviderUnavailableException("GitHub rate limit exceeded.", exception);
+        }
     }
 
     private static WorkItem ToWorkItem(string issueUrl, Issue issue, IReadOnlyList<IssueComment> comments)

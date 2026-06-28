@@ -208,11 +208,18 @@ public sealed class WorkflowService
             return [];
         }
 
-        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
-        return issue.UserComments
-            .OrderBy(comment => comment.UpdatedAt)
-            .Select(comment => new WorkflowChatMessageResponse(comment.Id, comment.Author, comment.Body, comment.Url, comment.UpdatedAt))
-            .ToArray();
+        try
+        {
+            var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+            return issue.UserComments
+                .OrderBy(comment => comment.UpdatedAt)
+                .Select(comment => new WorkflowChatMessageResponse(comment.Id, comment.Author, comment.Body, comment.Url, comment.UpdatedAt))
+                .ToArray();
+        }
+        catch (WorkItemProviderUnavailableException)
+        {
+            return [];
+        }
     }
 
     public Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken)

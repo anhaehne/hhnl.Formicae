@@ -23,6 +23,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
 
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
     public PullRequestStatus DefaultPullRequestStatus { get; set; } = new(true, false);
+    public Exception? GetIssueException { get; set; }
     public Exception? ReactToIssueException { get; set; }
     public Exception? ReactToIssueCommentException { get; set; }
     public Exception? ReactToPullRequestCommentException { get; set; }
@@ -80,6 +81,10 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task<WorkItem> GetIssueAsync(string issueUrl, CancellationToken cancellationToken)
     {
         GetIssueCalls.Add(new GetIssueCall(issueUrl));
+        if (GetIssueException is not null)
+        {
+            throw GetIssueException;
+        }
 
         if (workItems.TryGetValue(issueUrl, out var workItem))
         {

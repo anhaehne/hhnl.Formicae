@@ -32,6 +32,13 @@ public interface IWorkItemProvider
         CancellationToken cancellationToken);
 }
 
+public sealed class WorkItemProviderUnavailableException : Exception
+{
+    public WorkItemProviderUnavailableException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
 public interface ISourceControlProvider
 {
     Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken);
