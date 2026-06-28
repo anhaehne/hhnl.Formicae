@@ -152,7 +152,9 @@ export default function App() {
   const processedIdentityActivation = useRef<string | undefined>(undefined);
   const loginRedirectStarted = useRef(false);
 
-  const canMutate = currentUser?.authorized === true || currentUser?.authRequired !== true;
+  const canViewWorkflows = currentUser?.canViewWorkflows === true;
+  const canTriggerWorkflows = currentUser?.canTriggerWorkflows === true;
+  const canAdminister = currentUser?.canAdminister === true;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -198,8 +200,12 @@ export default function App() {
   }, [selectedWorkflowId]);
 
   useEffect(() => {
+    if (!currentUser || !canViewWorkflows) {
+      return;
+    }
+
     void refreshWorkflows();
-  }, [refreshWorkflows]);
+  }, [canViewWorkflows, currentUser, refreshWorkflows]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -317,13 +323,17 @@ export default function App() {
   }, [selectedIntegrationId]);
 
   useEffect(() => {
+    if (!canAdminister) {
+      return;
+    }
+
     if (activePage === "integrations" || activePage === "repositories") {
       void refreshIntegrations();
     }
     if (activePage === "repositories") {
       void refreshAvailableRepositories();
     }
-  }, [activePage, refreshAvailableRepositories, refreshIntegrations]);
+  }, [activePage, canAdminister, refreshAvailableRepositories, refreshIntegrations]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -732,7 +742,14 @@ export default function App() {
     setAuthError(undefined);
     try {
       await logout();
-      setCurrentUser(current => ({ authenticated: false, authorized: false, authRequired: current?.authRequired ?? false }));
+      setCurrentUser(current => ({
+        authenticated: false,
+        authorized: false,
+        authRequired: current?.authRequired ?? false,
+        canViewWorkflows: false,
+        canTriggerWorkflows: false,
+        canAdminister: false
+      }));
       setInviteCode(undefined);
       setInviteLink(undefined);
     } catch (error) {
@@ -839,6 +856,7 @@ export default function App() {
               type="button"
               className={`menu-button${activePage === "integrations" ? " active" : ""}`}
               onClick={() => setActivePage("integrations")}
+              disabled={!canAdminister}
             >
               Integrations
             </button>
@@ -846,6 +864,7 @@ export default function App() {
               type="button"
               className={`menu-button${activePage === "repositories" ? " active" : ""}`}
               onClick={() => setActivePage("repositories")}
+              disabled={!canAdminister}
             >
               Repositories
             </button>
@@ -860,6 +879,7 @@ export default function App() {
               type="button"
               className={`menu-button${activePage === "settings" ? " active" : ""}`}
               onClick={() => setActivePage("settings")}
+              disabled={!canAdminister}
             >
               Settings
             </button>
@@ -930,7 +950,7 @@ export default function App() {
               </label>
             </div>
             {formError ? <p className="error-text">{formError}</p> : null}
-            <button type="submit" className="primary-button" disabled={submitting || !canMutate}>
+            <button type="submit" className="primary-button" disabled={submitting || !canTriggerWorkflows}>
               {submitting ? "Starting" : "Start Workflow"}
             </button>
           </form>
@@ -976,7 +996,7 @@ export default function App() {
                             event.stopPropagation();
                             void handleRetryWorkflow(workflow);
                           }}
-                          disabled={retryingWorkflowId === workflow.workflowId || !canMutate}
+                          disabled={retryingWorkflowId === workflow.workflowId || !canTriggerWorkflows}
                         >
                           {retryingWorkflowId === workflow.workflowId ? "Retrying" : "Retry"}
                         </button>
@@ -1064,7 +1084,7 @@ export default function App() {
                             type="button"
                             className="secondary-button run-action-button"
                             onClick={() => void handleRetryRun(run)}
-                            disabled={retrying || !canMutate}
+                            disabled={retrying || !canTriggerWorkflows}
                           >
                             {retrying ? "Retrying" : "Retry"}
                           </button>
@@ -1145,7 +1165,7 @@ export default function App() {
           onDeleteIntegration={handleDeleteIntegration}
           onIdentityToggle={handleIdentityToggle}
           onIdentityRestart={handleIdentityRestart}
-          canMutate={canMutate}
+          canAdminister={canAdminister}
         />
       ) : activePage === "repositories" ? (
         <RepositoriesPage
@@ -1166,7 +1186,7 @@ export default function App() {
           onInstallGitHubApp={handleInstallGitHubApp}
           onAddRepository={handleAddRepository}
           onRemoveRepository={handleRemoveRepository}
-          canMutate={canMutate}
+          canAdminister={canAdminister}
         />
       ) : activePage === "users" ? (
         <UsersPage
@@ -1188,7 +1208,7 @@ export default function App() {
           aiSettingsSaved={aiSettingsSaved}
           setAiSettingsForm={setAiSettingsForm}
           onSubmit={handleAiSettingsSubmit}
-          canMutate={canMutate}
+          canAdminister={canAdminister}
         />
       )}
     </main>
@@ -1336,7 +1356,7 @@ function UsersPage({
   onDeleteIntegration,
   onIdentityToggle,
   onIdentityRestart,
-  canMutate
+  canAdminister
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -1354,7 +1374,7 @@ function UsersPage({
   onDeleteIntegration: () => void;
   onIdentityToggle: (enabled: boolean) => void;
   onIdentityRestart: () => void;
-  canMutate: boolean;
+  canAdminister: boolean;
 }) {
   return (
     <section className="integrations-page">
@@ -1395,7 +1415,7 @@ function UsersPage({
                 placeholder="-----BEGIN RSA PRIVATE KEY-----"
               />
             </label>
-            <button type="submit" className="primary-button" disabled={creatingIntegration || !canMutate}>
+            <button type="submit" className="primary-button" disabled={creatingIntegration || !canAdminister}>
               {creatingIntegration ? "Creating" : "Create Integration"}
             </button>
           </form>
@@ -1442,8 +1462,8 @@ function UsersPage({
               </div>
 
               <div className="button-row">
-                <button type="button" className="secondary-button" onClick={onRotateWebhookSecret} disabled={!canMutate}>Rotate Webhook Secret</button>
-                <button type="button" className="secondary-button danger-button" onClick={onDeleteIntegration} disabled={deletingIntegration || !canMutate}>
+                <button type="button" className="secondary-button" onClick={onRotateWebhookSecret} disabled={!canAdminister}>Rotate Webhook Secret</button>
+                <button type="button" className="secondary-button danger-button" onClick={onDeleteIntegration} disabled={deletingIntegration || !canAdminister}>
                   {deletingIntegration ? "Removing" : "Remove Integration"}
                 </button>
               </div>
@@ -1455,7 +1475,7 @@ function UsersPage({
                     type="checkbox"
                     checked={integrationDetail.identityProviderEnabled}
                     onChange={event => onIdentityToggle(event.target.checked)}
-                    disabled={!canMutate && integrationDetail.identityProviderEnabled}
+                    disabled={!canAdminister && integrationDetail.identityProviderEnabled}
                   />
                   <span>Use as identity provider</span>
                 </label>
@@ -1466,7 +1486,7 @@ function UsersPage({
                       type="button"
                       className="secondary-button"
                       onClick={onIdentityRestart}
-                      disabled={restartingIdentityProvider || !canMutate}
+                      disabled={restartingIdentityProvider || !canAdminister}
                     >
                       {restartingIdentityProvider ? "Restarting" : "Restart"}
                     </button>
@@ -1519,7 +1539,7 @@ function RepositoriesPage({
   onInstallGitHubApp,
   onAddRepository,
   onRemoveRepository,
-  canMutate
+  canAdminister
 }: {
   integrations: IntegrationSummary[];
   integrationDetail?: IntegrationDetail;
@@ -1538,7 +1558,7 @@ function RepositoriesPage({
   onInstallGitHubApp: () => void;
   onAddRepository: (repository: GitHubUserRepository) => void;
   onRemoveRepository: (repository: ConnectedRepository) => void;
-  canMutate: boolean;
+  canAdminister: boolean;
 }) {
   const connectedUrls = new Set((integrationDetail?.repositories ?? []).map(repository => repository.repositoryUrl.toLowerCase()));
   const available = availableRepositories.filter(repository => matchesRepository(repository, repositorySearch));
@@ -1554,7 +1574,7 @@ function RepositoriesPage({
             {integrations.map(integration => <option key={integration.id} value={integration.id}>{integration.displayName}</option>)}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl || !canMutate}>Install GitHub App</button>
+        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl || !canAdminister}>Install GitHub App</button>
       </section>
 
       {repositoryError ? <p className="error-text repository-message">{repositoryError}</p> : null}
@@ -1578,7 +1598,7 @@ function RepositoriesPage({
                   repository={repository}
                   alreadyConnected={alreadyConnected}
                   adding={addingRepositoryUrl === repository.repositoryUrl}
-                  canMutate={canMutate}
+                  canAdminister={canAdminister}
                   onAdd={() => onAddRepository(repository)}
                   key={repository.repositoryUrl}
                 />
@@ -1602,7 +1622,7 @@ function RepositoriesPage({
               <RepositoryRow
                 repository={repository}
                 removing={removingRepositoryId === repository.id}
-                canMutate={canMutate}
+                canAdminister={canAdminister}
                 onRemove={() => onRemoveRepository(repository)}
                 key={repository.id}
               />
@@ -1619,13 +1639,13 @@ function RepositoryCandidateRow({
   repository,
   alreadyConnected,
   adding,
-  canMutate,
+  canAdminister,
   onAdd
 }: {
   repository: GitHubUserRepository;
   alreadyConnected: boolean;
   adding: boolean;
-  canMutate: boolean;
+  canAdminister: boolean;
   onAdd: () => void;
 }) {
   return (
@@ -1637,7 +1657,7 @@ function RepositoryCandidateRow({
       {alreadyConnected ? (
         <StatusBadge value="Added" />
       ) : (
-        <button type="button" className="secondary-button" onClick={onAdd} disabled={adding || !canMutate}>{adding ? "Adding" : "Add"}</button>
+        <button type="button" className="secondary-button" onClick={onAdd} disabled={adding || !canAdminister}>{adding ? "Adding" : "Add"}</button>
       )}
     </div>
   );
@@ -1655,12 +1675,12 @@ function matchesRepository(repository: { owner: string; name: string; repository
 function RepositoryRow({
   repository,
   removing,
-  canMutate,
+  canAdminister,
   onRemove
 }: {
   repository: ConnectedRepository;
   removing: boolean;
-  canMutate: boolean;
+  canAdminister: boolean;
   onRemove: () => void;
 }) {
   return (
@@ -1671,7 +1691,7 @@ function RepositoryRow({
       </div>
       <div className="repository-actions">
         <ExternalLink href={repository.repositoryUrl}>Open</ExternalLink>
-        <button type="button" className="secondary-button danger-button" onClick={onRemove} disabled={removing || !canMutate}>
+        <button type="button" className="secondary-button danger-button" onClick={onRemove} disabled={removing || !canAdminister}>
           {removing ? "Removing" : "Remove"}
         </button>
       </div>
@@ -1688,7 +1708,7 @@ function SettingsPage({
   aiSettingsSaved,
   setAiSettingsForm,
   onSubmit,
-  canMutate
+  canAdminister
 }: {
   aiSettings?: AiSettings;
   aiSettingsForm: AiSettingsFormState;
@@ -1698,7 +1718,7 @@ function SettingsPage({
   aiSettingsSaved?: string;
   setAiSettingsForm: Dispatch<SetStateAction<AiSettingsFormState>>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  canMutate: boolean;
+  canAdminister: boolean;
 }) {
   return (
     <section className="settings-page">
@@ -1765,7 +1785,7 @@ function SettingsPage({
           </div>
           {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
           {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
-          <button type="submit" className="primary-button" disabled={savingAiSettings || !canMutate}>
+          <button type="submit" className="primary-button" disabled={savingAiSettings || !canAdminister}>
             {savingAiSettings ? "Saving" : "Save AI Settings"}
           </button>
         </form>

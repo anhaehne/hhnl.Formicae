@@ -67,7 +67,63 @@ public sealed class ManagementIdentityTests
 
         await fixture.Invites.RedeemInviteAsync(PrincipalFor(redeemer), invite.Code!, CancellationToken.None);
 
-        Assert.True(await fixture.Users.IsInRoleAsync(redeemer, ManagementUserService.AuthorizedUserRole));
+        Assert.True(await fixture.Users.IsInRoleAsync(redeemer, ManagementUserService.ManagementAdminRole));
+    }
+
+    [Fact]
+    public async Task GrantHelpers_CreateMissingRoles()
+    {
+        await using var fixture = new IdentityFixture();
+        var viewer = await fixture.CreateUserAsync("viewer");
+        var operatorUser = await fixture.CreateUserAsync("operator");
+        var admin = await fixture.CreateUserAsync("admin");
+
+        await fixture.ManagementUsers.GrantViewerAsync(viewer, CancellationToken.None);
+        await fixture.ManagementUsers.GrantOperatorAsync(operatorUser, CancellationToken.None);
+        await fixture.ManagementUsers.GrantAdminAsync(admin, CancellationToken.None);
+
+        Assert.True(await fixture.Roles.RoleExistsAsync(ManagementUserService.WorkflowViewerRole));
+        Assert.True(await fixture.Roles.RoleExistsAsync(ManagementUserService.WorkflowOperatorRole));
+        Assert.True(await fixture.Roles.RoleExistsAsync(ManagementUserService.ManagementAdminRole));
+    }
+
+    [Fact]
+    public async Task AdminPermission_ImpliesOperatorAndViewer()
+    {
+        await using var fixture = new IdentityFixture();
+        var admin = await fixture.CreateUserAsync("admin");
+
+        await fixture.ManagementUsers.GrantAdminAsync(admin, CancellationToken.None);
+
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(admin), ManagementUserService.WorkflowViewPermission));
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(admin), ManagementUserService.WorkflowOperatePermission));
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(admin), ManagementUserService.ManagementAdminPermission));
+    }
+
+    [Fact]
+    public async Task OperatorPermission_ImpliesViewerButNotAdmin()
+    {
+        await using var fixture = new IdentityFixture();
+        var operatorUser = await fixture.CreateUserAsync("operator-user");
+
+        await fixture.ManagementUsers.GrantOperatorAsync(operatorUser, CancellationToken.None);
+
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(operatorUser), ManagementUserService.WorkflowViewPermission));
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(operatorUser), ManagementUserService.WorkflowOperatePermission));
+        Assert.False(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(operatorUser), ManagementUserService.ManagementAdminPermission));
+    }
+
+    [Fact]
+    public async Task ViewerPermission_DoesNotImplyOperatorOrAdmin()
+    {
+        await using var fixture = new IdentityFixture();
+        var viewer = await fixture.CreateUserAsync("viewer");
+
+        await fixture.ManagementUsers.GrantViewerAsync(viewer, CancellationToken.None);
+
+        Assert.True(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(viewer), ManagementUserService.WorkflowViewPermission));
+        Assert.False(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(viewer), ManagementUserService.WorkflowOperatePermission));
+        Assert.False(await fixture.ManagementUsers.IsInPermissionAsync(PrincipalFor(viewer), ManagementUserService.ManagementAdminPermission));
     }
 
     [Fact]
@@ -153,6 +209,7 @@ public sealed class ManagementIdentityTests
 
             Db = scope.ServiceProvider.GetRequiredService<FormicaeDbContext>();
             Users = scope.ServiceProvider.GetRequiredService<UserManager<FormicaeUser>>();
+            Roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
             ManagementUsers = scope.ServiceProvider.GetRequiredService<ManagementUserService>();
             Invites = scope.ServiceProvider.GetRequiredService<InviteService>();
         }
@@ -160,6 +217,7 @@ public sealed class ManagementIdentityTests
         public MutableClock Clock { get; }
         public FormicaeDbContext Db { get; }
         public UserManager<FormicaeUser> Users { get; }
+        public RoleManager<IdentityRole> Roles { get; }
         public ManagementUserService ManagementUsers { get; }
         public InviteService Invites { get; }
 
@@ -179,7 +237,7 @@ public sealed class ManagementIdentityTests
         public async Task<FormicaeUser> CreateAuthorizedUserAsync(string userName)
         {
             var user = await CreateUserAsync(userName);
-            await ManagementUsers.GrantAuthorizedUserAsync(user, CancellationToken.None);
+            await ManagementUsers.GrantAdminAsync(user, CancellationToken.None);
             return user;
         }
 
