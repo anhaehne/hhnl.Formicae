@@ -12,6 +12,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public List<ListIssuesWithLabelCall> ListIssuesWithLabelCalls { get; } = [];
     public List<UpsertIssueCommentCall> UpsertIssueCommentCalls { get; } = [];
     public List<ReactToIssueCall> ReactToIssueCalls { get; } = [];
+    public List<ReactToIssueCommentCall> ReactToIssueCommentCalls { get; } = [];
     public List<AddIssueCommentCall> AddIssueCommentCalls { get; } = [];
     public List<CreateBranchCall> CreateBranchCalls { get; } = [];
     public List<CreatePullRequestCall> CreatePullRequestCalls { get; } = [];
@@ -23,6 +24,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public string DefaultPullRequestUrl { get; set; } = "https://devops.local/mock/pull-request";
     public PullRequestStatus DefaultPullRequestStatus { get; set; } = new(true, false);
     public Exception? ReactToIssueException { get; set; }
+    public Exception? ReactToIssueCommentException { get; set; }
     public Exception? ReactToPullRequestCommentException { get; set; }
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
@@ -128,6 +130,17 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
         return Task.CompletedTask;
     }
 
+    public Task ReactToIssueCommentAsync(string issueUrl, WorkItemComment comment, string reaction, CancellationToken cancellationToken)
+    {
+        ReactToIssueCommentCalls.Add(new ReactToIssueCommentCall(issueUrl, comment.Id, reaction));
+        if (ReactToIssueCommentException is not null)
+        {
+            throw ReactToIssueCommentException;
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken)
     {
         CreateBranchCalls.Add(new CreateBranchCall(request));
@@ -185,6 +198,8 @@ public sealed record UpsertIssueCommentCall(string IssueUrl, string Marker, stri
 public sealed record AddIssueCommentCall(string IssueUrl, string Body);
 
 public sealed record ReactToIssueCall(string IssueUrl, string Reaction);
+
+public sealed record ReactToIssueCommentCall(string IssueUrl, string CommentId, string Reaction);
 
 public sealed record CreateBranchCall(CreateBranchRequest Request);
 

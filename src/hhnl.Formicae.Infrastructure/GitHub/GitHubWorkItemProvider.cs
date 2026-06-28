@@ -87,6 +87,18 @@ public sealed class GitHubWorkItemProvider : IWorkItemProvider
         await api.ReactToIssueAsync(issue.Owner, issue.Repository, issue.Number, reaction);
     }
 
+    public async Task ReactToIssueCommentAsync(string issueUrl, WorkItemComment comment, string reaction, CancellationToken cancellationToken)
+    {
+        if (!long.TryParse(comment.Id, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var commentId))
+        {
+            throw new ArgumentException($"Expected a numeric GitHub issue comment id, but received '{comment.Id}'.", nameof(comment));
+        }
+
+        var issue = GitHubIssueReference.Parse(issueUrl);
+        var api = await createApi(issue.RepositoryUrl, cancellationToken);
+        await api.ReactToIssueCommentAsync(issue.Owner, issue.Repository, commentId, reaction);
+    }
+
     private static WorkItem ToWorkItem(string issueUrl, Issue issue, IReadOnlyList<IssueComment> comments)
         => new(
             issueUrl,

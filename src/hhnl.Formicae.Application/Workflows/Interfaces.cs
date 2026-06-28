@@ -24,6 +24,12 @@ public interface IWorkItemProvider
         string issueUrl,
         string reaction,
         CancellationToken cancellationToken);
+
+    Task ReactToIssueCommentAsync(
+        string issueUrl,
+        WorkItemComment comment,
+        string reaction,
+        CancellationToken cancellationToken);
 }
 
 public interface ISourceControlProvider

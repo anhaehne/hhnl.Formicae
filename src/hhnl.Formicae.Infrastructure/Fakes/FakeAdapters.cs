@@ -41,6 +41,10 @@ public sealed class FakeWorkItemProvider : IWorkItemProvider
 
     public Task ReactToIssueAsync(string issueUrl, string reaction, CancellationToken cancellationToken)
         => Task.CompletedTask;
+
+
+    public Task ReactToIssueCommentAsync(string issueUrl, WorkItemComment comment, string reaction, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 }
 
 public sealed class FakeSourceControlProvider : ISourceControlProvider

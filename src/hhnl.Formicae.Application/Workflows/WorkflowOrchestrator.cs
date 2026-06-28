@@ -82,7 +82,12 @@ public sealed class WorkflowOrchestrator(
         return await RunPlanningAsync(workflow, issue, cancellationToken);
     }
 
-    private async Task<bool> RunPlanningAsync(Workflow workflow, WorkItem? workItem, CancellationToken cancellationToken, bool forceRefresh = false)
+    private async Task<bool> RunPlanningAsync(
+        Workflow workflow,
+        WorkItem? workItem,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false,
+        IReadOnlyList<WorkItemComment>? feedbackComments = null)
     {
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && !forceRefresh)
@@ -143,7 +148,11 @@ public sealed class WorkflowOrchestrator(
 
         run.FailureReason = null;
         await StartTaskRunAsync(workflow, run, cancellationToken);
-        await TryReactToIssueAsync(workflow, run.Id, cancellationToken);
+        await TryReactToIssueAsync(workflow, run.Id, WorkflowReactionContent.PlanningStarted, cancellationToken);
+        foreach (var comment in feedbackComments ?? [])
+        {
+            await TryReactToIssueCommentAsync(workflow, run, comment, cancellationToken);
+        }
 
         var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
@@ -168,9 +177,10 @@ public sealed class WorkflowOrchestrator(
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
-        if (await HasNewIssueFeedbackForPlanAsync(workflow, issue, cancellationToken))
+        var feedbackComments = await GetNewIssueFeedbackForPlanAsync(workflow, issue, cancellationToken);
+        if (feedbackComments.Count > 0)
         {
-            return await RunPlanningAsync(workflow, issue, cancellationToken, forceRefresh: true);
+            return await RunPlanningAsync(workflow, issue, cancellationToken, forceRefresh: true, feedbackComments: feedbackComments);
         }
 
         if (!issue.HasLabel(WorkItemWorkflowLabels.ReadyToImplement))
@@ -180,21 +190,25 @@ public sealed class WorkflowOrchestrator(
 
         return await RunImplementationAsync(workflow, cancellationToken);
     }
-    private async Task<bool> HasNewIssueFeedbackForPlanAsync(Workflow workflow, WorkItem issue, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<WorkItemComment>> GetNewIssueFeedbackForPlanAsync(Workflow workflow, WorkItem issue, CancellationToken cancellationToken)
     {
         var planRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (planRun?.Status == TaskRunStatus.Running)
         {
             await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning resumed for new issue feedback.", cancellationToken);
-            return true;
+            return [];
         }
 
         if (planRun?.Status != TaskRunStatus.Succeeded)
         {
-            return false;
+            return [];
         }
 
-        return issue.UserComments.Any(comment => comment.UpdatedAt > planRun.UpdatedAt);
+        return issue.UserComments
+            .Where(comment => comment.UpdatedAt > planRun.UpdatedAt)
+            .OrderBy(comment => comment.UpdatedAt)
+            .ThenBy(comment => comment.Id, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private async Task CompleteSuccessfulPlanningAsync(Workflow workflow, AgentRunResult result, bool isRevision, CancellationToken cancellationToken)
@@ -248,7 +262,7 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        await TryReactToIssueAsync(workflow, cancellationToken);
+        await TryReactToIssueAsync(workflow, null, WorkflowReactionContent.ImplementationStarted, cancellationToken);
         if (workflow.BranchName is null)
         {
             workflow.BranchName = await sourceControl.CreateBranchAsync(
@@ -400,14 +414,11 @@ public sealed class WorkflowOrchestrator(
         await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
         return true;
     }
-    private Task TryReactToIssueAsync(Workflow workflow, CancellationToken cancellationToken)
-        => TryReactToIssueAsync(workflow, null, cancellationToken);
-
-    private async Task TryReactToIssueAsync(Workflow workflow, Guid? taskRunId, CancellationToken cancellationToken)
+    private async Task TryReactToIssueAsync(Workflow workflow, Guid? taskRunId, string reaction, CancellationToken cancellationToken)
     {
         try
         {
-            await workItems.ReactToIssueAsync(workflow.IssueUrl, WorkflowReactionContent.Started, cancellationToken);
+            await workItems.ReactToIssueAsync(workflow.IssueUrl, reaction, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -415,11 +426,23 @@ public sealed class WorkflowOrchestrator(
         }
     }
 
+    private async Task TryReactToIssueCommentAsync(Workflow workflow, TaskRun run, WorkItemComment comment, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await workItems.ReactToIssueCommentAsync(workflow.IssueUrl, comment, WorkflowReactionContent.FeedbackStarted, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await AddReactionWarningLogAsync(workflow.Id, run.Id, exception, cancellationToken);
+        }
+    }
+
     private async Task TryReactToPullRequestCommentAsync(Workflow workflow, TaskRun run, PullRequestComment comment, CancellationToken cancellationToken)
     {
         try
         {
-            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.Started, cancellationToken);
+            await sourceControl.ReactToPullRequestCommentAsync(workflow, comment, WorkflowReactionContent.PullRequestCommentStarted, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

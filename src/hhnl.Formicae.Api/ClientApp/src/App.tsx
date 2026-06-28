@@ -10,6 +10,7 @@ import {
   deleteConnectedRepository,
   deleteIntegration,
   getAiSettings,
+  getAppVersion,
   getCurrentUser,
   getIntegration,
   getWorkflow,
@@ -147,6 +148,7 @@ export default function App() {
   const [inviteLink, setInviteLink] = useState<string>();
   const [redeemCode, setRedeemCode] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>();
 
   const processedInvite = useRef<string | undefined>(undefined);
   const processedIdentityActivation = useRef<string | undefined>(undefined);
@@ -173,6 +175,25 @@ export default function App() {
   useEffect(() => {
     void refreshCurrentUser();
   }, [refreshCurrentUser]);
+
+  useEffect(() => {
+    let ignore = false;
+    getAppVersion()
+      .then(result => {
+        if (!ignore) {
+          setAppVersion(result.version);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setAppVersion("unknown");
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
   useEffect(() => {
     if (!currentUser || currentUser.authenticated || !currentUser.authRequired || loginRedirectStarted.current) {
       return;
@@ -1211,6 +1232,7 @@ export default function App() {
           canAdminister={canAdminister}
         />
       )}
+      <footer className="app-footer">Formicae {appVersion ? `v${appVersion}` : "version loading"}</footer>
     </main>
   );
 }

@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Octokit;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Reflection;
 
 const string GitHubOAuthStateCookieName = ".Formicae.GitHubOAuthState";
 
@@ -91,6 +92,12 @@ if (usesPostgresPersistence)
 }
 
 app.MapHealthChecks("/healthz");
+app.MapGet("/api/version", () => Results.Ok(new
+{
+    version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(Program).Assembly.GetName().Version?.ToString()
+        ?? "unknown"
+}));
 
 app.UseAuthentication();
 app.UseAuthorization();

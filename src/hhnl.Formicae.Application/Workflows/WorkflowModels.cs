@@ -203,7 +203,10 @@ public static class WorkItemWorkflowLabels
 
 public static class WorkflowReactionContent
 {
-    public const string Started = "eyes";
+    public const string PlanningStarted = "eyes";
+    public const string ImplementationStarted = "rocket";
+    public const string FeedbackStarted = "eyes";
+    public const string PullRequestCommentStarted = "eyes";
 }
 
 public interface IWorkflowTickSignal

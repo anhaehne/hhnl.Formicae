@@ -159,6 +159,10 @@ export type AddConnectedRepositoryRequest = {
   installationAccount?: string | null;
 };
 
+export type AppVersion = {
+  version: string;
+};
+
 export type CurrentUser = {
   authenticated: boolean;
   authorized: boolean;
@@ -178,6 +182,10 @@ export type InviteCode = {
   usedAt?: string | null;
   code?: string | null;
 };
+
+export async function getAppVersion(): Promise<AppVersion> {
+  return send<AppVersion>("/api/version");
+}
 
 export async function getCurrentUser(): Promise<CurrentUser> {
   return send<CurrentUser>("/api/auth/current-user");

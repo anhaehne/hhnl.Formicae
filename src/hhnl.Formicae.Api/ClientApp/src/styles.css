@@ -340,6 +340,14 @@ tbody tr:hover {
   max-width: 1440px;
 }
 
+.app-footer {
+  color: #6f766d;
+  font-size: 0.78rem;
+  font-weight: 650;
+  margin: 24px auto 0;
+  max-width: 1440px;
+  text-align: right;
+}
 
 .auth-gate-page {
   align-items: center;

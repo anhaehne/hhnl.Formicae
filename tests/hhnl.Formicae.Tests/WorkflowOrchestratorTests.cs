@@ -415,11 +415,11 @@ public sealed class WorkflowOrchestratorTests
         Assert.Contains(runs, run => run.Kind == TaskRunKind.Implement && run.Status == TaskRunStatus.Succeeded);
         Assert.Single(devOps.CreateBranchCalls);
         Assert.Collection(devOps.ReactToIssueCalls,
-            call => Assert.Equal(WorkflowReactionContent.Started, call.Reaction),
+            call => Assert.Equal(WorkflowReactionContent.PlanningStarted, call.Reaction),
             call =>
             {
                 Assert.Equal(issueUrl, call.IssueUrl);
-                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+                Assert.Equal(WorkflowReactionContent.ImplementationStarted, call.Reaction);
             });
     }
 
@@ -552,6 +552,12 @@ public sealed class WorkflowOrchestratorTests
         Assert.Contains("Existing plan output", agentRunner.LastTask.Prompt);
         Assert.Contains("Please add the webhook retry behavior to the plan.", agentRunner.LastTask.Prompt);
         Assert.DoesNotContain("automated summary", agentRunner.LastTask.Prompt);
+        Assert.Collection(devOps.ReactToIssueCommentCalls, call =>
+        {
+            Assert.Equal(issueUrl, call.IssueUrl);
+            Assert.Equal("new-feedback", call.CommentId);
+            Assert.Equal(WorkflowReactionContent.FeedbackStarted, call.Reaction);
+        });
         Assert.Collection(devOps.UpsertIssueCommentCalls, call =>
         {
             Assert.Equal(issueUrl, call.IssueUrl);
@@ -658,12 +664,12 @@ public sealed class WorkflowOrchestratorTests
             call =>
             {
                 Assert.Equal(issueUrl, call.IssueUrl);
-                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+                Assert.Equal(WorkflowReactionContent.PlanningStarted, call.Reaction);
             },
             call =>
             {
                 Assert.Equal(issueUrl, call.IssueUrl);
-                Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+                Assert.Equal(WorkflowReactionContent.ImplementationStarted, call.Reaction);
             });
         Assert.Contains(runs, run => run.Kind == TaskRunKind.AddressComments && run.Status == TaskRunStatus.Succeeded);
         Assert.Collection(devOps.ListPullRequestCommentsCalls, call =>
@@ -676,7 +682,7 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(started.WorkflowId, call.WorkflowId);
             Assert.Equal("1", call.CommentId);
             Assert.Equal(PullRequestCommentKind.ReviewComment, call.Kind);
-            Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+            Assert.Equal(WorkflowReactionContent.PullRequestCommentStarted, call.Reaction);
         });
         Assert.Collection(devOps.UpsertPullRequestCommentCalls, call =>
         {
@@ -805,7 +811,7 @@ public sealed class WorkflowOrchestratorTests
         {
             Assert.Equal(workflow.Id, call.WorkflowId);
             Assert.Equal("new", call.CommentId);
-            Assert.Equal(WorkflowReactionContent.Started, call.Reaction);
+            Assert.Equal(WorkflowReactionContent.PullRequestCommentStarted, call.Reaction);
         });
         Assert.NotNull(agentRunner.LastTask);
         Assert.Contains("Comments to address:", agentRunner.LastTask.Prompt);
@@ -938,27 +944,21 @@ public sealed class WorkflowOrchestratorTests
 
 
     [Fact]
-    public async Task GitHubSourceControlProvider_CreateBranchAsync_falls_back_to_git_ref_when_linked_branch_fails()
+    public async Task GitHubSourceControlProvider_CreateBranchAsync_does_not_create_unlinked_ref_when_linked_branch_fails()
     {
         var api = new CapturingGitHubApi { ThrowLinkedBranchUnexpectedly = true };
         var provider = new GitHubSourceControlProvider(api);
 
-        var branch = await provider.CreateBranchAsync(new CreateBranchRequest(
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => provider.CreateBranchAsync(new CreateBranchRequest(
             "https://github.com/acme/widgets",
             "main",
             "formicae/cccccccccccccccccccccccccccccccc",
             "https://github.com/acme/widgets/issues/42"),
-            CancellationToken.None);
+            CancellationToken.None));
 
-        Assert.Equal("formicae/cccccccccccccccccccccccccccccccc", branch);
+        Assert.IsNotType<OperationCanceledException>(exception);
         Assert.Single(api.LinkedBranchCalls);
-        Assert.Collection(api.CreatedReferences, created =>
-        {
-            Assert.Equal("acme", created.Owner);
-            Assert.Equal("widgets", created.Repository);
-            Assert.Equal("formicae/cccccccccccccccccccccccccccccccc", created.BranchName);
-            Assert.Equal("base-sha", created.Sha);
-        });
+        Assert.Empty(api.CreatedReferences);
     }
 
     [Fact]
@@ -1015,10 +1015,25 @@ public sealed class WorkflowOrchestratorTests
 
         await provider.ReactToIssueAsync(
             "https://github.com/acme/widgets/issues/42",
-            WorkflowReactionContent.Started,
+            WorkflowReactionContent.PlanningStarted,
             CancellationToken.None);
 
-        Assert.Equal([new ReactionCall("issue", "acme", "widgets", 42, WorkflowReactionContent.Started)], api.ReactionCalls);
+        Assert.Equal([new ReactionCall("issue", "acme", "widgets", 42, WorkflowReactionContent.PlanningStarted)], api.ReactionCalls);
+    }
+
+    [Fact]
+    public async Task GitHubWorkItemProvider_Reacts_to_issue_comment()
+    {
+        var api = new CapturingGitHubApi();
+        var provider = new GitHubWorkItemProvider(api);
+
+        await provider.ReactToIssueCommentAsync(
+            "https://github.com/acme/widgets/issues/42",
+            new WorkItemComment("123", "maintainer", "Please update the plan.", "https://github.com/acme/widgets/issues/42#issuecomment-123", DateTimeOffset.UtcNow),
+            WorkflowReactionContent.FeedbackStarted,
+            CancellationToken.None);
+
+        Assert.Equal([new ReactionCall("issue-comment", "acme", "widgets", 123, WorkflowReactionContent.FeedbackStarted)], api.ReactionCalls);
     }
 
     [Fact]
@@ -1113,17 +1128,17 @@ public sealed class WorkflowOrchestratorTests
         await provider.ReactToPullRequestCommentAsync(
             workflow,
             new PullRequestComment("issue:10", "maintainer", "Please update docs.", "https://github.com/acme/widgets/pull/123#issuecomment-10", DateTimeOffset.UtcNow, PullRequestCommentKind.IssueComment),
-            WorkflowReactionContent.Started,
+            WorkflowReactionContent.PullRequestCommentStarted,
             CancellationToken.None);
         await provider.ReactToPullRequestCommentAsync(
             workflow,
             new PullRequestComment("review:20", "reviewer", "Please add a test.", "https://github.com/acme/widgets/pull/123#discussion_r20", DateTimeOffset.UtcNow, PullRequestCommentKind.ReviewComment),
-            WorkflowReactionContent.Started,
+            WorkflowReactionContent.PullRequestCommentStarted,
             CancellationToken.None);
 
         Assert.Equal([
-            new ReactionCall("issue-comment", "acme", "widgets", 10, WorkflowReactionContent.Started),
-            new ReactionCall("review-comment", "acme", "widgets", 20, WorkflowReactionContent.Started)
+            new ReactionCall("issue-comment", "acme", "widgets", 10, WorkflowReactionContent.PullRequestCommentStarted),
+            new ReactionCall("review-comment", "acme", "widgets", 20, WorkflowReactionContent.PullRequestCommentStarted)
         ], api.ReactionCalls);
     }
 
@@ -1206,11 +1221,6 @@ public sealed class WorkflowOrchestratorTests
         }
 
 
-        public Task CreateReferenceAsync(string owner, string repository, string branchName, string sha)
-        {
-            CreatedReferences.Add(new CreatedReference(owner, repository, branchName, sha));
-            return Task.CompletedTask;
-        }
         public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
             => Task.FromResult<IReadOnlyList<PullRequest>>([]);
 

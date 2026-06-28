@@ -61,18 +61,6 @@ public sealed class GitHubSourceControlProvider : ISourceControlProvider
         {
             return request.BranchName;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            try
-            {
-                await api.CreateReferenceAsync(repository.Owner, repository.Repository, request.BranchName, baseRef.Object.Sha);
-            }
-            catch (ApiException createReferenceException) when (IsAlreadyExists(createReferenceException))
-            {
-            }
-
-            return request.BranchName;
-        }
     }
 
     public async Task<PullRequestResult> CreatePullRequestAsync(Workflow workflow, IReadOnlyList<TaskRun> taskRuns, CancellationToken cancellationToken)

@@ -14,7 +14,6 @@ internal interface IGitHubApi
     Task ReactToIssueAsync(string owner, string repository, int number, string reaction);
     Task<Reference> GetReferenceAsync(string owner, string repository, string reference);
     Task<string> CreateLinkedBranchAsync(string owner, string repository, int issueNumber, string baseOid, string branchName, CancellationToken cancellationToken);
-    Task CreateReferenceAsync(string owner, string repository, string branchName, string sha);
     Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch);
     Task<PullRequest> GetPullRequestAsync(string owner, string repository, int number);
     Task<PullRequest> CreatePullRequestAsync(string owner, string repository, string title, string head, string baseBranch, string body);
@@ -79,8 +78,6 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
         return branchName;
     }
 
-    public async Task CreateReferenceAsync(string owner, string repository, string branchName, string sha)
-        => await client.Git.Reference.Create(owner, repository, new NewReference($"refs/heads/{branchName}", sha));
 
     public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
     {
