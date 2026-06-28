@@ -114,7 +114,7 @@ The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before
 
 Deployment assets live in `deploy/kubernetes/base` and `deploy/helm/formicae`. They include Dockerfiles, kustomize manifests, a Helm chart, PostgreSQL, the API workload, health probes, placeholder secrets, and RBAC.
 
-See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, and smoke-test commands.
+See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for build, configure, deploy, smoke-test commands, and the automatic post-build Helm deployment workflow.
 
 ## Configuration
 
