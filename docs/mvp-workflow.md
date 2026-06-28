@@ -1,6 +1,7 @@
 # MVP Workflow
 
 The MVP workflow is intentionally static so agents can understand and test it quickly.
+Configurable workflows are planned separately in [Configurable Workflows Architecture](configurable-workflows-architecture.md); that document maps the static MVP flow to the future definition model without changing the current behavior described here.
 
 ## Trigger
 

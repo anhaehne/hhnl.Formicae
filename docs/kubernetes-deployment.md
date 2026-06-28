@@ -92,7 +92,7 @@ helm upgrade --install formicae formicae/formicae `
   --namespace formicae `
   --create-namespace `
   --set image.repositoryPrefix=anhaehne `
-  --set image.tag=0.3.18
+  --set image.tag=0.3.27
 ```
 
 ## Automatic Cluster Deployment

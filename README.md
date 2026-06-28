@@ -156,3 +156,5 @@ When enabling a GitHub identity provider, the UI first sends the current browser
 - `hhnl.Formicae.Api` owns HTTP endpoints, the distributed-lock-protected background orchestration loop, and worker message ingestion.
 - `hhnl.Formicae.Worker` owns in-container agent execution and streams live agent output back to the API.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
+
+Planned configurable workflow architecture is documented in [docs/configurable-workflows-architecture.md](docs/configurable-workflows-architecture.md).
