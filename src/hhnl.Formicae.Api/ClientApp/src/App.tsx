@@ -17,6 +17,8 @@ import {
   GitHubUserRepository,
   IntegrationDetail,
   IntegrationSummary,
+  listManagementRoles,
+  listManagementUsers,
   listChatMessages,
   listEvents,
   listGitHubUserRepositories,
@@ -26,6 +28,8 @@ import {
   listSignals,
   listWorkflows,
   logout,
+  ManagementRole,
+  ManagementUser,
   redeemInvite,
   restartIdentityProvider,
   retryTaskRun,
@@ -35,6 +39,7 @@ import {
   startWorkflow,
   TaskRun,
   updateAiSettings,
+  updateManagementUserRoles,
 
   WorkflowChatMessage,
   WorkflowEvent,
@@ -149,6 +154,12 @@ export default function App() {
   const [redeemCode, setRedeemCode] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [appVersion, setAppVersion] = useState<string>();
+  const [managementRoles, setManagementRoles] = useState<ManagementRole[]>([]);
+  const [managementUsers, setManagementUsers] = useState<ManagementUser[]>([]);
+  const [loadingManagementUsers, setLoadingManagementUsers] = useState(false);
+  const [updatingManagementUserId, setUpdatingManagementUserId] = useState<string>();
+  const [userManagementError, setUserManagementError] = useState<string>();
+  const [userManagementSaved, setUserManagementSaved] = useState<string>();
 
   const processedInvite = useRef<string | undefined>(undefined);
   const processedIdentityActivation = useRef<string | undefined>(undefined);
@@ -326,6 +337,26 @@ export default function App() {
     }
   }, [selectedIntegrationId]);
 
+  const refreshUserManagement = useCallback(async () => {
+    if (!canAdminister) {
+      setManagementRoles([]);
+      setManagementUsers([]);
+      return;
+    }
+
+    setLoadingManagementUsers(true);
+    setUserManagementError(undefined);
+    try {
+      const [roles, users] = await Promise.all([listManagementRoles(), listManagementUsers()]);
+      setManagementRoles(roles);
+      setManagementUsers(users);
+    } catch (error) {
+      setUserManagementError(error instanceof Error ? error.message : "Could not load users and roles.");
+    } finally {
+      setLoadingManagementUsers(false);
+    }
+  }, [canAdminister]);
+
   const refreshAvailableRepositories = useCallback(async () => {
     if (!selectedIntegrationId) {
       setAvailableRepositories([]);
@@ -354,7 +385,10 @@ export default function App() {
     if (activePage === "repositories") {
       void refreshAvailableRepositories();
     }
-  }, [activePage, canAdminister, refreshAvailableRepositories, refreshIntegrations]);
+    if (activePage === "users") {
+      void refreshUserManagement();
+    }
+  }, [activePage, canAdminister, refreshAvailableRepositories, refreshIntegrations, refreshUserManagement]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -777,6 +811,24 @@ export default function App() {
       setAuthError(error instanceof Error ? error.message : "Could not log out.");
     } finally {
       setAuthBusy(false);
+    }
+  }
+
+  async function handleUpdateUserRoles(userId: string, roles: string[]) {
+    setUpdatingManagementUserId(userId);
+    setUserManagementError(undefined);
+    setUserManagementSaved(undefined);
+    try {
+      const updated = await updateManagementUserRoles(userId, { roles });
+      setManagementUsers(current => current.map(user => user.id === updated.id ? updated : user));
+      setUserManagementSaved("User roles updated.");
+      if (currentUser?.id === updated.id) {
+        await refreshCurrentUser();
+      }
+    } catch (error) {
+      setUserManagementError(error instanceof Error ? error.message : "Could not update user roles.");
+    } finally {
+      setUpdatingManagementUserId(undefined);
     }
   }
 
@@ -1216,8 +1268,16 @@ export default function App() {
           inviteCode={inviteCode}
           inviteLink={inviteLink}
           busy={authBusy}
+          roles={managementRoles}
+          users={managementUsers}
+          loadingUsers={loadingManagementUsers}
+          updatingUserId={updatingManagementUserId}
+          managementError={userManagementError}
+          managementSaved={userManagementSaved}
+          canAdminister={canAdminister}
           onLogout={handleLogout}
           onCreateInvite={handleCreateInvite}
+          onUpdateUserRoles={handleUpdateUserRoles}
         />
       ) : (
         <SettingsPage
@@ -1303,65 +1363,204 @@ function UsersPage({
   inviteCode,
   inviteLink,
   busy,
+  roles,
+  users,
+  loadingUsers,
+  updatingUserId,
+  managementError,
+  managementSaved,
+  canAdminister,
   onLogout,
-  onCreateInvite
+  onCreateInvite,
+  onUpdateUserRoles
 }: {
   currentUser?: CurrentUser;
   authError?: string;
   inviteCode?: string;
   inviteLink?: string;
   busy: boolean;
+  roles: ManagementRole[];
+  users: ManagementUser[];
+  loadingUsers: boolean;
+  updatingUserId?: string;
+  managementError?: string;
+  managementSaved?: string;
+  canAdminister: boolean;
   onLogout: () => void;
   onCreateInvite: () => void;
+  onUpdateUserRoles: (userId: string, roles: string[]) => void;
 }) {
   return (
     <section className="users-page">
-      <section className="workspace-grid">
-        <section className="panel users-panel">
-          <div className="panel-heading">
-            <h2>Current User</h2>
-            {currentUser?.authenticated ? <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} /> : <StatusBadge value="Anonymous" />}
-          </div>
-          <div className="summary-list compact">
-            <SummaryItem label="Status" value={currentUser?.authenticated ? "Signed in" : "Not signed in"} />
-            <SummaryItem label="Name" value={currentUser?.name ?? "None"} />
-            <SummaryItem label="Email" value={currentUser?.email ?? "None"} />
-            <SummaryItem label="Provider" value={currentUser?.provider ?? "None"} />
-          </div>
-          {currentUser?.authenticated ? (
-            <div className="button-row">
-              <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
+      <section className="user-management-layout">
+        <div className="left-stack">
+          <section className="panel users-panel">
+            <div className="panel-heading">
+              <h2>Current User</h2>
+              {currentUser?.authenticated ? <StatusBadge value={currentUser.authorized ? "Authorized" : "InviteRequired"} /> : <StatusBadge value="Anonymous" />}
             </div>
-          ) : null}
-          {authError ? <p className="error-text">{authError}</p> : null}
-        </section>
+            <div className="summary-list compact">
+              <SummaryItem label="Status" value={currentUser?.authenticated ? "Signed in" : "Not signed in"} />
+              <SummaryItem label="Name" value={currentUser?.name ?? "None"} />
+              <SummaryItem label="Email" value={currentUser?.email ?? "None"} />
+              <SummaryItem label="Provider" value={currentUser?.provider ?? "None"} />
+            </div>
+            <div className="permission-strip" aria-label="Current user permissions">
+              <StatusBadge value={currentUser?.canViewWorkflows ? "WorkflowView" : "NoWorkflowView"} />
+              <StatusBadge value={currentUser?.canTriggerWorkflows ? "WorkflowOperate" : "NoWorkflowOperate"} />
+              <StatusBadge value={currentUser?.canAdminister ? "ManagementAdmin" : "NoManagementAdmin"} />
+            </div>
+            {currentUser?.authenticated ? (
+              <div className="button-row">
+                <button type="button" className="secondary-button" onClick={onLogout} disabled={busy}>Logout</button>
+              </div>
+            ) : null}
+            {authError ? <p className="error-text">{authError}</p> : null}
+          </section>
 
-        <section className="panel users-panel">
+          <section className="panel users-panel">
+            <div className="panel-heading">
+              <h2>Invite Links</h2>
+            </div>
+            {canAdminister ? (
+              <>
+                <p className="muted">Create an invite link for another identity provider user. Redeeming an invite grants management admin access.</p>
+                <button type="button" className="primary-button user-action-button" onClick={onCreateInvite} disabled={busy}>{busy ? "Creating" : "Create Invite Link"}</button>
+                {inviteLink ? (
+                  <div className="invite-result">
+                    <label>
+                      <span>Invite Link</span>
+                      <input value={inviteLink} readOnly onFocus={event => event.currentTarget.select()} />
+                    </label>
+                    {inviteCode ? <code className="invite-code">{inviteCode}</code> : null}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted">Management admins can create invite links.</p>
+            )}
+          </section>
+
+          <section className="panel users-panel">
+            <div className="panel-heading">
+              <h2>Roles</h2>
+            </div>
+            <div className="role-reference-list">
+              {roles.length > 0 ? roles.map(role => (
+                <article className="role-reference" key={role.name}>
+                  <div>
+                    <strong>{formatRoleName(role.name)}</strong>
+                    <p className="muted">{role.description}</p>
+                  </div>
+                  <PermissionChips permissions={role.permissions} />
+                </article>
+              )) : <p className="muted">Role definitions load for management admins.</p>}
+            </div>
+          </section>
+        </div>
+
+        <section className="panel users-directory-panel">
           <div className="panel-heading">
-            <h2>Invite Links</h2>
+            <h2>User Directory</h2>
+            {loadingUsers ? <span className="muted">Loading</span> : <StatusBadge value={`${users.length}`} />}
           </div>
-          {currentUser?.authorized ? (
-            <>
-              <p className="muted">Create an invite link for another identity provider user. The link signs them in first and applies the invite automatically after the login callback.</p>
-              <button type="button" className="primary-button user-action-button" onClick={onCreateInvite} disabled={busy}>{busy ? "Creating" : "Create Invite Link"}</button>
-              {inviteLink ? (
-                <div className="invite-result">
-                  <label>
-                    <span>Invite Link</span>
-                    <input value={inviteLink} readOnly onFocus={event => event.currentTarget.select()} />
-                  </label>
-                  {inviteCode ? <code className="invite-code">{inviteCode}</code> : null}
-                </div>
-              ) : null}
-            </>
+          {managementError ? <p className="error-text">{managementError}</p> : null}
+          {managementSaved ? <p className="success-text">{managementSaved}</p> : null}
+          {canAdminister ? (
+            <UserManagementTable
+              currentUserId={currentUser?.id ?? undefined}
+              roles={roles}
+              users={users}
+              updatingUserId={updatingUserId}
+              onUpdateUserRoles={onUpdateUserRoles}
+            />
           ) : (
-            <p className="muted">Verified users can create invite links.</p>
+            <p className="muted">Management admins can view users and assign roles.</p>
           )}
         </section>
       </section>
     </section>
   );
-}function IntegrationsPage({
+}
+
+function UserManagementTable({
+  currentUserId,
+  roles,
+  users,
+  updatingUserId,
+  onUpdateUserRoles
+}: {
+  currentUserId?: string;
+  roles: ManagementRole[];
+  users: ManagementUser[];
+  updatingUserId?: string;
+  onUpdateUserRoles: (userId: string, roles: string[]) => void;
+}) {
+  return (
+    <div className="table-wrap user-table-wrap">
+      <table className="user-management-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Roles</th>
+            <th>Permissions</th>
+            <th>Last Login</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map(user => (
+            <tr key={user.id}>
+              <td>
+                <strong>{user.displayName ?? user.userName ?? user.email ?? "Unnamed user"}</strong>
+                <span className="table-subtext">{user.email ?? user.userName ?? user.id}</span>
+                <span className="table-subtext">{user.provider ?? "Local identity"}</span>
+              </td>
+              <td>
+                <div className="role-toggle-grid">
+                  {roles.map(role => {
+                    const checked = user.roles.includes(role.name);
+                    const selfAdminRole = user.id === currentUserId && role.name === "ManagementAdmin";
+                    const nextRoles = checked
+                      ? user.roles.filter(userRole => userRole !== role.name)
+                      : [...user.roles, role.name];
+
+                    return (
+                      <label className="role-toggle" key={role.name} title={role.description}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={updatingUserId === user.id || (selfAdminRole && checked)}
+                          onChange={() => onUpdateUserRoles(user.id, nextRoles)}
+                        />
+                        <span>{formatRoleName(role.name)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </td>
+              <td><PermissionChips permissions={user.permissions} /></td>
+              <td>{user.lastLoginAt ? formatDate(user.lastLoginAt) : <span className="muted">Never</span>}</td>
+            </tr>
+          ))}
+          {users.length === 0 ? (
+            <tr>
+              <td colSpan={4} className="empty-cell">No users found.</td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PermissionChips({ permissions }: { permissions: string[] }) {
+  return permissions.length > 0 ? (
+    <div className="permission-chip-list">
+      {permissions.map(permission => <span className="permission-chip" key={permission}>{permission}</span>)}
+    </div>
+  ) : <span className="muted">No permissions</span>;
+}
+function IntegrationsPage({
   integrations,
   integrationDetail,
   selectedIntegrationId,
@@ -1842,6 +2041,10 @@ function buildReturnUrl(values: Record<string, string | undefined>) {
   return query ? `/?${query}` : "/";
 }
 
+function formatRoleName(role: string) {
+  return role.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 function buildAbsoluteInviteLink(code: string) {
   return `${window.location.origin}${buildReturnUrl({ page: "users", invite: code })}`;
 }
@@ -1949,3 +2152,5 @@ function shortUrl(value: string) {
     return value;
   }
 }
+
+

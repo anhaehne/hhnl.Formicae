@@ -153,6 +153,71 @@ public sealed class ManagementAuthApiTests
     }
 
     [Fact]
+    public async Task Admin_CanListRolesAndAssignUserRoles()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var admin = await factory.CreateAdminAsync("roles-admin");
+        var target = await factory.CreateViewerAsync("roles-target");
+        var client = factory.CreateAuthenticatedClient(admin.Id);
+
+        var rolesResponse = await client.GetAsync("/api/auth/roles");
+        var usersResponse = await client.GetAsync("/api/auth/users");
+        var roles = await rolesResponse.Content.ReadFromJsonAsync<List<RoleDefinitionResponse>>();
+        var users = await usersResponse.Content.ReadFromJsonAsync<List<ManagementUserResponse>>();
+        var updateResponse = await client.PutAsJsonAsync($"/api/auth/users/{target.Id}/roles", new
+        {
+            roles = new[] { ManagementUserService.WorkflowOperatorRole }
+        });
+        var updated = await updateResponse.Content.ReadFromJsonAsync<ManagementUserResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, rolesResponse.StatusCode);
+        Assert.Contains(roles!, role => role.Name == ManagementUserService.ManagementAdminRole
+            && role.Permissions.Contains(ManagementUserService.ManagementAdminPermission));
+        Assert.Equal(HttpStatusCode.OK, usersResponse.StatusCode);
+        Assert.Contains(users!, user => user.Id == admin.Id && user.Roles.Contains(ManagementUserService.ManagementAdminRole));
+        Assert.Contains(users!, user => user.Id == target.Id && user.Roles.Contains(ManagementUserService.WorkflowViewerRole));
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        Assert.NotNull(updated);
+        Assert.Equal(target.Id, updated!.Id);
+        Assert.DoesNotContain(ManagementUserService.WorkflowViewerRole, updated.Roles);
+        Assert.Contains(ManagementUserService.WorkflowOperatorRole, updated.Roles);
+        Assert.Contains(ManagementUserService.WorkflowOperatePermission, updated.Permissions);
+    }
+
+    [Fact]
+    public async Task Operator_CannotManageUsers()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var operatorUser = await factory.CreateOperatorAsync("user-operator");
+        var target = await factory.CreateViewerAsync("user-target");
+        var client = factory.CreateAuthenticatedClient(operatorUser.Id);
+
+        var rolesResponse = await client.GetAsync("/api/auth/roles");
+        var usersResponse = await client.GetAsync("/api/auth/users");
+        var updateResponse = await client.PutAsJsonAsync($"/api/auth/users/{target.Id}/roles", new
+        {
+            roles = new[] { ManagementUserService.WorkflowOperatorRole }
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, rolesResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, usersResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_CannotRemoveOwnAdminRole()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var admin = await factory.CreateAdminAsync("self-admin");
+        var client = factory.CreateAuthenticatedClient(admin.Id);
+
+        var response = await client.PutAsJsonAsync($"/api/auth/users/{admin.Id}/roles", new { roles = Array.Empty<string>() });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(await factory.IsAdminAsync(admin));
+    }
+
+    [Fact]
     public async Task AuthDisabled_PermitsWorkflowReadsAndOperations()
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: false);
@@ -272,6 +337,8 @@ public sealed class ManagementAuthApiTests
         };
 
     private sealed record InviteResponse(string Code);
+    private sealed record RoleDefinitionResponse(string Name, IReadOnlyList<string> Permissions);
+    private sealed record ManagementUserResponse(string Id, IReadOnlyList<string> Roles, IReadOnlyList<string> Permissions);
     private sealed record CurrentUserResponse(
         bool Authenticated,
         bool Authorized,
@@ -431,3 +498,6 @@ public sealed class ManagementAuthApiTests
         }
     }
 }
+
+
+

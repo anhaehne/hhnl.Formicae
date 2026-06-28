@@ -164,6 +164,7 @@ export type AppVersion = {
 };
 
 export type CurrentUser = {
+  id?: string | null;
   authenticated: boolean;
   authorized: boolean;
   authRequired: boolean;
@@ -183,6 +184,28 @@ export type InviteCode = {
   code?: string | null;
 };
 
+export type ManagementRole = {
+  name: string;
+  description: string;
+  permissions: string[];
+};
+
+export type ManagementUser = {
+  id: string;
+  userName?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  provider?: string | null;
+  roles: string[];
+  permissions: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string | null;
+};
+
+export type UpdateManagementUserRolesRequest = {
+  roles: string[];
+};
 export async function getAppVersion(): Promise<AppVersion> {
   return send<AppVersion>("/api/version");
 }
@@ -203,6 +226,21 @@ export async function redeemInvite(code: string): Promise<void> {
   });
 }
 
+export async function listManagementRoles(): Promise<ManagementRole[]> {
+  return send<ManagementRole[]>("/api/auth/roles");
+}
+
+export async function listManagementUsers(): Promise<ManagementUser[]> {
+  return send<ManagementUser[]>("/api/auth/users");
+}
+
+export async function updateManagementUserRoles(userId: string, request: UpdateManagementUserRolesRequest): Promise<ManagementUser> {
+  return send<ManagementUser>(`/api/auth/users/${encodeURIComponent(userId)}/roles`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
 export async function logout(): Promise<void> {
   await sendNoContent("/api/auth/logout", { method: "POST" });
 }
@@ -349,3 +387,5 @@ async function readError(response: Response): Promise<string> {
     return text;
   }
 }
+
+

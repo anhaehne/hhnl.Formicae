@@ -1,6 +1,7 @@
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace hhnl.Formicae.Infrastructure.Identity;
@@ -18,6 +19,29 @@ public sealed class ManagementUserService(
     public const string WorkflowViewPermission = "WorkflowView";
     public const string WorkflowOperatePermission = "WorkflowOperate";
     public const string ManagementAdminPermission = "ManagementAdmin";
+
+    public static readonly string[] KnownRoles =
+    [
+        WorkflowViewerRole,
+        WorkflowOperatorRole,
+        ManagementAdminRole
+    ];
+
+    public static readonly ManagementRoleDefinition[] RoleDefinitions =
+    [
+        new(
+            WorkflowViewerRole,
+            "Read workflow history, run details, comments, logs, and signals.",
+            [WorkflowViewPermission]),
+        new(
+            WorkflowOperatorRole,
+            "Start workflows and retry failed workflow or task runs.",
+            [WorkflowViewPermission, WorkflowOperatePermission]),
+        new(
+            ManagementAdminRole,
+            "Manage integrations, repositories, AI settings, invites, users, and roles.",
+            [WorkflowViewPermission, WorkflowOperatePermission, ManagementAdminPermission])
+    ];
 
     public async Task<FormicaeUser> FindOrCreateExternalUserAsync(ExternalUserProfile profile, CancellationToken cancellationToken)
     {
@@ -103,6 +127,73 @@ public sealed class ManagementUserService(
     public async Task<FormicaeUser?> GetCurrentUserAsync(ClaimsPrincipal principal)
         => await userManager.GetUserAsync(principal);
 
+    public async Task<IReadOnlyList<ManagementUserSummary>> ListUsersAsync(CancellationToken cancellationToken)
+    {
+        var users = await userManager.Users
+            .OrderBy(user => user.UserName)
+            .ToListAsync(cancellationToken);
+        var summaries = new List<ManagementUserSummary>(users.Count);
+
+        foreach (var user in users)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            summaries.Add(await ToSummaryAsync(user));
+        }
+
+        return summaries;
+    }
+
+    public async Task<ManagementUserSummary?> GetUserSummaryAsync(string userId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var user = await userManager.FindByIdAsync(userId);
+        return user is null ? null : await ToSummaryAsync(user);
+    }
+
+    public async Task<ManagementUserSummary?> UpdateRolesAsync(string userId, IReadOnlyCollection<string> roles, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return null;
+        }
+
+        var requestedRoles = roles
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Select(role => role.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var unknownRoles = requestedRoles.Except(KnownRoles, StringComparer.Ordinal).ToArray();
+        if (unknownRoles.Length > 0)
+        {
+            throw new ArgumentException($"Unknown management roles: {string.Join(", ", unknownRoles)}.", nameof(roles));
+        }
+
+        foreach (var role in KnownRoles)
+        {
+            await EnsureRoleAsync(role);
+        }
+
+        var currentRoles = await userManager.GetRolesAsync(user);
+        var rolesToRemove = currentRoles.Intersect(KnownRoles, StringComparer.Ordinal).Except(requestedRoles, StringComparer.Ordinal).ToArray();
+        var rolesToAdd = requestedRoles.Except(currentRoles, StringComparer.Ordinal).ToArray();
+        if (rolesToRemove.Length > 0)
+        {
+            await EnsureSucceededAsync(userManager.RemoveFromRolesAsync(user, rolesToRemove), "remove management roles");
+        }
+
+        if (rolesToAdd.Length > 0)
+        {
+            await EnsureSucceededAsync(userManager.AddToRolesAsync(user, rolesToAdd), "add management roles");
+        }
+
+        user.UpdatedAt = clock.UtcNow;
+        await EnsureSucceededAsync(userManager.UpdateAsync(user), "update management user");
+
+        return await ToSummaryAsync(user);
+    }
+
     private async Task GrantRoleAsync(FormicaeUser user, string role, string action, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -122,6 +213,48 @@ public sealed class ManagementUserService(
         }
 
         await EnsureSucceededAsync(roleManager.CreateAsync(new IdentityRole(role)), $"create {role} role");
+    }
+
+    private async Task<ManagementUserSummary> ToSummaryAsync(FormicaeUser user)
+    {
+        var roles = (await userManager.GetRolesAsync(user))
+            .Where(role => KnownRoles.Contains(role, StringComparer.Ordinal))
+            .OrderBy(role => Array.IndexOf(KnownRoles, role))
+            .ToArray();
+        var logins = await userManager.GetLoginsAsync(user);
+        var permissions = ResolvePermissions(roles);
+
+        return new ManagementUserSummary(
+            user.Id,
+            user.UserName,
+            user.DisplayName,
+            user.Email,
+            logins.FirstOrDefault()?.LoginProvider,
+            roles,
+            permissions,
+            user.CreatedAt,
+            user.UpdatedAt,
+            user.LastLoginAt);
+    }
+
+    private static IReadOnlyList<string> ResolvePermissions(IReadOnlyCollection<string> roles)
+    {
+        if (roles.Contains(ManagementAdminRole, StringComparer.Ordinal))
+        {
+            return [WorkflowViewPermission, WorkflowOperatePermission, ManagementAdminPermission];
+        }
+
+        if (roles.Contains(WorkflowOperatorRole, StringComparer.Ordinal))
+        {
+            return [WorkflowViewPermission, WorkflowOperatePermission];
+        }
+
+        if (roles.Contains(WorkflowViewerRole, StringComparer.Ordinal))
+        {
+            return [WorkflowViewPermission];
+        }
+
+        return [];
     }
 
     private static string BuildUserName(ExternalUserProfile profile)
@@ -152,3 +285,20 @@ public sealed record ExternalUserProfile(
     string? UserName,
     string? DisplayName,
     string? Email);
+
+public sealed record ManagementRoleDefinition(
+    string Name,
+    string Description,
+    IReadOnlyList<string> Permissions);
+
+public sealed record ManagementUserSummary(
+    string Id,
+    string? UserName,
+    string? DisplayName,
+    string? Email,
+    string? Provider,
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<string> Permissions,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? LastLoginAt);

@@ -403,6 +403,99 @@ tbody tr:hover {
   gap: 10px;
   margin-top: 14px;
 }
+.user-management-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+}
+
+.users-directory-panel {
+  align-self: start;
+  min-width: 0;
+}
+
+.permission-strip,
+.permission-chip-list {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-strip {
+  margin: 12px 0;
+}
+
+.role-reference-list {
+  display: grid;
+  gap: 10px;
+}
+
+.role-reference {
+  border: 1px solid #e2e5de;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.role-reference p {
+  margin-bottom: 0;
+}
+
+.user-table-wrap table {
+  min-width: 980px;
+}
+
+.user-management-table tbody tr {
+  cursor: default;
+}
+
+.table-subtext {
+  color: #6f766d;
+  display: block;
+  font-size: 0.78rem;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.role-toggle-grid {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.role-toggle {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  margin-bottom: 0;
+}
+
+.role-toggle input {
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.role-toggle span {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.permission-chip {
+  background: #eef1eb;
+  border: 1px solid #d7dbd2;
+  border-radius: 999px;
+  color: #2d332f;
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
 .integrations-page,
 .repositories-page {
   margin: 0 auto;
@@ -881,3 +974,6 @@ pre.collapsed-content::after {
     grid-template-columns: 1fr;
   }
 }
+
+
+

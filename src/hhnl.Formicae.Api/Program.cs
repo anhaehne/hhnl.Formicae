@@ -135,6 +135,7 @@ app.MapGet("/api/auth/current-user", async (
     return Results.Ok(new
     {
         authenticated = true,
+        id = user?.Id,
         authorized = canViewWorkflows || canTriggerWorkflows || canAdminister,
         authRequired,
         canViewWorkflows,
@@ -145,6 +146,39 @@ app.MapGet("/api/auth/current-user", async (
         provider = logins.FirstOrDefault()?.LoginProvider
     });
 });
+app.MapGet("/api/auth/roles", () => Results.Ok(ManagementUserService.RoleDefinitions))
+    .RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapGet("/api/auth/users", async (
+    ManagementUserService users,
+    CancellationToken cancellationToken) => Results.Ok(await users.ListUsersAsync(cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapPut("/api/auth/users/{userId}/roles", async (
+    string userId,
+    UpdateManagementUserRolesRequest request,
+    ClaimsPrincipal principal,
+    ManagementUserService users,
+    CancellationToken cancellationToken) =>
+{
+    var requestedRoles = request.Roles ?? [];
+    var currentUser = await users.GetCurrentUserAsync(principal);
+    if (currentUser?.Id == userId && !requestedRoles.Contains(ManagementUserService.ManagementAdminRole, StringComparer.Ordinal))
+    {
+        return Results.BadRequest(new { error = "You cannot remove your own management admin role." });
+    }
+
+    try
+    {
+        var updated = await users.UpdateRolesAsync(userId, requestedRoles, cancellationToken);
+        return updated is null ? Results.NotFound() : Results.Ok(updated);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+})
+    .RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 app.MapPost("/api/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(IdentityConstants.ApplicationScheme);
@@ -865,4 +899,7 @@ static Uri GetPublicBaseUri(HttpRequest request)
     return new Uri($"{scheme}://{host}");
 }
 
+public sealed record UpdateManagementUserRolesRequest(IReadOnlyList<string>? Roles);
+
 public partial class Program;
+
