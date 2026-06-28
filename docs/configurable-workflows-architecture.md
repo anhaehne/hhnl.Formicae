@@ -41,6 +41,8 @@ Configurable workflows should first model this exact flow as the built-in defaul
 | [Airflow DAGs](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html) | DAG structure, scheduling concepts, retries, and dependency visibility. | Python-authored DAGs are operationally heavy and oriented toward data pipelines, not reviewed DevOps agent work. |
 | [Tekton](https://tekton.dev/docs/pipelines/pipelines/) | Kubernetes-native Pipeline, Task, params, results, workspaces, `when`, and `finally` concepts. | Tekton's pipeline vocabulary is close to CI/CD but not directly aligned with personas, MCP, and agent prompts. |
 | [Buildkite](https://buildkite.com/docs/pipelines/configure/defining-steps) | Versioned YAML pipelines, plugins, dynamic uploads, parallelism, and agent pools. | Dynamic pipeline mutation is powerful but should be tightly reviewed before Formicae executes generated changes. |
+| [Unreal Engine Blueprints](https://dev.epicgames.com/documentation/unreal-engine/nodes-in-unreal-engine) | Separate execution pins and typed data pins make node graphs readable and allow invalid links to be rejected while editing. | A visual graph model should compile to a deterministic server-side workflow definition; the runtime should not depend on UI layout. |
+| [Blender Geometry Nodes](https://docs.blender.org/manual/en/latest/interface/controls/nodes/parts.html) | Typed input and output sockets make data compatibility visible in the editor before evaluation. | Formicae needs audit, permission, secret, and scheduling semantics in addition to socket compatibility. |
 | [CUE](https://cuelang.org/docs/) | Schema, data, and constraints in one language; strong validation and policy-like checks. | CUE is less familiar than YAML/JSON and would add a new toolchain to the MVP. |
 | [Dhall](https://dhall-lang.org/) | Typed, programmable, non-Turing-complete configuration with imports and normalization. | The language is safe but unfamiliar, and user adoption would be harder than a schema-backed YAML shape. |
 | [Nix](https://nix.dev/tutorials/nix-language.html) | Reproducible, composable environment definitions and strong content-addressed thinking. | Nix is too broad and too specialized to use directly as the workflow DSL. |
@@ -62,11 +64,11 @@ Example shapes in this document are illustrative. They are not committed schema.
 
 `WorkflowDefinition` is the named workflow contract. It contains stable identity, display metadata, supported triggers, version history, and policy defaults.
 
-`WorkflowDefinitionVersion` is an immutable version of the workflow graph and DSL schema version. It contains steps, edges, decisions, loop bounds, required capabilities, referenced tasks, referenced environments, referenced secrets, and migration metadata.
+`WorkflowDefinitionVersion` is an immutable version of the workflow graph and DSL schema version. It contains steps, control-flow edges, data-flow bindings, decisions, loop bounds, required capabilities, referenced tasks, referenced environments, referenced secrets, and migration metadata.
 
 `WorkflowRun` is one execution instance. It stores the selected `WorkflowDefinition` id, `WorkflowDefinitionVersion` id, DSL schema version, trigger event summary, current state, resolved integration element versions, and terminal outcome.
 
-`WorkflowStep` is a node in the definition graph. It can reference an agent task, script task, integration task, decision, loop, parallel group, or wait state.
+`WorkflowStep` is a node in the definition graph. It can reference an agent task, script task, integration task, decision, loop, parallel group, or wait state. Each executable step exposes statically typed input ports and output ports derived from the referenced task or integration element.
 
 `StepRun` is the runtime attempt for a `WorkflowStep`. It records status, attempt number, external job id, selected environment, selected persona, resolved secrets by reference id only, output references, failure reason, and timing.
 
@@ -90,6 +92,36 @@ Ownership boundaries:
 - `hhnl.Formicae.Infrastructure` resolves GitHub, Azure DevOps, Kubernetes, secret stores, MCP servers, container images, tool installers, and runner details.
 - `hhnl.Formicae.Api` exposes review, CRUD, trigger, and read APIs after the Application layer accepts definitions as valid.
 - `hhnl.Formicae.Worker` executes the already-resolved agent or script payload inside the selected environment.
+
+## Typed Step Contracts and Graph Connections
+
+Workflow steps should have static input and output contracts. `TaskDefinition`, `TriggerDefinition`, and other executable element schemas define named ports, type names, optionality, default values, multiplicity, secret sensitivity, and compatibility rules. A workflow definition is invalid unless every non-optional step input is satisfied by one of:
+
+- a compatible data connection from an earlier step output, trigger output, workflow input, or loop/parallel aggregate output
+- a literal value that validates against the input type
+- a default value declared by the task or integration element
+- a permitted `SecretReference` for inputs declared as secret-compatible
+
+Optional inputs may be omitted, but omitted values must be distinguishable from explicit `null` if the task schema cares about that difference. Output ports are produced only after the step succeeds, and downstream steps may consume only declared outputs whose static type is compatible with the target input.
+
+The graph model should separate control-flow connections from data-flow connections:
+
+- Control-flow connections answer "when may this step run?" and include sequential edges, decision branches, loop exits, parallel branch starts, failure edges, and wait-state resumes.
+- Data-flow connections answer "which value satisfies this input?" and bind a typed output port or workflow input to a typed input port.
+- A data connection creates an implicit scheduling dependency unless an explicit control-flow path already guarantees that the producing step completes before the consumer runs.
+- A control-flow connection does not automatically pass all outputs to the next step. Inputs remain explicit so validation, prompts, audit views, and future UI editors can show exactly what data is used.
+- A step may depend on multiple data inputs from different producers. The scheduler may run it only when its control-flow predecessor conditions are satisfied and all required data producers have succeeded.
+
+This direction matches node editors used in systems such as Blueprints and Geometry Nodes while keeping Formicae's runtime deterministic and reviewable. The UI can render execution ports separately from typed data sockets, reject incompatible socket links immediately, and still save a canonical schema-backed definition that the Application validator rechecks. Layout metadata, editor grouping, and wire routing remain authoring metadata; execution order, data dependencies, permissions, and secret scope are defined by the canonical workflow graph.
+
+Type compatibility should start conservative:
+
+- primitive scalar types: `string`, `boolean`, `integer`, `number`
+- structured types: named object schemas, arrays, maps, enums, and discriminated unions
+- domain types: `RepositoryRef`, `IssueRef`, `PullRequestRef`, `BranchRef`, `CommitRef`, `FileSet`, `ReviewCommentSet`, `ArtifactRef`, and `SecretReference`
+- compatibility by exact type id first, with explicit adapter tasks or schema-defined coercions for later evolution
+
+Data-flow validation should run before saving an enabled version and again before run creation against the selected registry snapshot. Validation rejects missing required inputs, unknown ports, incompatible types, secret-to-nonsecret bindings, cycles that are not explicit bounded loops, references to outputs from steps that may not run on the selected branch, and parallel aggregations without declared output merge semantics.
 
 ## CRDT Evaluation
 
@@ -197,12 +229,50 @@ workflow:
     - id: implement
       uses: builtins.implement
       next: createPullRequest
+      inputs:
+        plan:
+          from: plan.outputs.approvedPlan
     - id: createPullRequest
       uses: builtins.create-pull-request
       next: addressComments
+      inputs:
+        branch:
+          from: implement.outputs.branch
+        summary:
+          from: implement.outputs.summary
     - id: addressComments
       uses: builtins.address-comments
 ```
+
+Typed control-flow and data-flow graph:
+
+```yaml
+steps:
+  - id: classify
+    uses: builtins.classify-issue
+  - id: updateDocs
+    uses: builtins.update-docs
+  - id: implement
+    uses: builtins.implement
+
+control:
+  - from: classify
+    to: updateDocs
+    when: classify.outputs.kind == 'docs'
+  - from: classify
+    to: implement
+    when: classify.outputs.kind == 'code'
+
+data:
+  - from: trigger.issue
+    to: classify.inputs.issue
+  - from: classify.outputs.docsScope
+    to: updateDocs.inputs.scope
+  - from: classify.outputs.implementationPlan
+    to: implement.inputs.plan
+```
+
+This shape is illustrative, but the underlying distinction is required: execution edges schedule steps, while data edges satisfy typed inputs.
 
 Decision branch:
 
@@ -331,6 +401,10 @@ triggers:
 
 Sequential execution runs the next step only after the current step succeeds. A step with no next step completes the workflow unless it is inside a parallel group or loop.
 
+Before a step can be scheduled, all non-optional typed inputs must be satisfied by validated literals, defaults, secret references, workflow inputs, trigger outputs, or successful upstream step outputs. Control-flow eligibility alone is not enough to run a step.
+
+Data-flow edges are resolved against the selected definition version and integration registry snapshot. The scheduler records which output versions satisfied each input so retries, reruns, and debug views can explain the exact data used by a step without exposing secret values.
+
 Decisions must be deterministic. Conditions may read trigger payload, workflow inputs, validated step outputs, constants, and selected definition metadata. They may not call network services, read clocks directly, generate random values, or inspect secret values.
 
 Loops must be bounded by `maxIterations` and may also have a timeout. The validator rejects unbounded loops, missing exit branches, and loop conditions that depend on nondeterministic inputs.
@@ -412,6 +486,12 @@ All are architecture-supported. Runtime implementation order remains deferred an
 ## Security and Validation Rules
 
 - Reject unknown step, task, trigger, environment, persona, capability, MCP server, image, tool, and secret references.
+- Reject missing required step inputs.
+- Reject unknown input or output ports.
+- Reject incompatible data-flow types unless an explicit schema-defined coercion or adapter task is used.
+- Reject secret outputs or secret references bound to inputs that are not declared secret-compatible.
+- Reject data-flow cycles unless they are part of an explicit bounded loop.
+- Reject references to outputs from steps that may not run on the selected branch unless the consumer input is optional or has a valid fallback.
 - Reject integration elements that do not pass schema validation.
 - Reject unbounded loops.
 - Reject nondeterministic branch and loop conditions.
@@ -435,7 +515,8 @@ flowchart TD
     TriggerValidation --> DefinitionResolution[Resolve WorkflowDefinition + Version]
     DefinitionResolution --> RegistrySnapshot[Integration registry snapshot]
     RegistrySnapshot --> DefinitionValidation[Validate schema, references, permissions, secrets, loops, decisions]
-    DefinitionValidation --> RunCreation[Create WorkflowRun]
+    DefinitionValidation --> TypedGraphValidation[Validate typed ports + control/data edges]
+    TypedGraphValidation --> RunCreation[Create WorkflowRun]
     RunCreation --> Scheduler[Scheduler evaluates runnable steps]
     Scheduler --> RuntimeResolution[Resolve task, persona, environment, capabilities, MCP, image, tools, secrets]
     RuntimeResolution --> AgentExecution[Agent execution worker]
@@ -486,9 +567,14 @@ Pull request review also requested evaluating CRDTs for workflow definitions and
 
 Pull request review requested planning for a future UI workflow editor used for editing, monitoring, and debugging. The document now defines the editor as a client of the same validation, versioning, registry, event, permission, and redaction boundaries as the API and chat authoring path, with read-only graph and audit views as the first UI slice.
 
+Pull request review requested statically typed workflow step inputs and outputs and separate workflow and data connections. The document now recommends typed ports for executable elements, validates every non-optional input before enablement and run creation, separates control-flow edges from data-flow bindings, and maps that model to a future node-editor UI without making editor layout part of runtime semantics.
+
 ## Open Decisions
 
 - Exact DSL schema and expression language.
+- Exact canonical representation for control-flow edges and data-flow bindings.
+- How strict the first type system should be beyond exact type ids and JSON/OpenAPI-compatible schemas.
+- Whether any implicit data binding by name is allowed, or all step inputs must be wired explicitly.
 - Whether canonical storage is YAML, JSON, normalized database rows, or compiled snapshots produced from CRDT-backed drafts.
 - Whether CUE or Dhall should be supported as optional authoring frontends.
 - How integration metadata packages are signed and distributed.
