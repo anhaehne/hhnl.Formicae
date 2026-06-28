@@ -10,7 +10,14 @@ public sealed class ManagementUserService(
     RoleManager<IdentityRole> roleManager,
     IClock clock)
 {
-    public const string AuthorizedUserRole = "AuthorizedUser";
+    public const string WorkflowViewerRole = "WorkflowViewer";
+    public const string WorkflowOperatorRole = "WorkflowOperator";
+    public const string ManagementAdminRole = "ManagementAdmin";
+    public const string AuthorizedUserRole = ManagementAdminRole;
+
+    public const string WorkflowViewPermission = "WorkflowView";
+    public const string WorkflowOperatePermission = "WorkflowOperate";
+    public const string ManagementAdminPermission = "ManagementAdmin";
 
     public async Task<FormicaeUser> FindOrCreateExternalUserAsync(ExternalUserProfile profile, CancellationToken cancellationToken)
     {
@@ -59,33 +66,62 @@ public sealed class ManagementUserService(
     }
 
     public async Task<bool> IsAuthorizedAsync(ClaimsPrincipal principal)
+        => await IsInPermissionAsync(principal, WorkflowViewPermission);
+
+    public async Task<bool> IsInPermissionAsync(ClaimsPrincipal principal, string permission)
     {
         var user = await userManager.GetUserAsync(principal);
-        return user is not null && await userManager.IsInRoleAsync(user, AuthorizedUserRole);
+        if (user is null)
+        {
+            return false;
+        }
+
+        return permission switch
+        {
+            WorkflowViewPermission => await userManager.IsInRoleAsync(user, WorkflowViewerRole)
+                || await userManager.IsInRoleAsync(user, WorkflowOperatorRole)
+                || await userManager.IsInRoleAsync(user, ManagementAdminRole),
+            WorkflowOperatePermission => await userManager.IsInRoleAsync(user, WorkflowOperatorRole)
+                || await userManager.IsInRoleAsync(user, ManagementAdminRole),
+            ManagementAdminPermission => await userManager.IsInRoleAsync(user, ManagementAdminRole),
+            _ => false
+        };
     }
 
     public async Task GrantAuthorizedUserAsync(FormicaeUser user, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
+        => await GrantAdminAsync(user, cancellationToken);
 
-        await EnsureAuthorizedRoleAsync();
-        if (!await userManager.IsInRoleAsync(user, AuthorizedUserRole))
-        {
-            await EnsureSucceededAsync(userManager.AddToRoleAsync(user, AuthorizedUserRole), "grant management authorization");
-        }
-    }
+    public async Task GrantViewerAsync(FormicaeUser user, CancellationToken cancellationToken)
+        => await GrantRoleAsync(user, WorkflowViewerRole, "grant workflow viewer permission", cancellationToken);
+
+    public async Task GrantOperatorAsync(FormicaeUser user, CancellationToken cancellationToken)
+        => await GrantRoleAsync(user, WorkflowOperatorRole, "grant workflow operator permission", cancellationToken);
+
+    public async Task GrantAdminAsync(FormicaeUser user, CancellationToken cancellationToken)
+        => await GrantRoleAsync(user, ManagementAdminRole, "grant management admin permission", cancellationToken);
 
     public async Task<FormicaeUser?> GetCurrentUserAsync(ClaimsPrincipal principal)
         => await userManager.GetUserAsync(principal);
 
-    private async Task EnsureAuthorizedRoleAsync()
+    private async Task GrantRoleAsync(FormicaeUser user, string role, string action, CancellationToken cancellationToken)
     {
-        if (await roleManager.RoleExistsAsync(AuthorizedUserRole))
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await EnsureRoleAsync(role);
+        if (!await userManager.IsInRoleAsync(user, role))
+        {
+            await EnsureSucceededAsync(userManager.AddToRoleAsync(user, role), action);
+        }
+    }
+
+    private async Task EnsureRoleAsync(string role)
+    {
+        if (await roleManager.RoleExistsAsync(role))
         {
             return;
         }
 
-        await EnsureSucceededAsync(roleManager.CreateAsync(new IdentityRole(AuthorizedUserRole)), "create management authorization role");
+        await EnsureSucceededAsync(roleManager.CreateAsync(new IdentityRole(role)), $"create {role} role");
     }
 
     private static string BuildUserName(ExternalUserProfile profile)

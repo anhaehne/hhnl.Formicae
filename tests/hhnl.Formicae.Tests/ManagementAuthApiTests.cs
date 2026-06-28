@@ -1,4 +1,5 @@
 using hhnl.Formicae.Application.Integrations;
+using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Identity;
 using hhnl.Formicae.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
@@ -44,7 +45,7 @@ public sealed class ManagementAuthApiTests
     public async Task AuthorizedUser_CanMutate()
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
-        var user = await factory.CreateAuthorizedUserAsync("authorized");
+        var user = await factory.CreateAdminAsync("authorized");
         var client = factory.CreateAuthenticatedClient(user.Id);
 
         var response = await client.PutAsJsonAsync("/api/ai-settings", ValidAiSettings());
@@ -59,6 +60,112 @@ public sealed class ManagementAuthApiTests
         var response = await factory.CreateClient().PutAsJsonAsync("/api/ai-settings", ValidAiSettings());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AnonymousWorkflowRead_Returns401_WhenAuthEnabled()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+
+        var response = await factory.CreateClient().GetAsync("/api/workflows");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewer_CanReadWorkflows_ButCannotOperate()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var user = await factory.CreateViewerAsync("viewer");
+        var workflow = await factory.CreateFailedWorkflowAsync();
+        var client = factory.CreateAuthenticatedClient(user.Id);
+
+        var listResponse = await client.GetAsync("/api/workflows");
+        var detailResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}");
+        var runsResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}/runs");
+        var eventsResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}/events");
+        var signalsResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}/signals");
+        var chatResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}/chat-messages");
+        var logsResponse = await client.GetAsync($"/api/workflows/{workflow.WorkflowId}/logs");
+        var startResponse = await client.PostAsJsonAsync("/api/workflows/github-issue", ValidStartWorkflow());
+        var retryResponse = await client.PostAsync($"/api/workflows/{workflow.WorkflowId}/retry", null);
+
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, runsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, eventsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, signalsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, chatResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, logsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, startResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, retryResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Operator_CanOperateWorkflows_ButCannotAdminister()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var user = await factory.CreateOperatorAsync("operator");
+        var workflow = await factory.CreateFailedWorkflowAsync();
+        var taskRunWorkflow = await factory.CreateFailedWorkflowAsync();
+        var client = factory.CreateAuthenticatedClient(user.Id);
+
+        var startResponse = await client.PostAsJsonAsync("/api/workflows/github-issue", ValidStartWorkflow());
+        var retryWorkflowResponse = await client.PostAsync($"/api/workflows/{workflow.WorkflowId}/retry", null);
+        var taskRunResponse = await client.PostAsync($"/api/workflows/{taskRunWorkflow.WorkflowId}/runs/{taskRunWorkflow.TaskRunId}/retry", null);
+        var aiSettingsResponse = await client.PutAsJsonAsync("/api/ai-settings", ValidAiSettings());
+        var integrationResponse = await client.PostAsJsonAsync("/api/integrations/github", new { });
+
+        Assert.Equal(HttpStatusCode.Accepted, startResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retryWorkflowResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, taskRunResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, aiSettingsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, integrationResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Operator_CannotEnableIdentityProvider_WhenIdentityProviderAlreadyExists()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var user = await factory.CreateOperatorAsync("operator-bootstrap");
+        await factory.CreateGitHubIntegrationAsync(identityProviderEnabled: true);
+        var targetIntegration = await factory.CreateGitHubIntegrationAsync();
+        var client = factory.CreateAuthenticatedClient(user.Id);
+
+        var response = await client.PutAsJsonAsync($"/api/integrations/{targetIntegration.Id}/identity-provider", new { enabled = true });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+
+    [Fact]
+    public async Task Admin_CanUpdateSettings_AndCreateInvite()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var user = await factory.CreateAdminAsync("admin");
+        var client = factory.CreateAuthenticatedClient(user.Id);
+
+        var settingsResponse = await client.PutAsJsonAsync("/api/ai-settings", ValidAiSettings());
+        var inviteResponse = await client.PostAsync("/api/auth/invites", null);
+
+        Assert.Equal(HttpStatusCode.OK, settingsResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, inviteResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task AuthDisabled_PermitsWorkflowReadsAndOperations()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: false);
+        var workflow = await factory.CreateFailedWorkflowAsync();
+        var client = factory.CreateClient();
+
+        var readResponse = await client.GetAsync("/api/workflows");
+        var startResponse = await client.PostAsJsonAsync("/api/workflows/github-issue", ValidStartWorkflow());
+        var retryResponse = await client.PostAsync($"/api/workflows/{workflow.WorkflowId}/retry", null);
+
+        Assert.Equal(HttpStatusCode.OK, readResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, startResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
     }
 
     [Fact]
@@ -85,7 +192,32 @@ public sealed class ManagementAuthApiTests
         var response = await client.PutAsJsonAsync($"/api/integrations/{integration.Id}/identity-provider", new { enabled = true });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.True(await factory.IsAuthorizedAsync(user));
+        Assert.True(await factory.IsAdminAsync(user));
+    }
+
+    [Theory]
+    [InlineData("viewer", true, true, false, false)]
+    [InlineData("operator", true, true, true, false)]
+    [InlineData("admin", true, true, true, true)]
+    public async Task CurrentUser_ReturnsCapabilities(string role, bool authorized, bool canView, bool canTrigger, bool canAdminister)
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var user = role switch
+        {
+            "viewer" => await factory.CreateViewerAsync("viewer-current"),
+            "operator" => await factory.CreateOperatorAsync("operator-current"),
+            _ => await factory.CreateAdminAsync("admin-current")
+        };
+        var client = factory.CreateAuthenticatedClient(user.Id);
+
+        var currentUser = await client.GetFromJsonAsync<CurrentUserResponse>("/api/auth/current-user");
+
+        Assert.NotNull(currentUser);
+        Assert.True(currentUser!.Authenticated);
+        Assert.Equal(authorized, currentUser.Authorized);
+        Assert.Equal(canView, currentUser.CanViewWorkflows);
+        Assert.Equal(canTrigger, currentUser.CanTriggerWorkflows);
+        Assert.Equal(canAdminister, currentUser.CanAdminister);
     }
 
 
@@ -107,7 +239,7 @@ public sealed class ManagementAuthApiTests
     public async Task InviteRedemption_AuthorizesSecondExternalUser()
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
-        var creator = await factory.CreateAuthorizedUserAsync("creator");
+        var creator = await factory.CreateAdminAsync("creator");
         var redeemer = await factory.CreateUserAsync("redeemer");
         var creatorClient = factory.CreateAuthenticatedClient(creator.Id);
         var redeemClient = factory.CreateAuthenticatedClient(redeemer.Id);
@@ -117,7 +249,7 @@ public sealed class ManagementAuthApiTests
         var redeemResponse = await redeemClient.PostAsJsonAsync("/api/auth/invites/redeem", new { code = invite!.Code });
 
         Assert.Equal(HttpStatusCode.NoContent, redeemResponse.StatusCode);
-        Assert.True(await factory.IsAuthorizedAsync(redeemer));
+        Assert.True(await factory.IsAdminAsync(redeemer));
     }
 
     private static object ValidAiSettings()
@@ -130,8 +262,24 @@ public sealed class ManagementAuthApiTests
             llmApiKeySecretName = "llm-api-key"
         };
 
+    private static object ValidStartWorkflow()
+        => new
+        {
+            issueUrl = "https://github.com/acme/widgets/issues/1",
+            repositoryUrl = "https://github.com/acme/widgets",
+            baseBranch = "main",
+            model = (string?)null
+        };
+
     private sealed record InviteResponse(string Code);
-    private sealed record CurrentUserResponse(bool Authenticated, bool Authorized, bool AuthRequired);
+    private sealed record CurrentUserResponse(
+        bool Authenticated,
+        bool Authorized,
+        bool AuthRequired,
+        bool CanViewWorkflows,
+        bool CanTriggerWorkflows,
+        bool CanAdminister);
+    private sealed record FailedWorkflow(Guid WorkflowId, Guid TaskRunId);
 
     private sealed class FormicaeApiFactory(bool managementAuthEnabled) : WebApplicationFactory<Program>
     {
@@ -177,7 +325,18 @@ public sealed class ManagementAuthApiTests
             return user;
         }
 
-        public async Task<FormicaeUser> CreateAuthorizedUserAsync(string userName)
+        public async Task<FormicaeUser> CreateViewerAsync(string userName)
+            => await CreateUserWithRoleAsync(userName, (users, user) => users.GrantViewerAsync(user, CancellationToken.None));
+
+        public async Task<FormicaeUser> CreateOperatorAsync(string userName)
+            => await CreateUserWithRoleAsync(userName, (users, user) => users.GrantOperatorAsync(user, CancellationToken.None));
+
+        public async Task<FormicaeUser> CreateAdminAsync(string userName)
+            => await CreateUserWithRoleAsync(userName, (users, user) => users.GrantAdminAsync(user, CancellationToken.None));
+
+        private async Task<FormicaeUser> CreateUserWithRoleAsync(
+            string userName,
+            Func<ManagementUserService, FormicaeUser, Task> grant)
         {
             using var scope = Services.CreateScope();
             var identityUsers = scope.ServiceProvider.GetRequiredService<UserManager<FormicaeUser>>();
@@ -191,7 +350,7 @@ public sealed class ManagementAuthApiTests
             Assert.True(result.Succeeded, string.Join("; ", result.Errors.Select(error => error.Description)));
 
             var users = scope.ServiceProvider.GetRequiredService<ManagementUserService>();
-            await users.GrantAuthorizedUserAsync(user, CancellationToken.None);
+            await grant(users, user);
             return user;
         }
 
@@ -219,11 +378,35 @@ public sealed class ManagementAuthApiTests
             var store = scope.ServiceProvider.GetRequiredService<IDevOpsIntegrationStore>();
             return await store.GetAsync(integrationId, CancellationToken.None);
         }
-        public async Task<bool> IsAuthorizedAsync(FormicaeUser user)
+
+        public async Task<FailedWorkflow> CreateFailedWorkflowAsync()
+        {
+            using var scope = Services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<IWorkflowStore>();
+            var workflow = new Workflow
+            {
+                IssueUrl = $"https://github.com/acme/widgets/issues/{Guid.NewGuid():N}",
+                RepositoryUrl = "https://github.com/acme/widgets",
+                Status = WorkflowStatus.Failed,
+                CurrentStep = WorkflowStep.Plan,
+                FailureReason = "Plan failed."
+            };
+            await store.CreateWorkflowAsync(workflow, CancellationToken.None);
+            var run = await store.UpsertTaskRunAsync(new TaskRun
+            {
+                WorkflowId = workflow.Id,
+                Kind = TaskRunKind.Plan,
+                Status = TaskRunStatus.Failed,
+                FailureReason = "Plan failed."
+            }, CancellationToken.None);
+            return new FailedWorkflow(workflow.Id, run.Id);
+        }
+
+        public async Task<bool> IsAdminAsync(FormicaeUser user)
         {
             using var scope = Services.CreateScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<FormicaeUser>>();
-            return await users.IsInRoleAsync(user, ManagementUserService.AuthorizedUserRole);
+            return await users.IsInRoleAsync(user, ManagementUserService.ManagementAdminRole);
         }
     }
 

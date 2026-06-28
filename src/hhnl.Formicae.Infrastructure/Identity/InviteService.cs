@@ -19,7 +19,7 @@ public sealed class InviteService(
     {
         var currentUser = await users.GetCurrentUserAsync(creator)
             ?? throw new UnauthorizedAccessException("Authenticated user is required.");
-        if (!await users.IsAuthorizedAsync(creator))
+        if (!await users.IsInPermissionAsync(creator, ManagementUserService.ManagementAdminPermission))
         {
             throw new UnauthorizedAccessException("Authorized user is required.");
         }
@@ -42,7 +42,7 @@ public sealed class InviteService(
 
     public async Task<IReadOnlyList<InviteCodeResponse>> ListInvitesAsync(ClaimsPrincipal creator, CancellationToken cancellationToken)
     {
-        if (!await users.IsAuthorizedAsync(creator))
+        if (!await users.IsInPermissionAsync(creator, ManagementUserService.ManagementAdminPermission))
         {
             throw new UnauthorizedAccessException("Authorized user is required.");
         }
@@ -87,7 +87,7 @@ public sealed class InviteService(
 
         invite.UsedByUserId = currentUser.Id;
         invite.UsedAt = now;
-        await users.GrantAuthorizedUserAsync(currentUser, cancellationToken);
+        await users.GrantAdminAsync(currentUser, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

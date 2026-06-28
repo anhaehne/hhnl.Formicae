@@ -163,6 +163,9 @@ export type CurrentUser = {
   authenticated: boolean;
   authorized: boolean;
   authRequired: boolean;
+  canViewWorkflows: boolean;
+  canTriggerWorkflows: boolean;
+  canAdminister: boolean;
   name?: string | null;
   email?: string | null;
   provider?: string | null;

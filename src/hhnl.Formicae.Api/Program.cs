@@ -65,8 +65,14 @@ builder.Services.AddAuthentication(options =>
     .AddOAuth("GitHub", _ => { });
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy(ManagementAuthorization.PolicyName, policy =>
-        policy.Requirements.Add(new ManagementAuthorizedRequirement()));
+    // Coarse management permissions intentionally map to future workflow capabilities
+    // such as trigger, retry, approval, secret access, and admin.
+    options.AddPolicy(ManagementAuthorization.WorkflowView, policy =>
+        policy.Requirements.Add(new ManagementPermissionRequirement(ManagementAuthorization.WorkflowView)));
+    options.AddPolicy(ManagementAuthorization.WorkflowOperate, policy =>
+        policy.Requirements.Add(new ManagementPermissionRequirement(ManagementAuthorization.WorkflowOperate)));
+    options.AddPolicy(ManagementAuthorization.ManagementAdmin, policy =>
+        policy.Requirements.Add(new ManagementPermissionRequirement(ManagementAuthorization.ManagementAdmin)));
 });
 builder.Services.AddScoped<IAuthorizationHandler, ManagementAuthorizedHandler>();
 builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, GitHubOAuthOptionsConfiguration>();
@@ -94,21 +100,39 @@ app.MapGet("/api/auth/current-user", async (
     ManagementUserService users,
     UserManager<FormicaeUser> userManager,
     IDevOpsIntegrationStore integrations,
+    IOptions<ManagementAuthOptions> authOptions,
+    IHostEnvironment environment,
     CancellationToken cancellationToken) =>
 {
     var authRequired = await integrations.AnyIdentityProviderEnabledAsync(cancellationToken);
+    var bypassed = !authOptions.Value.Enabled
+        || (authOptions.Value.BypassForLocalDevelopment && environment.IsDevelopment());
     if (principal.Identity?.IsAuthenticated != true)
     {
-        return Results.Ok(new { authenticated = false, authorized = false, authRequired });
+        return Results.Ok(new
+        {
+            authenticated = false,
+            authorized = bypassed,
+            authRequired,
+            canViewWorkflows = bypassed,
+            canTriggerWorkflows = bypassed,
+            canAdminister = bypassed
+        });
     }
 
     var user = await users.GetCurrentUserAsync(principal);
     var logins = user is null ? Array.Empty<UserLoginInfo>() : await userManager.GetLoginsAsync(user);
+    var canViewWorkflows = bypassed || await users.IsInPermissionAsync(principal, ManagementAuthorization.WorkflowView);
+    var canTriggerWorkflows = bypassed || await users.IsInPermissionAsync(principal, ManagementAuthorization.WorkflowOperate);
+    var canAdminister = bypassed || await users.IsInPermissionAsync(principal, ManagementAuthorization.ManagementAdmin);
     return Results.Ok(new
     {
         authenticated = true,
-        authorized = await users.IsAuthorizedAsync(principal),
+        authorized = canViewWorkflows || canTriggerWorkflows || canAdminister,
         authRequired,
+        canViewWorkflows,
+        canTriggerWorkflows,
+        canAdminister,
         name = user?.DisplayName ?? principal.Identity.Name,
         email = user?.Email,
         provider = logins.FirstOrDefault()?.LoginProvider
@@ -282,7 +306,7 @@ app.MapGet("/api/auth/github/repositories", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPost("/api/auth/invites", async (
     ClaimsPrincipal user,
@@ -297,7 +321,7 @@ app.MapPost("/api/auth/invites", async (
     {
         return Results.Forbid();
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapGet("/api/auth/invites", async (
     ClaimsPrincipal user,
@@ -312,7 +336,7 @@ app.MapGet("/api/auth/invites", async (
     {
         return Results.Forbid();
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPost("/api/auth/invites/redeem", async (
     RedeemInviteRequest request,
@@ -342,7 +366,7 @@ app.MapGet("/api/workflows", async (
 {
     var clampedLimit = Math.Clamp(limit ?? 25, 1, 100);
     return Results.Ok(await workflowService.ListRecentWorkflowsAsync(clampedLimit, cancellationToken));
-});
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapPost("/api/worker/agent-messages", async (
     WorkerAgentMessageRequest request,
@@ -391,7 +415,7 @@ app.MapPut("/api/ai-settings", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapGet("/api/integrations", async (
     DevOpsIntegrationService integrations,
@@ -420,7 +444,7 @@ app.MapPost("/api/integrations/github", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapGet("/api/integrations/{integrationId:guid}", async (
     Guid integrationId,
@@ -430,7 +454,7 @@ app.MapGet("/api/integrations/{integrationId:guid}", async (
 {
     var integration = await integrations.GetAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
     return integration is null ? Results.NotFound() : Results.Ok(integration);
-});
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapDelete("/api/integrations/{integrationId:guid}", async (
     Guid integrationId,
@@ -440,7 +464,7 @@ app.MapDelete("/api/integrations/{integrationId:guid}", async (
     return await integrations.DeleteAsync(integrationId, cancellationToken)
         ? Results.NoContent()
         : Results.NotFound();
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     Guid integrationId,
@@ -466,7 +490,7 @@ app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
     Guid integrationId,
     HttpRequest httpRequest,
@@ -475,7 +499,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/webhook-secret", async (
 {
     var integration = await integrations.RotateWebhookSecretAsync(integrationId, GetRequestBaseUri(httpRequest), cancellationToken);
     return integration is null ? Results.NotFound() : Results.Ok(integration);
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPost("/api/integrations/{integrationId:guid}/repositories", async (
     Guid integrationId,
@@ -496,7 +520,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/repositories", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
     Guid integrationId,
@@ -505,7 +529,7 @@ app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
 {
     var repositories = await integrations.ListRepositoriesAsync(integrationId, cancellationToken);
     return repositories is null ? Results.NotFound() : Results.Ok(repositories);
-});
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId:guid}", async (
     Guid integrationId,
@@ -520,7 +544,7 @@ app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId
         true => Results.NoContent(),
         false => Results.NotFound()
     };
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     Guid integrationId,
@@ -528,6 +552,7 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     HttpRequest httpRequest,
     ClaimsPrincipal user,
     DevOpsIntegrationService integrations,
+    IDevOpsIntegrationStore integrationStore,
     ManagementUserService managementUsers,
     IAuthorizationService authorization,
     IOptions<ManagementAuthOptions> authOptions,
@@ -538,18 +563,29 @@ app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     {
         if (request.Enabled)
         {
+            if (await integrationStore.AnyIdentityProviderEnabledAsync(cancellationToken)
+                && authOptions.Value.Enabled
+                && !(authOptions.Value.BypassForLocalDevelopment && environment.IsDevelopment()))
+            {
+                var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.ManagementAdmin);
+                if (!authResult.Succeeded)
+                {
+                    return user.Identity?.IsAuthenticated == true ? Results.Forbid() : Results.Unauthorized();
+                }
+            }
+
             var currentUser = await managementUsers.GetCurrentUserAsync(user);
             if (currentUser is null)
             {
                 return Results.Unauthorized();
             }
 
-            await managementUsers.GrantAuthorizedUserAsync(currentUser, cancellationToken);
+            await managementUsers.GrantAdminAsync(currentUser, cancellationToken);
         }
         else if (authOptions.Value.Enabled
             && !(authOptions.Value.BypassForLocalDevelopment && environment.IsDevelopment()))
         {
-            var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.PolicyName);
+            var authResult = await authorization.AuthorizeAsync(user, ManagementAuthorization.ManagementAdmin);
             if (!authResult.Succeeded)
             {
                 return user.Identity?.IsAuthenticated == true ? Results.Forbid() : Results.Unauthorized();
@@ -591,7 +627,7 @@ app.MapPost("/api/integrations/{integrationId:guid}/identity-provider/restart", 
     }, CancellationToken.None);
 
     return integration is null ? Results.NotFound() : Results.Ok(integration);
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPost("/api/workflows/github-issue", async (
     StartGitHubIssueWorkflowRequest request,
@@ -607,7 +643,7 @@ app.MapPost("/api/workflows/github-issue", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.WorkflowOperate);
 
 app.MapGet("/api/workflows/{workflowId:guid}", async (
     Guid workflowId,
@@ -616,12 +652,13 @@ app.MapGet("/api/workflows/{workflowId:guid}", async (
 {
     var workflow = await workflowService.GetWorkflowAsync(workflowId, cancellationToken);
     return workflow is null ? Results.NotFound() : Results.Ok(workflow);
-});
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapGet("/api/workflows/{workflowId:guid}/runs", async (
     Guid workflowId,
     WorkflowService workflowService,
-    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListRunsAsync(workflowId, cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListRunsAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", async (
     Guid workflowId,
@@ -645,7 +682,7 @@ app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", asyn
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.WorkflowOperate);
 
 app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
     Guid workflowId,
@@ -668,27 +705,31 @@ app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
     {
         return Results.BadRequest(new { error = exception.Message });
     }
-}).RequireAuthorization(ManagementAuthorization.PolicyName);
+}).RequireAuthorization(ManagementAuthorization.WorkflowOperate);
 
 app.MapGet("/api/workflows/{workflowId:guid}/events", async (
     Guid workflowId,
     WorkflowService workflowService,
-    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListEventsAsync(workflowId, cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListEventsAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapGet("/api/workflows/{workflowId:guid}/signals", async (
     Guid workflowId,
     WorkflowObservabilityService observabilityService,
-    CancellationToken cancellationToken) => Results.Ok(await observabilityService.GetWorkflowSignalsAsync(workflowId, cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await observabilityService.GetWorkflowSignalsAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapGet("/api/workflows/{workflowId:guid}/chat-messages", async (
     Guid workflowId,
     WorkflowService workflowService,
-    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListChatMessagesAsync(workflowId, cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListChatMessagesAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.MapGet("/api/workflows/{workflowId:guid}/logs", async (
     Guid workflowId,
     WorkflowService workflowService,
-    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListLogsAsync(workflowId, cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListLogsAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
