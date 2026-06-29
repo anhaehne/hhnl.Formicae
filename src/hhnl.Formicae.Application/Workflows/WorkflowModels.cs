@@ -95,8 +95,10 @@ public sealed class WorkflowLog
 public sealed class AiSettings
 {
     public const string DefaultId = "default";
+    public const string DefaultName = "Default AI";
 
     public string Id { get; init; } = DefaultId;
+    public string Name { get; set; } = DefaultName;
     public string? Provider { get; set; }
     public string? Model { get; set; }
     public string? EndpointUrl { get; set; }
@@ -111,6 +113,7 @@ public sealed class AiSettings
     public string? SubscriptionCredentialFileName { get; set; }
     public string? SubscriptionCredentialMountPath { get; set; }
     public string? CodexAuthJson { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
@@ -121,6 +124,8 @@ public sealed record StartGitHubIssueWorkflowRequest(
     string? Model);
 
 public sealed record AiSettingsResponse(
+    string Id,
+    string Name,
     string? Provider,
     string? Model,
     string? EndpointUrl,
@@ -134,7 +139,9 @@ public sealed record AiSettingsResponse(
     string? ApiKeyEnvironmentVariable,
     bool HasSubscriptionAuth,
     string? SubscriptionCredentialFileName,
-    string? SubscriptionCredentialMountPath);
+    string? SubscriptionCredentialMountPath,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 
 public sealed record UpdateAiSettingsRequest(
     string? Provider = null,
@@ -150,7 +157,11 @@ public sealed record UpdateAiSettingsRequest(
     string? SubscriptionCredentialJson = null,
     string? SubscriptionCredentialFileName = null,
     string? SubscriptionCredentialMountPath = null,
-    string? CodexAuthJson = null);public static class AgentKinds
+    string? CodexAuthJson = null,
+    string? Id = null,
+    string? Name = null);
+
+public static class AgentKinds
 {
     public const string OpenHands = "OpenHands";
     public const string Acp = "Acp";

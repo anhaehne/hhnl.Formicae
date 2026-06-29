@@ -441,7 +441,7 @@ app.MapPost("/api/webhooks/github", async (
 
 app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
-    CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.GetAsync(cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));
 
 app.MapPut("/api/ai-settings", async (
     UpdateAiSettingsRequest request,

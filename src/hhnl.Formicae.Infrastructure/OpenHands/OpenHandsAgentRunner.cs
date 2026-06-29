@@ -116,7 +116,25 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
     }
 
     private static ResolvedAiSettings ResolveSettingsFromOptions(OpenHandsOptions options)
-        => new(TrimToNull(options.Provider), TrimToNull(options.DefaultModel), TrimToNull(options.EndpointUrl), AgentKinds.OpenHands, null, null, NormalizeAuthMethod(TrimToNull(options.AuthMethod) ?? OpenHandsAuthMethods.ApiKey), TrimToNull(options.LlmApiKeySecretName), null, "LLM_API_KEY", null, "auth.json", "/root/.codex", null);
+        => new(
+            AiSettings.DefaultId,
+            AiSettings.DefaultName,
+            TrimToNull(options.Provider),
+            TrimToNull(options.DefaultModel),
+            TrimToNull(options.EndpointUrl),
+            AgentKinds.OpenHands,
+            null,
+            null,
+            NormalizeAuthMethod(TrimToNull(options.AuthMethod) ?? OpenHandsAuthMethods.ApiKey),
+            TrimToNull(options.LlmApiKeySecretName),
+            null,
+            "LLM_API_KEY",
+            null,
+            "auth.json",
+            "/root/.codex",
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
 
     private static string ResolveModel(AgentTask task, ResolvedAiSettings settings, string authMethod)
     {

@@ -2,5 +2,5 @@ apiVersion: v2
 name: formicae
 description: Kubernetes-native agent workflow orchestration MVP.
 type: application
-version: 0.3.36
-appVersion: "0.3.36"
+version: 0.3.37
+appVersion: "0.3.37"

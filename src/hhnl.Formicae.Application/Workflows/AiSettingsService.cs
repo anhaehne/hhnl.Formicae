@@ -14,13 +14,21 @@ public sealed class AiSettingsService(
         return ToResponse(settings);
     }
 
+    public async Task<IReadOnlyList<AiSettingsResponse>> ListAsync(CancellationToken cancellationToken)
+    {
+        var settings = await store.ListAsync(cancellationToken);
+        return settings.Select(ToResponse).ToArray();
+    }
+
     public async Task<AiSettingsResponse> UpdateAsync(UpdateAiSettingsRequest request, CancellationToken cancellationToken)
     {
-        var existing = await store.GetAsync(cancellationToken);
+        var id = TrimToNull(request.Id) ?? AiSettings.DefaultId;
+        var existing = await store.GetAsync(id, cancellationToken);
         var normalized = Normalize(request, existing);
         var settings = new AiSettings
         {
-            Id = AiSettings.DefaultId,
+            Id = id,
+            Name = normalized.Name,
             Provider = normalized.Provider,
             Model = normalized.Model,
             EndpointUrl = normalized.EndpointUrl,
@@ -35,6 +43,7 @@ public sealed class AiSettingsService(
             SubscriptionCredentialFileName = normalized.SubscriptionCredentialFileName,
             SubscriptionCredentialMountPath = normalized.SubscriptionCredentialMountPath,
             CodexAuthJson = normalized.CodexAuthJson,
+            CreatedAt = existing?.CreatedAt ?? clock.UtcNow,
             UpdatedAt = clock.UtcNow
         };
 
@@ -57,6 +66,8 @@ public sealed class AiSettingsService(
         var subscriptionMountPath = TrimToNull(saved?.SubscriptionCredentialMountPath) ?? DefaultSubscriptionMountPath(agentKind, acpProvider);
 
         return new ResolvedAiSettings(
+            saved?.Id ?? AiSettings.DefaultId,
+            TrimToNull(saved?.Name) ?? AiSettings.DefaultName,
             TrimToNull(saved?.Provider) ?? TrimToNull(defaults.Provider),
             TrimToNull(saved?.Model) ?? TrimToNull(defaults.DefaultModel),
             endpointUrl,
@@ -70,11 +81,15 @@ public sealed class AiSettingsService(
             TrimToNull(saved?.SubscriptionCredentialJson),
             subscriptionFileName,
             subscriptionMountPath,
-            TrimToNull(saved?.CodexAuthJson));
+            TrimToNull(saved?.CodexAuthJson),
+            saved?.CreatedAt ?? clock.UtcNow,
+            saved?.UpdatedAt ?? clock.UtcNow);
     }
 
     private static AiSettingsResponse ToResponse(ResolvedAiSettings settings)
         => new(
+            settings.Id,
+            settings.Name,
             settings.Provider,
             settings.Model,
             settings.EndpointUrl,
@@ -88,11 +103,15 @@ public sealed class AiSettingsService(
             settings.ApiKeyEnvironmentVariable,
             !string.IsNullOrWhiteSpace(settings.SubscriptionCredentialJson) || !string.IsNullOrWhiteSpace(settings.CodexAuthJson),
             settings.SubscriptionCredentialFileName,
-            settings.SubscriptionCredentialMountPath);
+            settings.SubscriptionCredentialMountPath,
+            settings.CreatedAt,
+            settings.UpdatedAt);
 
     private static AiSettingsResponse ToResponse(AiSettings settings)
     {
         var resolved = new ResolvedAiSettings(
+            settings.Id,
+            TrimToNull(settings.Name) ?? AiSettings.DefaultName,
             TrimToNull(settings.Provider),
             TrimToNull(settings.Model),
             TrimToNull(settings.EndpointUrl),
@@ -106,7 +125,9 @@ public sealed class AiSettingsService(
             TrimToNull(settings.SubscriptionCredentialJson),
             TrimToNull(settings.SubscriptionCredentialFileName),
             TrimToNull(settings.SubscriptionCredentialMountPath),
-            TrimToNull(settings.CodexAuthJson));
+            TrimToNull(settings.CodexAuthJson),
+            settings.CreatedAt,
+            settings.UpdatedAt);
         return ToResponse(resolved);
     }
 
@@ -133,6 +154,7 @@ public sealed class AiSettingsService(
         }
 
         return new NormalizedAiSettings(
+            TrimToNull(request.Name) ?? TrimToNull(existing?.Name) ?? AiSettings.DefaultName,
             TrimToNull(request.Provider),
             TrimToNull(request.Model),
             endpointUrl,
@@ -248,6 +270,7 @@ public sealed class AiSettingsService(
     }
 
     private sealed record NormalizedAiSettings(
+        string Name,
         string? Provider,
         string? Model,
         string? EndpointUrl,
@@ -265,6 +288,8 @@ public sealed class AiSettingsService(
 }
 
 public sealed record ResolvedAiSettings(
+    string Id,
+    string Name,
     string? Provider,
     string? Model,
     string? EndpointUrl,
@@ -278,4 +303,6 @@ public sealed record ResolvedAiSettings(
     string? SubscriptionCredentialJson,
     string? SubscriptionCredentialFileName,
     string? SubscriptionCredentialMountPath,
-    string? CodexAuthJson);
+    string? CodexAuthJson,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);

@@ -76,6 +76,8 @@ export type WorkflowChatMessage = {
 };
 
 export type AiSettings = {
+  id: string;
+  name: string;
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
@@ -90,9 +92,13 @@ export type AiSettings = {
   hasSubscriptionAuth: boolean;
   subscriptionCredentialFileName?: string | null;
   subscriptionCredentialMountPath?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type UpdateAiSettingsRequest = {
+  id?: string | null;
+  name?: string | null;
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
@@ -262,8 +268,8 @@ export async function logout(): Promise<void> {
   await sendNoContent("/api/auth/logout", { method: "POST" });
 }
 
-export async function getAiSettings(): Promise<AiSettings> {
-  return send<AiSettings>("/api/ai-settings");
+export async function getAiSettings(): Promise<AiSettings[]> {
+  return send<AiSettings[]>("/api/ai-settings");
 }
 
 export async function updateAiSettings(request: UpdateAiSettingsRequest): Promise<AiSettings> {
@@ -404,5 +410,4 @@ async function readError(response: Response): Promise<string> {
     return text;
   }
 }
-
 
