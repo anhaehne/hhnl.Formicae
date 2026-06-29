@@ -93,6 +93,12 @@ if (usesPostgresPersistence)
     await dbContext.Database.MigrateAsync();
 }
 
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var workflowDefinitions = scope.ServiceProvider.GetRequiredService<WorkflowDefinitionService>();
+    await workflowDefinitions.EnsureDefaultWorkflowDefinitionAsync(CancellationToken.None);
+}
+
 app.MapHealthChecks("/healthz");
 app.MapGet("/api/version", () => Results.Ok(new
 {
@@ -633,6 +639,57 @@ app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId
     };
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapGet("/api/workflow-definitions", async (
+    WorkflowDefinitionService workflowDefinitions,
+    CancellationToken cancellationToken) => Results.Ok(await workflowDefinitions.ListAsync(cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
+
+app.MapGet("/api/workflow-definitions/{definitionId:guid}", async (
+    Guid definitionId,
+    WorkflowDefinitionService workflowDefinitions,
+    CancellationToken cancellationToken) =>
+{
+    var definition = await workflowDefinitions.GetAsync(definitionId, cancellationToken);
+    return definition is null ? Results.NotFound() : Results.Ok(definition);
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
+
+app.MapPost("/api/workflow-definitions", async (
+    CreateWorkflowDefinitionRequest request,
+    WorkflowDefinitionService workflowDefinitions,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var definition = await workflowDefinitions.CreateAsync(request, cancellationToken);
+        return Results.Created($"/api/workflow-definitions/{definition.Id}", definition);
+    }
+    catch (WorkflowDefinitionValidationException exception)
+    {
+        return Results.BadRequest(new { errors = exception.Errors });
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapPost("/api/workflow-definitions/{definitionId:guid}/versions", async (
+    Guid definitionId,
+    CreateWorkflowDefinitionVersionRequest request,
+    WorkflowDefinitionService workflowDefinitions,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var version = await workflowDefinitions.CreateVersionAsync(definitionId, request, cancellationToken);
+        return Results.Created($"/api/workflow-definitions/{definitionId}", version);
+    }
+    catch (WorkflowDefinitionNotFoundException)
+    {
+        return Results.NotFound();
+    }
+    catch (WorkflowDefinitionValidationException exception)
+    {
+        return Results.BadRequest(new { errors = exception.Errors });
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapPut("/api/integrations/{integrationId:guid}/identity-provider", async (
     Guid integrationId,
     UpdateIdentityProviderRequest request,
@@ -729,6 +786,14 @@ app.MapPost("/api/workflows/github-issue", async (
     catch (ArgumentException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (WorkflowDefinitionNotFoundException)
+    {
+        return Results.NotFound();
+    }
+    catch (WorkflowDefinitionValidationException exception)
+    {
+        return Results.BadRequest(new { errors = exception.Errors });
     }
 }).RequireAuthorization(ManagementAuthorization.WorkflowOperate);
 

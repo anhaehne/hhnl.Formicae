@@ -95,4 +95,85 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
 
     public async Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken)
         => await dbContext.WorkflowLogs.Where(log => log.WorkflowId == workflowId).OrderBy(log => log.CreatedAt).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<WorkflowDefinition>> ListWorkflowDefinitionsAsync(CancellationToken cancellationToken)
+        => await dbContext.WorkflowDefinitions
+            .AsNoTracking()
+            .OrderBy(definition => definition.Name)
+            .ToListAsync(cancellationToken);
+
+    public Task<WorkflowDefinition?> GetWorkflowDefinitionAsync(Guid definitionId, CancellationToken cancellationToken)
+        => dbContext.WorkflowDefinitions.SingleOrDefaultAsync(definition => definition.Id == definitionId, cancellationToken);
+
+    public async Task<WorkflowDefinition> CreateWorkflowDefinitionAsync(WorkflowDefinition definition, CancellationToken cancellationToken)
+    {
+        dbContext.WorkflowDefinitions.Add(definition);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return definition;
+    }
+
+    public async Task<IReadOnlyList<WorkflowDefinitionVersion>> ListWorkflowDefinitionVersionsAsync(Guid definitionId, CancellationToken cancellationToken)
+        => await dbContext.WorkflowDefinitionVersions
+            .AsNoTracking()
+            .Where(version => version.WorkflowDefinitionId == definitionId)
+            .OrderByDescending(version => version.Version)
+            .ToListAsync(cancellationToken);
+
+    public Task<WorkflowDefinitionVersion?> GetWorkflowDefinitionVersionAsync(Guid versionId, CancellationToken cancellationToken)
+        => dbContext.WorkflowDefinitionVersions.SingleOrDefaultAsync(version => version.Id == versionId, cancellationToken);
+
+    public Task<WorkflowDefinitionVersion?> GetLatestWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken)
+        => dbContext.WorkflowDefinitionVersions
+            .Where(version => version.WorkflowDefinitionId == definitionId)
+            .OrderByDescending(version => version.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<WorkflowDefinitionVersion?> GetLatestEnabledWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken)
+        => dbContext.WorkflowDefinitionVersions
+            .Where(version => version.WorkflowDefinitionId == definitionId && version.IsEnabled)
+            .OrderByDescending(version => version.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<WorkflowDefinitionVersion?> GetDefaultEnabledWorkflowDefinitionVersionAsync(CancellationToken cancellationToken)
+        => dbContext.WorkflowDefinitionVersions
+            .Where(version => version.IsDefault && version.IsEnabled)
+            .OrderByDescending(version => version.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<WorkflowDefinitionVersion> CreateWorkflowDefinitionVersionAsync(WorkflowDefinitionVersion version, CancellationToken cancellationToken)
+    {
+        if (version.IsDefault)
+        {
+            await dbContext.WorkflowDefinitionVersions
+                .Where(current => current.IsDefault)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(current => current.IsDefault, false), cancellationToken);
+        }
+
+        dbContext.WorkflowDefinitionVersions.Add(version);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return version;
+    }
+
+    public async Task EnsureDefaultWorkflowDefinitionAsync(
+        WorkflowDefinition definition,
+        WorkflowDefinitionVersion version,
+        CancellationToken cancellationToken)
+    {
+        if (await dbContext.WorkflowDefinitionVersions.AnyAsync(candidate => candidate.IsDefault && candidate.IsEnabled, cancellationToken))
+        {
+            return;
+        }
+
+        if (!await dbContext.WorkflowDefinitions.AnyAsync(candidate => candidate.Id == definition.Id, cancellationToken))
+        {
+            dbContext.WorkflowDefinitions.Add(definition);
+        }
+
+        if (!await dbContext.WorkflowDefinitionVersions.AnyAsync(candidate => candidate.Id == version.Id, cancellationToken))
+        {
+            dbContext.WorkflowDefinitionVersions.Add(version);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

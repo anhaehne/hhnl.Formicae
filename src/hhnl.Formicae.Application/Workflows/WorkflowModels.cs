@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace hhnl.Formicae.Application.Workflows;
 
 public enum WorkflowStatus
@@ -51,9 +53,43 @@ public sealed class Workflow
     public string? PlanArtifact { get; set; }
     public string? PullRequestUrl { get; set; }
     public string? FailureReason { get; set; }
+    public Guid? WorkflowDefinitionId { get; set; }
+    public Guid? WorkflowDefinitionVersionId { get; set; }
+    public string? DslSchemaVersion { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public sealed class WorkflowDefinition
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class WorkflowDefinitionVersion
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid WorkflowDefinitionId { get; init; }
+    public int Version { get; init; }
+    public required string DslSchemaVersion { get; init; }
+    public bool IsEnabled { get; set; }
+    public bool IsDefault { get; set; }
+    public required string DefinitionJson { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public sealed record WorkflowDefinitionDocument(
+    [property: JsonPropertyName("schema")] string Schema,
+    [property: JsonPropertyName("startStepId")] string StartStepId,
+    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps);
+
+public sealed record WorkflowDefinitionStep(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("uses")] string Uses,
+    [property: JsonPropertyName("nextStepId")] string? NextStepId = null,
+    [property: JsonPropertyName("displayName")] string? DisplayName = null);
 
 public sealed class TaskRun
 {
@@ -121,7 +157,43 @@ public sealed record StartGitHubIssueWorkflowRequest(
     string IssueUrl,
     string RepositoryUrl,
     string? BaseBranch,
-    string? Model);
+    string? Model,
+    Guid? WorkflowDefinitionId = null,
+    Guid? WorkflowDefinitionVersionId = null);
+
+public sealed record CreateWorkflowDefinitionRequest(string Name);
+
+public sealed record CreateWorkflowDefinitionVersionRequest(
+    int? Version,
+    bool IsEnabled,
+    bool IsDefault,
+    WorkflowDefinitionDocument Definition);
+
+public sealed record WorkflowDefinitionResponse(
+    Guid Id,
+    string Name,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<WorkflowDefinitionVersionResponse> Versions);
+
+public sealed record WorkflowDefinitionVersionResponse(
+    Guid Id,
+    Guid WorkflowDefinitionId,
+    int Version,
+    string DslSchemaVersion,
+    bool IsEnabled,
+    bool IsDefault,
+    WorkflowDefinitionDocument Definition,
+    DateTimeOffset CreatedAt);
+
+public sealed record WorkflowDefinitionValidationError(string Code, string Message, string? Path = null);
+
+public sealed record WorkflowDefinitionValidationResult(IReadOnlyList<WorkflowDefinitionValidationError> Errors)
+{
+    public bool IsValid => Errors.Count == 0;
+
+    public static WorkflowDefinitionValidationResult Valid { get; } = new([]);
+}
 
 public sealed record AiSettingsResponse(
     string Id,

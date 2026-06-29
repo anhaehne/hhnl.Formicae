@@ -8,7 +8,8 @@ public sealed class WorkflowDiscoveryService(
     IWorkItemProvider workItems,
     IOptions<WorkflowDiscoveryOptions> options,
     AiSettingsService? aiSettingsService = null,
-    IDevOpsIntegrationStore? integrationStore = null)
+    IDevOpsIntegrationStore? integrationStore = null,
+    WorkflowDefinitionService? workflowDefinitions = null)
 {
     public async Task<int> DiscoverReadyToPlanWorkflowsAsync(CancellationToken cancellationToken)
     {
@@ -23,6 +24,9 @@ public sealed class WorkflowDiscoveryService(
         var model = aiSettingsService is null
             ? discovery.Model
             : (await aiSettingsService.ResolveAsync(cancellationToken)).Model ?? discovery.Model;
+        var definitionVersion = workflowDefinitions is null
+            ? await ResolveDefaultWorkflowDefinitionVersionAsync(cancellationToken)
+            : await workflowDefinitions.ResolveForRunAsync(null, null, cancellationToken);
 
         foreach (var repository in repositories)
         {
@@ -45,7 +49,10 @@ public sealed class WorkflowDiscoveryService(
                     BaseBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "main" : repository.DefaultBranch,
                     Model = model,
                     Status = WorkflowStatus.Queued,
-                    CurrentStep = WorkflowStep.None
+                    CurrentStep = WorkflowStep.None,
+                    WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
+                    WorkflowDefinitionVersionId = definitionVersion.Id,
+                    DslSchemaVersion = definitionVersion.DslSchemaVersion
                 };
 
                 await store.CreateWorkflowAsync(workflow, cancellationToken);
@@ -83,4 +90,17 @@ public sealed class WorkflowDiscoveryService(
     }
 
     private sealed record DiscoveryRepository(string RepositoryUrl, string DefaultBranch);
+
+    private async Task<WorkflowDefinitionVersion> ResolveDefaultWorkflowDefinitionVersionAsync(CancellationToken cancellationToken)
+    {
+        var defaultVersion = await store.GetDefaultEnabledWorkflowDefinitionVersionAsync(cancellationToken);
+        if (defaultVersion is not null)
+        {
+            return defaultVersion;
+        }
+
+        var (definition, version) = DefaultWorkflowDefinitions.CreateMvp();
+        await store.EnsureDefaultWorkflowDefinitionAsync(definition, version, cancellationToken);
+        return version;
+    }
 }

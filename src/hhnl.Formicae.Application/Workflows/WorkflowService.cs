@@ -8,13 +8,20 @@ public sealed class WorkflowService
     private readonly IWorkItemProvider? workItems;
     private readonly IClock clock;
     private readonly AiSettingsService? aiSettingsService;
+    private readonly WorkflowDefinitionService? workflowDefinitions;
 
-    public WorkflowService(IWorkflowStore store, IWorkItemProvider? workItems = null, IClock? clock = null, AiSettingsService? aiSettingsService = null)
+    public WorkflowService(
+        IWorkflowStore store,
+        IWorkItemProvider? workItems = null,
+        IClock? clock = null,
+        AiSettingsService? aiSettingsService = null,
+        WorkflowDefinitionService? workflowDefinitions = null)
     {
         this.store = store;
         this.workItems = workItems;
         this.clock = clock ?? new SystemClock();
         this.aiSettingsService = aiSettingsService;
+        this.workflowDefinitions = workflowDefinitions;
     }
 
     public async Task<WorkflowSummaryResponse> StartGitHubIssueWorkflowAsync(
@@ -34,6 +41,9 @@ public sealed class WorkflowService
         var model = string.IsNullOrWhiteSpace(request.Model) && aiSettingsService is not null
             ? (await aiSettingsService.ResolveAsync(cancellationToken)).Model
             : request.Model;
+        var definitionVersion = workflowDefinitions is null
+            ? await ResolveDefaultWorkflowDefinitionVersionAsync(cancellationToken)
+            : await workflowDefinitions.ResolveForRunAsync(request.WorkflowDefinitionId, request.WorkflowDefinitionVersionId, cancellationToken);
 
         var workflow = new Workflow
         {
@@ -42,7 +52,10 @@ public sealed class WorkflowService
             BaseBranch = string.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : request.BaseBranch,
             Model = model,
             Status = WorkflowStatus.Queued,
-            CurrentStep = WorkflowStep.None
+            CurrentStep = WorkflowStep.None,
+            WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
+            WorkflowDefinitionVersionId = definitionVersion.Id,
+            DslSchemaVersion = definitionVersion.DslSchemaVersion
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
@@ -245,4 +258,17 @@ public sealed class WorkflowService
             WorkflowStep.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
+
+    private async Task<WorkflowDefinitionVersion> ResolveDefaultWorkflowDefinitionVersionAsync(CancellationToken cancellationToken)
+    {
+        var defaultVersion = await store.GetDefaultEnabledWorkflowDefinitionVersionAsync(cancellationToken);
+        if (defaultVersion is not null)
+        {
+            return defaultVersion;
+        }
+
+        var (definition, version) = DefaultWorkflowDefinitions.CreateMvp(clock.UtcNow);
+        await store.EnsureDefaultWorkflowDefinitionAsync(definition, version, cancellationToken);
+        return version;
+    }
 }

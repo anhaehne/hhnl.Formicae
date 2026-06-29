@@ -9,6 +9,8 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly Dictionary<Guid, TaskRun> runs = [];
     private readonly List<WorkflowEvent> events = [];
     private readonly List<WorkflowLog> logs = [];
+    private readonly Dictionary<Guid, WorkflowDefinition> definitions = [];
+    private readonly Dictionary<Guid, WorkflowDefinitionVersion> definitionVersions = [];
 
     public Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
     {
@@ -157,5 +159,122 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
                 .OrderBy(log => log.CreatedAt)
                 .ToArray());
         }
+    }
+
+    public Task<IReadOnlyList<WorkflowDefinition>> ListWorkflowDefinitionsAsync(CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<WorkflowDefinition>>(definitions.Values
+                .OrderBy(definition => definition.Name)
+                .ToArray());
+        }
+    }
+
+    public Task<WorkflowDefinition?> GetWorkflowDefinitionAsync(Guid definitionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(definitions.GetValueOrDefault(definitionId));
+        }
+    }
+
+    public Task<WorkflowDefinition> CreateWorkflowDefinitionAsync(WorkflowDefinition definition, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            definitions.Add(definition.Id, definition);
+        }
+
+        return Task.FromResult(definition);
+    }
+
+    public Task<IReadOnlyList<WorkflowDefinitionVersion>> ListWorkflowDefinitionVersionsAsync(Guid definitionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<WorkflowDefinitionVersion>>(definitionVersions.Values
+                .Where(version => version.WorkflowDefinitionId == definitionId)
+                .OrderByDescending(version => version.Version)
+                .ToArray());
+        }
+    }
+
+    public Task<WorkflowDefinitionVersion?> GetWorkflowDefinitionVersionAsync(Guid versionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(definitionVersions.GetValueOrDefault(versionId));
+        }
+    }
+
+    public Task<WorkflowDefinitionVersion?> GetLatestWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(definitionVersions.Values
+                .Where(version => version.WorkflowDefinitionId == definitionId)
+                .OrderByDescending(version => version.Version)
+                .FirstOrDefault());
+        }
+    }
+
+    public Task<WorkflowDefinitionVersion?> GetLatestEnabledWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(definitionVersions.Values
+                .Where(version => version.WorkflowDefinitionId == definitionId && version.IsEnabled)
+                .OrderByDescending(version => version.Version)
+                .FirstOrDefault());
+        }
+    }
+
+    public Task<WorkflowDefinitionVersion?> GetDefaultEnabledWorkflowDefinitionVersionAsync(CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(definitionVersions.Values
+                .Where(version => version is { IsDefault: true, IsEnabled: true })
+                .OrderByDescending(version => version.CreatedAt)
+                .FirstOrDefault());
+        }
+    }
+
+    public Task<WorkflowDefinitionVersion> CreateWorkflowDefinitionVersionAsync(WorkflowDefinitionVersion version, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            if (version.IsDefault)
+            {
+                foreach (var current in definitionVersions.Values)
+                {
+                    current.IsDefault = false;
+                }
+            }
+
+            definitionVersions.Add(version.Id, version);
+        }
+
+        return Task.FromResult(version);
+    }
+
+    public Task EnsureDefaultWorkflowDefinitionAsync(
+        WorkflowDefinition definition,
+        WorkflowDefinitionVersion version,
+        CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            if (definitionVersions.Values.Any(candidate => candidate is { IsDefault: true, IsEnabled: true }))
+            {
+                return Task.CompletedTask;
+            }
+
+            definitions.TryAdd(definition.Id, definition);
+            definitionVersions.TryAdd(version.Id, version);
+        }
+
+        return Task.CompletedTask;
     }
 }
