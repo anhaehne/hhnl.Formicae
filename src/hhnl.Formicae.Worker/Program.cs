@@ -93,7 +93,7 @@ internal static class WorkerCommand
         var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
         Directory.CreateDirectory(codexHome);
         var command = string.IsNullOrWhiteSpace(environment.CodexLoginCommand)
-            ? "npx -y @openai/codex login"
+            ? "npx -y @openai/codex login --device-auth"
             : environment.CodexLoginCommand;
 
         await reporter.ReportAsync("worker", "Starting Codex subscription login.", cancellationToken);

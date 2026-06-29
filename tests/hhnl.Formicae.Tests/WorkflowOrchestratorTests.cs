@@ -2283,6 +2283,29 @@ public sealed class AdapterContractTests
             return Task.FromResult(token);
         }
     }
+
+    [Fact]
+    public async Task CodexAuthSetupService_uses_device_auth_login_by_default()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        await service.StartAsync("codex-ai", CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("npx -y @openai/codex login --device-auth", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
+    }
+
     [Fact]
     public async Task CodexAuthSetupService_starts_ephemeral_login_job_for_ai_settings()
     {

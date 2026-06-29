@@ -68,7 +68,7 @@ public sealed class CodexAuthSetupService(
 
     private string ResolveLoginCommand()
         => string.IsNullOrWhiteSpace(openHandsOptions.Value.CodexSubscriptionLoginCommand)
-            ? "npx -y @openai/codex login"
+            ? "npx -y @openai/codex login --device-auth"
             : openHandsOptions.Value.CodexSubscriptionLoginCommand;
 
     private static string BuildJobName(string aiSettingsId)
