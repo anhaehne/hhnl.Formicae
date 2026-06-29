@@ -189,7 +189,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private static IReadOnlyList<KubernetesJobSecretFile>? BuildSecretFiles(string jobName, ResolvedAiSettings settings, string authMethod, KubernetesJobOptions options)
     {
-        var credentialJson = settings.SubscriptionCredentialJson ?? settings.CodexAuthJson;
+        var credentialJson = settings.CodexAuthJson ?? settings.SubscriptionCredentialJson;
         if (!IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription) || string.IsNullOrWhiteSpace(credentialJson)) return null;
         var fileName = settings.SubscriptionCredentialFileName ?? options.CodexAuthSecretKey;
         var mountPath = settings.SubscriptionCredentialMountPath ?? options.CodexAuthMountPath;

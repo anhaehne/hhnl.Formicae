@@ -1886,6 +1886,38 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_mounts_refreshed_codex_auth_before_original_subscription_credentials()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            SubscriptionCredentialJson: "{\"tokens\":\"old\"}",
+            CodexAuthJson: "{\"tokens\":\"new\"}",
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        await runner.StartAsync(new AgentTask(
+            Guid.Parse("88888888-8888-8888-8888-888888888888"),
+            TaskRunKind.Implement,
+            "Implement this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.NotNull(jobRunner.LastSpec.SecretFiles);
+        var secretFile = Assert.Single(jobRunner.LastSpec.SecretFiles);
+        Assert.Equal("{\"tokens\":\"new\"}", secretFile.Data["auth.json"]);
+    }
+
+    [Fact]
     public async Task OpenHands_runner_codex_subscription_checks_out_and_pushes_address_comments()
     {
         var jobRunner = new CapturingJobRunner();
