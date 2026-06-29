@@ -2150,8 +2150,8 @@ public sealed class AdapterContractTests
         var logs = await runner.ReadJobLogsAsync("formicae-codex-login", CancellationToken.None);
 
         Assert.Contains("--- pod/formicae-codex-login-pod logs ---", logs);
-        Assert.Contains("Unable to read logs", logs);
-        Assert.Contains("ContainerCreating", logs);
+        Assert.Contains("Container is starting", logs);
+        Assert.DoesNotContain("Unable to read logs", logs);
     }
     [Fact]
     public async Task Kubernetes_runner_mounts_context_configmap_owned_by_job()
@@ -2341,6 +2341,8 @@ public sealed class AdapterContractTests
         Assert.Equal("CodexSubscriptionSetup", jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
         Assert.Equal("codex-ai", jobRunner.LastSpec.Environment["FORMICAE_AI_SETTINGS_ID"]);
         Assert.Equal("/tmp/codex-home", jobRunner.LastSpec.Environment["CODEX_HOME"]);
+        Assert.Equal("1", jobRunner.LastSpec.Environment["NO_COLOR"]);
+        Assert.Equal("dumb", jobRunner.LastSpec.Environment["TERM"]);
         Assert.Equal("codex login --device", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
         Assert.Equal("callback-secret", jobRunner.LastSpec.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
     }

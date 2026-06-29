@@ -38,6 +38,8 @@ public sealed class CodexAuthSetupService(
             ["FORMICAE_EXTERNAL_ID"] = jobName,
             ["FORMICAE_AI_SETTINGS_ID"] = settings.Id,
             ["CODEX_HOME"] = "/tmp/codex-home",
+            ["NO_COLOR"] = "1",
+            ["TERM"] = "dumb",
             ["FORMICAE_CODEX_LOGIN_COMMAND"] = ResolveLoginCommand()
         };
 

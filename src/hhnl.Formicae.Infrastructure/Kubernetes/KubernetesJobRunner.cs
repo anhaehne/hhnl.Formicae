@@ -575,6 +575,22 @@ public sealed class KubernetesJobRunner(
             || exception.Message.Contains("\"code\":409", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void AppendLogReadFailure(StringBuilder builder, Exception exception)
+    {
+        if (IsPodStartingLogUnavailable(exception))
+        {
+            builder.AppendLine("Container is starting. Pulling the image or preparing the pod; login output will appear shortly.");
+            return;
+        }
+
+        builder.AppendLine($"Unable to read logs: {exception.Message}");
+    }
+
+    private static bool IsPodStartingLogUnavailable(Exception exception)
+        => exception.Message.Contains("waiting to start", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("ContainerCreating", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("PodInitializing", StringComparison.OrdinalIgnoreCase);
+
     private async Task<string> ReadLogsAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
         var pods = await jobApi.ListPodsAsync(namespaceName, $"job-name={jobName}", cancellationToken);
@@ -594,11 +610,11 @@ public sealed class KubernetesJobRunner(
             }
             catch (KubernetesException exception)
             {
-                builder.AppendLine($"Unable to read logs: {exception.Message}");
+                AppendLogReadFailure(builder, exception);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                builder.AppendLine($"Unable to read logs: {exception.Message}");
+                AppendLogReadFailure(builder, exception);
             }
         }
 
