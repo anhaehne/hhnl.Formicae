@@ -174,7 +174,7 @@ export default function App() {
     [detail.workflow, selectedWorkflowId, workflows]
   );
   const failureEvents = useMemo(
-    () => detail.events.filter(event => event.level === "Error" && event.detailsJson),
+    () => detail.events.filter(event => (event.type === "WorkflowFailed" || event.level === "Error") && event.detailsJson),
     [detail.events]
   );
   const refreshCurrentUser = useCallback(async () => {
@@ -1120,7 +1120,7 @@ export default function App() {
                           <StatusBadge value={event.type} />
                         </div>
                         <p>{event.message}</p>
-                        <Expandable title="Stack Trace" content={formatJson(event.detailsJson ?? "")} pre />
+                        <Expandable title="Stack Trace" content={formatFailureDetails(event.detailsJson ?? "")} pre />
                       </article>
                     ))}
                   </div>
@@ -2159,6 +2159,20 @@ function formatDuration(startedAt?: string | null, completedAt?: string | null) 
 function formatJson(value: string) {
   try {
     return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function formatFailureDetails(value: string) {
+  try {
+    const payload = JSON.parse(value) as { stackTrace?: unknown; StackTrace?: unknown };
+    const stackTrace = typeof payload.stackTrace === "string" ? payload.stackTrace : typeof payload.StackTrace === "string" ? payload.StackTrace : undefined;
+    if (stackTrace?.trim()) {
+      return stackTrace;
+    }
+
+    return JSON.stringify(payload, null, 2);
   } catch {
     return value;
   }
