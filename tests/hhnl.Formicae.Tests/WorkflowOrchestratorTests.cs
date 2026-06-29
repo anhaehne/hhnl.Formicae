@@ -988,6 +988,61 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public void OctokitGitHubApi_GraphQl_issue_response_deserializes_with_octokit_simple_json()
+    {
+        const string json = """
+            {
+              "data": {
+                "repository": {
+                  "issue": {
+                    "id": "I_kwDOIssueNode"
+                  }
+                }
+              }
+            }
+            """;
+
+        var response = DeserializeWithOctokitSimpleJson<OctokitGitHubApi.IssueNodeIdGraphQlResponse>(json);
+
+        Assert.Equal("I_kwDOIssueNode", response.data?.repository?.issue?.id);
+    }
+
+    [Fact]
+    public void OctokitGitHubApi_GraphQl_linked_branch_response_deserializes_with_octokit_simple_json()
+    {
+        const string json = """
+            {
+              "data": {
+                "createLinkedBranch": {
+                  "linkedBranch": {
+                    "ref": {
+                      "name": "formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+        var response = DeserializeWithOctokitSimpleJson<OctokitGitHubApi.CreateLinkedBranchGraphQlResponse>(json);
+
+        Assert.Equal("formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", response.data?.createLinkedBranch?.linkedBranch?.@ref?.name);
+    }
+
+    private static T DeserializeWithOctokitSimpleJson<T>(string json)
+    {
+        var simpleJsonType = typeof(GitHubClient).Assembly.GetType("Octokit.SimpleJson")
+            ?? throw new InvalidOperationException("Octokit.SimpleJson type was not found.");
+        var deserializeMethod = simpleJsonType
+            .GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Single(method => method.Name == "DeserializeObject"
+                && method.IsGenericMethodDefinition
+                && method.GetParameters() is [{ ParameterType: { } parameterType }]
+                && parameterType == typeof(string));
+
+        return (T)deserializeMethod.MakeGenericMethod(typeof(T)).Invoke(null, [json])!;
+    }
+    [Fact]
     public async Task GitHubSourceControlProvider_CreateBranchAsync_uses_linked_branch_mutation_inputs()
     {
         var api = new CapturingGitHubApi();

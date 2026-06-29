@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Octokit;
 
 namespace hhnl.Formicae.Infrastructure.GitHub;
@@ -66,16 +64,8 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
               }
             }
             """;
-        var response = await PostGraphQlAsync(mutation, new { issueId, oid = baseOid, name = branchName }, cancellationToken);
-        if (response.Data.TryGetProperty("createLinkedBranch", out var createLinkedBranch)
-            && createLinkedBranch.TryGetProperty("linkedBranch", out var linkedBranch)
-            && linkedBranch.TryGetProperty("ref", out var branchRef)
-            && branchRef.TryGetProperty("name", out var name))
-        {
-            return name.GetString() ?? branchName;
-        }
-
-        return branchName;
+        var response = await PostGraphQlAsync<CreateLinkedBranchGraphQlResponse>(mutation, new { issueId, oid = baseOid, name = branchName }, cancellationToken);
+        return response.data?.createLinkedBranch?.linkedBranch?.@ref?.name ?? branchName;
     }
 
 
@@ -131,34 +121,42 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
               }
             }
             """;
-        var response = await PostGraphQlAsync(query, new { owner, name = repository, number = issueNumber }, cancellationToken);
-        if (response.Data.TryGetProperty("repository", out var repositoryElement)
-            && repositoryElement.TryGetProperty("issue", out var issueElement)
-            && issueElement.TryGetProperty("id", out var idElement)
-            && !string.IsNullOrWhiteSpace(idElement.GetString()))
+        var response = await PostGraphQlAsync<IssueNodeIdGraphQlResponse>(query, new { owner, name = repository, number = issueNumber }, cancellationToken);
+        var issueId = response.data?.repository?.issue?.id;
+        if (!string.IsNullOrWhiteSpace(issueId))
         {
-            return idElement.GetString()!;
+            return issueId;
         }
 
-        throw new InvalidOperationException("GitHub GraphQL issue response did not include an issue id.");
+        throw new InvalidOperationException($"GitHub GraphQL issue response did not include an issue id for {owner}/{repository}#{issueNumber}.");
     }
 
-    private async Task<GraphQlResponse> PostGraphQlAsync(string query, object variables, CancellationToken cancellationToken)
+    private async Task<TResponse> PostGraphQlAsync<TResponse>(string query, object variables, CancellationToken cancellationToken)
+        where TResponse : GraphQlResponseBase
     {
-        var response = await client.Connection.Post<GraphQlResponse>(
-            new Uri("graphql", UriKind.Relative),
-            new { query, variables },
-            "application/json",
-            "application/json",
-            new Dictionary<string, string>(),
-            cancellationToken);
-
-        if (response.Body.Errors is { Count: > 0 })
+        IApiResponse<TResponse> response;
+        try
         {
-            throw new InvalidOperationException($"GitHub GraphQL call failed: {string.Join("; ", response.Body.Errors.Select(error => error.Message))}");
+            response = await client.Connection.Post<TResponse>(
+                new Uri("graphql", UriKind.Relative),
+                new { query, variables },
+                "application/json",
+                "application/json",
+                new Dictionary<string, string>(),
+                cancellationToken);
+        }
+        catch (NullReferenceException exception)
+        {
+            throw new InvalidOperationException("GitHub GraphQL response could not be deserialized.", exception);
         }
 
-        return response.Body;
+        var body = response.Body ?? throw new InvalidOperationException("GitHub GraphQL response was empty.");
+        if (body.errors is { Count: > 0 })
+        {
+            throw new InvalidOperationException($"GitHub GraphQL call failed: {string.Join("; ", body.errors.Select(error => error.message))}");
+        }
+
+        return body;
     }
 
     private static ReactionType ToReactionType(string reaction)
@@ -175,9 +173,58 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
             _ => throw new ArgumentException($"Unsupported GitHub reaction '{reaction}'.", nameof(reaction))
         };
 
-    private sealed record GraphQlResponse(
-        [property: JsonPropertyName("data")] JsonElement Data,
-        [property: JsonPropertyName("errors")] IReadOnlyList<GraphQlError>? Errors);
+    internal abstract class GraphQlResponseBase
+    {
+        public IReadOnlyList<GraphQlError>? errors { get; set; }
+    }
 
-    private sealed record GraphQlError([property: JsonPropertyName("message")] string Message);
+    internal sealed class IssueNodeIdGraphQlResponse : GraphQlResponseBase
+    {
+        public IssueNodeIdData? data { get; set; }
+    }
+
+    internal sealed class IssueNodeIdData
+    {
+        public IssueNodeIdRepository? repository { get; set; }
+    }
+
+    internal sealed class IssueNodeIdRepository
+    {
+        public IssueNodeIdIssue? issue { get; set; }
+    }
+
+    internal sealed class IssueNodeIdIssue
+    {
+        public string? id { get; set; }
+    }
+
+    internal sealed class CreateLinkedBranchGraphQlResponse : GraphQlResponseBase
+    {
+        public CreateLinkedBranchData? data { get; set; }
+    }
+
+    internal sealed class CreateLinkedBranchData
+    {
+        public CreateLinkedBranchPayload? createLinkedBranch { get; set; }
+    }
+
+    internal sealed class CreateLinkedBranchPayload
+    {
+        public LinkedBranch? linkedBranch { get; set; }
+    }
+
+    internal sealed class LinkedBranch
+    {
+        public LinkedBranchRef? @ref { get; set; }
+    }
+
+    internal sealed class LinkedBranchRef
+    {
+        public string? name { get; set; }
+    }
+
+    internal sealed class GraphQlError
+    {
+        public string message { get; set; } = string.Empty;
+    }
 }
