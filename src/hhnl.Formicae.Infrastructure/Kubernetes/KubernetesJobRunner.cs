@@ -10,6 +10,8 @@ public interface IKubernetesJobRunner
     Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
 
     Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken);
+
+    Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken);
 }
 
 public sealed record KubernetesJobSpec(
@@ -30,6 +32,7 @@ public sealed record KubernetesJobResult(bool Succeeded, string JobName, string 
 
 public static class KubernetesJobAuthMethods
 {
+    public const string None = "None";
     public const string ApiKey = "ApiKey";
     public const string CodexSubscription = "CodexSubscription";
 }
@@ -200,6 +203,9 @@ public sealed class KubernetesJobRunner(
 
         return null;
     }
+    public async Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
+        => await ReadLogsAsync(jobName, ResolveNamespace(), cancellationToken);
+
     private string ResolveNamespace()
         => string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
 
@@ -512,7 +518,6 @@ public sealed class KubernetesJobRunner(
         {
         }
     }
-
 
     private static bool IsAuthMethod(string? actual, string expected)
         => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);

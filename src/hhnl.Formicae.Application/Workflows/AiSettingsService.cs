@@ -69,6 +69,17 @@ public sealed class AiSettingsService(
     public async Task<ResolvedAiSettings> ResolveAsync(CancellationToken cancellationToken)
     {
         var saved = await store.GetAsync(cancellationToken);
+        return Resolve(saved);
+    }
+
+    public async Task<ResolvedAiSettings?> ResolveAsync(string id, CancellationToken cancellationToken)
+    {
+        var saved = await store.GetAsync(id, cancellationToken);
+        return saved is null ? null : Resolve(saved);
+    }
+
+    private ResolvedAiSettings Resolve(AiSettings? saved)
+    {
         var defaults = openHandsOptions.Value;
         var agentKind = NormalizeAgentKind(TrimToNull(saved?.AgentKind) ?? AgentKinds.OpenHands);
         var acpProvider = NormalizeAcpProvider(TrimToNull(saved?.AcpProvider) ?? AcpProviders.Custom);
@@ -100,7 +111,6 @@ public sealed class AiSettingsService(
             saved?.CreatedAt ?? clock.UtcNow,
             saved?.UpdatedAt ?? clock.UtcNow);
     }
-
     private static AiSettingsResponse ToResponse(ResolvedAiSettings settings)
         => new(
             settings.Id,

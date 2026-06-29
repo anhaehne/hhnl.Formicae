@@ -3,6 +3,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   addConnectedRepository,
   AiSettings,
+  CodexAuthSetupStatus,
   ConnectedRepository,
   createInvite,
   createGitHubIntegration,
@@ -11,6 +12,7 @@ import {
   deleteIntegration,
   getAiSettings,
   getAppVersion,
+  getCodexAuthConnectionStatus,
   getCurrentUser,
   getIntegration,
   getWorkflow,
@@ -36,6 +38,7 @@ import {
   retryWorkflow,
   rotateWebhookSecret,
   setIdentityProviderEnabled,
+  startCodexAuthConnection,
   startWorkflow,
   TaskRun,
   updateAiSettings,
@@ -139,6 +142,8 @@ export default function App() {
   const [savingAiSettings, setSavingAiSettings] = useState(false);
   const [aiSettingsError, setAiSettingsError] = useState<string>();
   const [aiSettingsSaved, setAiSettingsSaved] = useState<string>();
+  const [codexAuthConnection, setCodexAuthConnection] = useState<CodexAuthSetupStatus>();
+  const [startingCodexAuth, setStartingCodexAuth] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
   const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
@@ -240,7 +245,6 @@ export default function App() {
     handleLogin(window.location.pathname + window.location.search);
   }, [currentUser]);
 
-
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
     setListError(undefined);
@@ -302,8 +306,45 @@ export default function App() {
       setAuthError(inviteError);
     }
   }, []);
+  useEffect(() => {
+    if (!codexAuthConnection || codexAuthConnection.status !== "Running") {
+      return;
+    }
 
+    let ignore = false;
+    const interval = window.setInterval(() => {
+      getCodexAuthConnectionStatus(codexAuthConnection.aiSettingsId, codexAuthConnection.jobName)
+        .then(async status => {
+          if (ignore) {
+            return;
+          }
 
+          setCodexAuthConnection(status);
+          if (status.status === "Succeeded") {
+            const settings = await getAiSettings();
+            if (!ignore) {
+              setAiSettingsList(settings);
+              const selected = settings.find(item => item.id === status.aiSettingsId);
+              if (selected) {
+                setAiSettingsForm(toAiSettingsForm(selected));
+              }
+
+              setAiSettingsSaved("Codex subscription connected.");
+            }
+          }
+        })
+        .catch(error => {
+          if (!ignore) {
+            setAiSettingsError(error instanceof Error ? error.message : "Could not refresh Codex login status.");
+          }
+        });
+    }, 3000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(interval);
+    };
+  }, [codexAuthConnection]);
 
   useEffect(() => {
     let ignore = false;
@@ -625,6 +666,25 @@ export default function App() {
     setAiSettingsSaved(undefined);
   }
 
+  async function handleStartCodexAuthConnection() {
+    if (!selectedAiSettings?.id) {
+      setAiSettingsError("Save the AI profile before starting Codex login.");
+      return;
+    }
+
+    setStartingCodexAuth(true);
+    setAiSettingsError(undefined);
+    setAiSettingsSaved(undefined);
+    try {
+      const status = await startCodexAuthConnection(selectedAiSettings.id);
+      setCodexAuthConnection(status);
+      setAiSettingsSaved("Codex login started. Complete the browser login shown in the output.");
+    } catch (error) {
+      setAiSettingsError(error instanceof Error ? error.message : "Could not start Codex login.");
+    } finally {
+      setStartingCodexAuth(false);
+    }
+  }
   async function handleAiSettingsSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAiSettingsError(undefined);
@@ -1376,9 +1436,12 @@ export default function App() {
           savingAiSettings={savingAiSettings}
           aiSettingsError={aiSettingsError}
           aiSettingsSaved={aiSettingsSaved}
+          codexAuthConnection={codexAuthConnection}
+          startingCodexAuth={startingCodexAuth}
           setAiSettingsForm={setAiSettingsForm}
           onSelectAiSettings={handleSelectAiSettings}
           onNewAiSettings={handleNewAiSettings}
+          onStartCodexAuthConnection={handleStartCodexAuthConnection}
           onSubmit={handleAiSettingsSubmit}
           canAdminister={canAdminister}
         />
@@ -2020,9 +2083,12 @@ function SettingsPage({
   savingAiSettings,
   aiSettingsError,
   aiSettingsSaved,
+  codexAuthConnection,
+  startingCodexAuth,
   setAiSettingsForm,
   onSelectAiSettings,
   onNewAiSettings,
+  onStartCodexAuthConnection,
   onSubmit,
   canAdminister
 }: {
@@ -2034,9 +2100,12 @@ function SettingsPage({
   savingAiSettings: boolean;
   aiSettingsError?: string;
   aiSettingsSaved?: string;
+  codexAuthConnection?: CodexAuthSetupStatus;
+  startingCodexAuth: boolean;
   setAiSettingsForm: Dispatch<SetStateAction<AiSettingsFormState>>;
   onSelectAiSettings: (settingsId: string) => void;
   onNewAiSettings: () => void;
+  onStartCodexAuthConnection: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   canAdminister: boolean;
 }) {
@@ -2123,11 +2192,29 @@ function SettingsPage({
               </label>
               {aiSettingsForm.authMethod === "CodexSubscription" ? (
                 <>
-                  <label>
-                    <span>Credential JSON</span>
-                    <textarea value={aiSettingsForm.subscriptionCredentialJson} onChange={event => setAiSettingsForm(current => ({ ...current, subscriptionCredentialJson: event.target.value }))} placeholder={subscriptionConfigured ? "Configured. Leave blank to keep existing credentials." : "Paste subscription credential JSON"} rows={6} />
-                  </label>
-                  <div className="secret-status"><span>Subscription credentials</span><StatusBadge value={subscriptionConfigured ? "Configured" : "NotConfigured"} /></div>
+                  <div className="auth-setup-box">
+                    <div className="secret-status"><span>Subscription credentials</span><StatusBadge value={subscriptionConfigured ? "Configured" : "NotConfigured"} /></div>
+                    <div className="button-row">
+                      <button type="button" className="secondary-button" onClick={onStartCodexAuthConnection} disabled={startingCodexAuth || !canAdminister || !selectedAiSettings}>
+                        {startingCodexAuth ? "Starting" : subscriptionConfigured ? "Reconnect Codex" : "Connect Codex"}
+                      </button>
+                      {!selectedAiSettings ? <span className="muted">Save this AI before connecting.</span> : null}
+                    </div>
+                    {codexAuthConnection ? (
+                      <div className="auth-output-block">
+                        <div className="secret-status"><span>Login job</span><StatusBadge value={codexAuthConnection.status} /></div>
+                        {codexAuthConnection.failureReason ? <p className="error-text">{codexAuthConnection.failureReason}</p> : null}
+                        <pre className="auth-output">{codexAuthConnection.output || "Waiting for login output..."}</pre>
+                      </div>
+                    ) : null}
+                  </div>
+                  <details className="manual-credentials">
+                    <summary>Paste credential JSON manually</summary>
+                    <label>
+                      <span>Credential JSON</span>
+                      <textarea value={aiSettingsForm.subscriptionCredentialJson} onChange={event => setAiSettingsForm(current => ({ ...current, subscriptionCredentialJson: event.target.value }))} placeholder={subscriptionConfigured ? "Configured. Leave blank to keep existing credentials." : "Paste subscription credential JSON"} rows={6} />
+                    </label>
+                  </details>
                 </>
               ) : (
                 <>
@@ -2353,4 +2440,3 @@ function shortUrl(value: string) {
     return value;
   }
 }
-

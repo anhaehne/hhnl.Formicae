@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.3.40"
+  tag: "0.3.41"
   pullPolicy: IfNotPresent
 
 api:
@@ -57,6 +57,7 @@ config:
   openHandsCodexSubscriptionImage: ""
   openHandsCodexSubscriptionBootstrapCommand: ""
   openHandsCodexSubscriptionCommand: ""
+  openHandsCodexSubscriptionLoginCommand: ""
   kubernetesJobsNamespace: ""
   kubernetesJobsImage: ""
   kubernetesJobsWorkspaceVolumeClaim: "formicae-workspaces"

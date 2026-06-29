@@ -13,7 +13,7 @@ public sealed class WorkerAgentAuthRefreshService(IWorkflowStore workflowStore, 
 {
     public async Task<bool> RecordAsync(WorkerAgentAuthRefreshRequest request, CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind)
+        if (string.IsNullOrWhiteSpace(request.TaskKind)
             || string.IsNullOrWhiteSpace(request.ExternalId)
             || string.IsNullOrWhiteSpace(request.AiSettingsId)
             || string.IsNullOrWhiteSpace(request.CodexAuthJson))
@@ -26,6 +26,16 @@ public sealed class WorkerAgentAuthRefreshService(IWorkflowStore workflowStore, 
             using var _ = JsonDocument.Parse(request.CodexAuthJson);
         }
         catch (JsonException)
+        {
+            return false;
+        }
+
+        if (string.Equals(request.TaskKind, "CodexAuthSetup", StringComparison.OrdinalIgnoreCase))
+        {
+            return await aiSettingsService.UpdateCodexAuthAsync(request.AiSettingsId, request.CodexAuthJson, cancellationToken);
+        }
+
+        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind))
         {
             return false;
         }

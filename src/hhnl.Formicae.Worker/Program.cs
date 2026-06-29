@@ -32,6 +32,7 @@ internal sealed record WorkerEnvironment(
     Uri? CallbackUrl,
     string? CallbackSecret,
     string? AiSettingsId,
+    string? CodexLoginCommand,
     string ContextPath,
     string? GitAccessToken)
 {
@@ -50,11 +51,13 @@ internal sealed record WorkerEnvironment(
             Uri.TryCreate(Optional("FORMICAE_WORKER_CALLBACK_URL"), UriKind.Absolute, out var callbackUrl) ? callbackUrl : null,
             Optional("FORMICAE_WORKER_CALLBACK_SECRET"),
             Optional("FORMICAE_AI_SETTINGS_ID"),
+            Optional("FORMICAE_CODEX_LOGIN_COMMAND"),
             Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context",
             Optional("FORMICAE_GIT_ACCESS_TOKEN"));
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
+    public bool IsCodexAuthSetup => TaskKind is "CodexAuthSetup" || string.Equals(AuthMethod, "CodexSubscriptionSetup", StringComparison.OrdinalIgnoreCase);
     public bool RequiresRepositoryCheckout => TaskKind is "Implement" or "AddressComments";
 
     private static string Required(string name)
@@ -72,6 +75,11 @@ internal static class WorkerCommand
     public static async Task<int> RunAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory("/workspace");
+        if (environment.IsCodexAuthSetup)
+        {
+            return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);
+        }
+
         if (environment.UsesCodexSubscription)
         {
             return await RunCodexAsync(environment, reporter, cancellationToken);
@@ -80,6 +88,26 @@ internal static class WorkerCommand
         return await RunProcessAsync("openhands", ["--headless", "--json", "--override-with-envs", "-t", environment.Prompt], null, reporter, cancellationToken);
     }
 
+    private static async Task<int> RunCodexAuthSetupAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
+    {
+        var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
+        Directory.CreateDirectory(codexHome);
+        var command = string.IsNullOrWhiteSpace(environment.CodexLoginCommand)
+            ? "npx -y @openai/codex login"
+            : environment.CodexLoginCommand;
+
+        await reporter.ReportAsync("worker", "Starting Codex subscription login.", cancellationToken);
+        var exitCode = await RunProcessAsync("/bin/sh", ["-lc", command], "/workspace", reporter, cancellationToken);
+        var codexAuth = ReadCodexAuth();
+        await reporter.ReportCodexAuthAsync(environment.AiSettingsId, codexAuth, cancellationToken);
+        if (exitCode == 0 && string.IsNullOrWhiteSpace(codexAuth))
+        {
+            await reporter.ReportAsync("worker-error", "Codex login completed without producing auth.json.", cancellationToken);
+            return 1;
+        }
+
+        return exitCode;
+    }
     private static async Task<int> RunCodexAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home");

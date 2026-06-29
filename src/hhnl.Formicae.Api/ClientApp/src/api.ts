@@ -96,6 +96,14 @@ export type AiSettings = {
   updatedAt: string;
 };
 
+export type CodexAuthSetupStatus = {
+  aiSettingsId: string;
+  jobName: string;
+  status: string;
+  output: string;
+  failureReason?: string | null;
+};
+
 export type UpdateAiSettingsRequest = {
   id?: string | null;
   name?: string | null;
@@ -280,6 +288,14 @@ export async function updateAiSettings(request: UpdateAiSettingsRequest): Promis
   });
 }
 
+export async function startCodexAuthConnection(settingsId: string): Promise<CodexAuthSetupStatus> {
+  return send<CodexAuthSetupStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/codex-auth/connect`, { method: "POST" });
+}
+
+export async function getCodexAuthConnectionStatus(settingsId: string, jobName: string): Promise<CodexAuthSetupStatus> {
+  return send<CodexAuthSetupStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/codex-auth/connect/${encodeURIComponent(jobName)}`);
+}
+
 export async function listIntegrations(): Promise<IntegrationSummary[]> {
   return send<IntegrationSummary[]>("/api/integrations");
 }
@@ -299,7 +315,6 @@ export async function getIntegration(integrationId: string): Promise<Integration
 export async function rotateWebhookSecret(integrationId: string): Promise<IntegrationDetail> {
   return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
 }
-
 
 export async function deleteIntegration(integrationId: string): Promise<void> {
   await sendNoContent(`/api/integrations/${encodeURIComponent(integrationId)}`, { method: "DELETE" });
@@ -410,4 +425,3 @@ async function readError(response: Response): Promise<string> {
     return text;
   }
 }
-

@@ -2252,6 +2252,44 @@ public sealed class AdapterContractTests
             return Task.FromResult(token);
         }
     }
+    [Fact]
+    public async Task CodexAuthSetupService_starts_ephemeral_login_job_for_ai_settings()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            CodexAuthJson: "{\"tokens\":\"old\"}",
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions
+            {
+                Image = "worker:test",
+                WorkerCallbackUrl = "http://formicae-api/api/worker/agent-messages",
+                WorkerCallbackSecret = "callback-secret"
+            }),
+            Options.Create(new OpenHandsOptions { CodexSubscriptionLoginCommand = "codex login --device" }),
+            settingsService);
+
+        var start = await service.StartAsync("codex-ai", CancellationToken.None);
+
+        Assert.Equal("codex-ai", start.AiSettingsId);
+        Assert.Equal("Running", start.Status);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.StartsWith("formicae-codex-login-", jobRunner.LastSpec.Name);
+        Assert.Equal("worker:test", jobRunner.LastSpec.Image);
+        Assert.Equal(KubernetesJobAuthMethods.None, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
+        Assert.Equal("CodexAuthSetup", jobRunner.LastSpec.Environment["FORMICAE_TASK_KIND"]);
+        Assert.Equal("CodexSubscriptionSetup", jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+        Assert.Equal("codex-ai", jobRunner.LastSpec.Environment["FORMICAE_AI_SETTINGS_ID"]);
+        Assert.Equal("/tmp/codex-home", jobRunner.LastSpec.Environment["CODEX_HOME"]);
+        Assert.Equal("codex login --device", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
+        Assert.Equal("callback-secret", jobRunner.LastSpec.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
+    }
     private sealed class CapturingJobRunner : IKubernetesJobRunner
     {
         public KubernetesJobSpec? LastSpec { get; private set; }
@@ -2265,6 +2303,9 @@ public sealed class AdapterContractTests
 
         public Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
             => Task.FromResult<KubernetesJobResult?>(Result ?? new KubernetesJobResult(true, jobName, "ok", null));
+
+        public Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
+            => Task.FromResult(Result?.Logs ?? "running logs");
     }
 
     private sealed class CapturingKubernetesJobApi : IKubernetesJobApi

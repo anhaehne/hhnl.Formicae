@@ -13,6 +13,7 @@ public sealed class OpenHandsOptions
     public string CodexSubscriptionImage { get; set; } = string.Empty;
     public string CodexSubscriptionBootstrapCommand { get; set; } = string.Empty;
     public string CodexSubscriptionCommand { get; set; } = string.Empty;
+    public string CodexSubscriptionLoginCommand { get; set; } = string.Empty;
 }
 
 public static class OpenHandsAuthMethods

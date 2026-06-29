@@ -29,6 +29,7 @@ data:
   OpenHands__CodexSubscriptionImage: {{ .Values.config.openHandsCodexSubscriptionImage | quote }}
   OpenHands__CodexSubscriptionBootstrapCommand: {{ .Values.config.openHandsCodexSubscriptionBootstrapCommand | quote }}
   OpenHands__CodexSubscriptionCommand: {{ .Values.config.openHandsCodexSubscriptionCommand | quote }}
+  OpenHands__CodexSubscriptionLoginCommand: {{ .Values.config.openHandsCodexSubscriptionLoginCommand | quote }}
   KubernetesJobs__Namespace: {{ default .Release.Namespace .Values.config.kubernetesJobsNamespace | quote }}
   KubernetesJobs__Image: {{ default (include "formicae.image" (dict "root" . "repository" .Values.worker.image.repository)) .Values.config.kubernetesJobsImage | quote }}
   KubernetesJobs__WorkspaceVolumeClaim: {{ .Values.config.kubernetesJobsWorkspaceVolumeClaim | quote }}
