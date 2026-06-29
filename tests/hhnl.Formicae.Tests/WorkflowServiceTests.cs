@@ -253,6 +253,33 @@ public sealed class WorkflowServiceTests
     }
 
     [Fact]
+    public async Task AiSettingsService_lists_multiple_settings_and_resolves_first_configured()
+    {
+        var store = new InMemoryAiSettingsStore();
+        var service = CreateAiSettingsService(store);
+
+        await service.UpdateAsync(new UpdateAiSettingsRequest(
+            Model: "first-model",
+            AuthMethod: OpenHandsAuthMethods.ApiKey,
+            Id: "first",
+            Name: "First AI"), CancellationToken.None);
+        await service.UpdateAsync(new UpdateAiSettingsRequest(
+            Model: "second-model",
+            AuthMethod: OpenHandsAuthMethods.ApiKey,
+            Id: "second",
+            Name: "Second AI"), CancellationToken.None);
+
+        var settings = await service.ListAsync(CancellationToken.None);
+        var resolved = await service.ResolveAsync(CancellationToken.None);
+
+        Assert.Collection(settings,
+            first => Assert.Equal("First AI", first.Name),
+            second => Assert.Equal("Second AI", second.Name));
+        Assert.Equal("first", resolved.Id);
+        Assert.Equal("First AI", resolved.Name);
+        Assert.Equal("first-model", resolved.Model);
+    }
+    [Fact]
     public async Task AiSettingsService_rejects_unknown_auth_method()
     {
         var service = CreateAiSettingsService(new InMemoryAiSettingsStore());

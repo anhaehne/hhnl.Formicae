@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<WorkflowDiscoveryService>();
         services.AddScoped<WorkflowObservabilityService>();
         services.AddScoped<WorkerAgentMessageService>();
+        services.AddScoped<WorkerAgentAuthRefreshService>();
         services.AddScoped<AiSettingsService>();
         services.AddScoped<DevOpsIntegrationService>();
         services.AddScoped<ManagementUserService>();
@@ -96,6 +97,7 @@ public static class DependencyInjection
         {
             services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
             services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
+            services.AddScoped<CodexAuthSetupService>();
             services.AddScoped<IAgentRunner>(serviceProvider => new OpenHandsAgentRunner(
                 serviceProvider.GetRequiredService<IKubernetesJobRunner>(),
                 serviceProvider.GetRequiredService<IOptions<KubernetesJobOptions>>(),

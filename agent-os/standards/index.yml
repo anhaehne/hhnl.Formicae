@@ -1,2 +1,5 @@
 # Agent OS Standards Index
 
+database:
+  ef-migrations:
+    description: Entity Framework migration generation rules for database model changes.

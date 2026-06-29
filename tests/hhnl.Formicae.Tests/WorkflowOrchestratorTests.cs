@@ -48,7 +48,6 @@ public sealed class WorkflowOrchestratorTests
         });
     }
 
-
     [Fact]
     public async Task DiscoverReadyToPlanWorkflows_Queues_labeled_issues_from_connected_repositories()
     {
@@ -510,7 +509,6 @@ public sealed class WorkflowOrchestratorTests
             });
     }
 
-
     [Fact]
     public async Task AdvanceRunnableWorkflows_Updates_existing_plan_comment_for_completed_plan_retry()
     {
@@ -542,6 +540,41 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(PullRequestCommentMarkers.Plan(workflow.Id), call.Marker);
             Assert.Contains("Existing plan output", call.Body);
         });
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Waits_for_running_agent_task_without_external_id()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Implement,
+            Status = TaskRunStatus.Running
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToImplement]);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new DeferredAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, CancellationToken.None);
+        Assert.Equal(0, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Implementing, updated.Status);
+        Assert.Null(updated.FailureReason);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Running, run.Status);
+        Assert.Null(run.ExternalId);
     }
 
     [Fact]
@@ -587,7 +620,6 @@ public sealed class WorkflowOrchestratorTests
         });
         Assert.Empty(devOps.AddIssueCommentCalls);
     }
-
 
     [Fact]
     public async Task AdvanceRunnableWorkflows_Revises_plan_when_issue_comment_is_newer_than_plan()
@@ -816,7 +848,6 @@ public sealed class WorkflowOrchestratorTests
             Assert.Equal(devOps.DefaultPullRequestUrl, call.PullRequestUrl);
         });
     }
-
 
     [Fact]
     public async Task AdvanceRunnableWorkflows_Completes_reviewing_workflow_when_pull_request_is_merged()
@@ -1117,7 +1148,6 @@ public sealed class WorkflowOrchestratorTests
         Assert.Single(api.LinkedBranchCalls);
     }
 
-
     [Fact]
     public async Task GitHubSourceControlProvider_CreateBranchAsync_does_not_create_unlinked_ref_when_linked_branch_fails()
     {
@@ -1395,7 +1425,6 @@ public sealed class WorkflowOrchestratorTests
             return Task.FromResult(branchName);
         }
 
-
         public Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(string owner, string repository, string headOwner, string headBranch)
             => Task.FromResult<IReadOnlyList<PullRequest>>([]);
 
@@ -1570,7 +1599,81 @@ public sealed class WorkerAgentMessageServiceTests
         Assert.Equal("Warning", log.Level);
         Assert.Equal("agent warning", log.Message);
     }
+
+    [Fact]
+    public async Task RecordAuthRefreshAsync_updates_codex_auth_for_matching_task_run()
+    {
+        var workflowStore = new InMemoryWorkflowStore();
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            CodexAuthJson: "{\"tokens\":\"old\"}",
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var workflow = await workflowStore.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/1",
+            RepositoryUrl = "https://github.com/acme/widgets"
+        }, CancellationToken.None);
+        await workflowStore.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Implement,
+            Status = TaskRunStatus.Running,
+            ExternalId = "formicae-implement-test"
+        }, CancellationToken.None);
+
+        var service = new WorkerAgentAuthRefreshService(workflowStore, settingsService);
+        var recorded = await service.RecordAsync(new WorkerAgentAuthRefreshRequest(
+            workflow.Id,
+            "Implement",
+            "formicae-implement-test",
+            "codex-ai",
+            "{\"tokens\":\"new\"}"), CancellationToken.None);
+
+        var resolved = await settingsService.ResolveAsync(CancellationToken.None);
+        Assert.True(recorded);
+        Assert.Equal("{\"tokens\":\"new\"}", resolved.CodexAuthJson);
+    }
+
+    [Fact]
+    public async Task RecordAuthRefreshAsync_rejects_mismatched_external_job_id()
+    {
+        var workflowStore = new InMemoryWorkflowStore();
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            CodexAuthJson: "{\"tokens\":\"old\"}",
+            Id: "codex-ai"), CancellationToken.None);
+        var workflow = await workflowStore.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/1",
+            RepositoryUrl = "https://github.com/acme/widgets"
+        }, CancellationToken.None);
+        await workflowStore.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Implement,
+            Status = TaskRunStatus.Running,
+            ExternalId = "formicae-implement-test"
+        }, CancellationToken.None);
+
+        var service = new WorkerAgentAuthRefreshService(workflowStore, settingsService);
+        var recorded = await service.RecordAsync(new WorkerAgentAuthRefreshRequest(
+            workflow.Id,
+            "Implement",
+            "other-job",
+            "codex-ai",
+            "{\"tokens\":\"new\"}"), CancellationToken.None);
+
+        var resolved = await settingsService.ResolveAsync(CancellationToken.None);
+        Assert.False(recorded);
+        Assert.Equal("{\"tokens\":\"old\"}", resolved.CodexAuthJson);
+    }
 }
+
 public sealed class AdapterContractTests
 {
     [Fact]
@@ -1654,7 +1757,7 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
-    public async Task OpenHands_runner_uses_prompt_hash_in_job_name()
+    public async Task OpenHands_runner_uses_prompt_hash_and_unique_nonce_in_job_name()
     {
         var workflowId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var firstJobRunner = new CapturingJobRunner();
@@ -1699,9 +1802,10 @@ public sealed class AdapterContractTests
         Assert.NotNull(secondJobRunner.LastSpec);
         Assert.NotNull(repeatedJobRunner.LastSpec);
         Assert.NotEqual(firstJobRunner.LastSpec.Name, secondJobRunner.LastSpec.Name);
-        Assert.Equal(firstJobRunner.LastSpec.Name, repeatedJobRunner.LastSpec.Name);
+        Assert.NotEqual(firstJobRunner.LastSpec.Name, repeatedJobRunner.LastSpec.Name);
         Assert.True(firstJobRunner.LastSpec.Name.Length <= 63);
-        Assert.StartsWith("formicae-addresscomments-1111111111111111111111111111", firstJobRunner.LastSpec.Name);
+        Assert.StartsWith("formicae-addresscomments-11111111111111111111", firstJobRunner.LastSpec.Name);
+        Assert.Matches("-[a-f0-9]{8}-[a-f0-9]{8}$", firstJobRunner.LastSpec.Name);
     }
 
     [Fact]
@@ -1774,8 +1878,44 @@ public sealed class AdapterContractTests
         Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
         Assert.Equal(OpenHandsAuthMethods.CodexSubscription, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
         Assert.Equal("gpt-5.2-codex", jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
+        Assert.Equal("default", jobRunner.LastSpec.Environment["FORMICAE_AI_SETTINGS_ID"]);
+        Assert.Equal("/tmp/codex-home", jobRunner.LastSpec.Environment["CODEX_HOME"]);
+        Assert.Equal("/root/.codex", jobRunner.LastSpec.Environment["FORMICAE_CODEX_AUTH_MOUNT_PATH"]);
+        Assert.Equal("auth.json", jobRunner.LastSpec.Environment["FORMICAE_CODEX_AUTH_FILE_NAME"]);
         Assert.Equal("""{"model":"gpt-5.2-codex"}""", jobRunner.LastSpec.Environment["CODEX_CONFIG"]);
         Assert.False(jobRunner.LastSpec.Environment.ContainsKey("LLM_MODEL"));
+    }
+
+    [Fact]
+    public async Task OpenHands_runner_mounts_refreshed_codex_auth_before_original_subscription_credentials()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            SubscriptionCredentialJson: "{\"tokens\":\"old\"}",
+            CodexAuthJson: "{\"tokens\":\"new\"}",
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        await runner.StartAsync(new AgentTask(
+            Guid.Parse("88888888-8888-8888-8888-888888888888"),
+            TaskRunKind.Implement,
+            "Implement this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.NotNull(jobRunner.LastSpec.SecretFiles);
+        var secretFile = Assert.Single(jobRunner.LastSpec.SecretFiles);
+        Assert.Equal("{\"tokens\":\"new\"}", secretFile.Data["auth.json"]);
     }
 
     [Fact]
@@ -2015,7 +2155,37 @@ public sealed class AdapterContractTests
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
     }
 
+    [Fact]
+    public async Task Kubernetes_runner_returns_waiting_message_when_pod_logs_are_not_ready()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta
+                    {
+                        Name = "formicae-codex-login-pod",
+                        CreationTimestamp = DateTime.UtcNow
+                    }
+                }
+            ],
+            PodLogException = new InvalidOperationException("container \"worker\" is waiting to start: ContainerCreating")
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5
+        }), []);
 
+        var logs = await runner.ReadJobLogsAsync("formicae-codex-login", CancellationToken.None);
+
+        Assert.Contains("--- pod/formicae-codex-login-pod logs ---", logs);
+        Assert.Contains("Container is starting", logs);
+        Assert.DoesNotContain("Unable to read logs", logs);
+    }
     [Fact]
     public async Task Kubernetes_runner_mounts_context_configmap_owned_by_job()
     {
@@ -2146,6 +2316,96 @@ public sealed class AdapterContractTests
             return Task.FromResult(token);
         }
     }
+
+    [Fact]
+    public async Task CodexAuthSetupService_sanitizes_device_login_output()
+    {
+        var settingsService = new AiSettingsService(new InMemoryAiSettingsStore(), Options.Create(new OpenHandsOptions()), new SystemClock());
+        var jobRunner = new CapturingJobRunner
+        {
+            Result = new KubernetesJobResult(
+                true,
+                "formicae-codex-login",
+                "Follow these steps\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n   \u001b[94mE4UQ-ZWLG0\u001b[0m\n",
+                null)
+        };
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        var status = await service.GetStatusAsync("codex-ai", "formicae-codex-login", CancellationToken.None);
+
+        Assert.Equal("https://auth.openai.com/codex/device", status.DeviceLoginUrl);
+        Assert.Equal("E4UQ-ZWLG0", status.DeviceLoginCode);
+        Assert.True(!status.Output.Any(character => char.IsControl(character) && character is not '\r' and not '\n' and not '\t'), string.Join(",", status.Output.Select(character => ((int)character).ToString())));
+        Assert.Contains("https://auth.openai.com/codex/device", status.Output);
+        Assert.Contains("E4UQ-ZWLG0", status.Output);
+    }
+    [Fact]
+    public async Task CodexAuthSetupService_uses_device_auth_login_by_default()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        await service.StartAsync("codex-ai", CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.Equal("npx -y @openai/codex login --device-auth", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
+    }
+
+    [Fact]
+    public async Task CodexAuthSetupService_starts_ephemeral_login_job_for_ai_settings()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.CodexSubscription,
+            CodexAuthJson: "{\"tokens\":\"old\"}",
+            Id: "codex-ai",
+            Name: "Codex AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions
+            {
+                Image = "worker:test",
+                WorkerCallbackUrl = "http://formicae-api/api/worker/agent-messages",
+                WorkerCallbackSecret = "callback-secret"
+            }),
+            Options.Create(new OpenHandsOptions { CodexSubscriptionLoginCommand = "codex login --device" }),
+            settingsService);
+
+        var start = await service.StartAsync("codex-ai", CancellationToken.None);
+
+        Assert.Equal("codex-ai", start.AiSettingsId);
+        Assert.Equal("Running", start.Status);
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.StartsWith("formicae-codex-login-", jobRunner.LastSpec.Name);
+        Assert.Equal("worker:test", jobRunner.LastSpec.Image);
+        Assert.Equal(KubernetesJobAuthMethods.None, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
+        Assert.Equal("CodexAuthSetup", jobRunner.LastSpec.Environment["FORMICAE_TASK_KIND"]);
+        Assert.Equal("CodexSubscriptionSetup", jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+        Assert.Equal("codex-ai", jobRunner.LastSpec.Environment["FORMICAE_AI_SETTINGS_ID"]);
+        Assert.Equal("/tmp/codex-home", jobRunner.LastSpec.Environment["CODEX_HOME"]);
+        Assert.Equal("1", jobRunner.LastSpec.Environment["NO_COLOR"]);
+        Assert.Equal("dumb", jobRunner.LastSpec.Environment["TERM"]);
+        Assert.Equal("codex login --device", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
+        Assert.Equal("callback-secret", jobRunner.LastSpec.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
+    }
+
     private sealed class CapturingJobRunner : IKubernetesJobRunner
     {
         public KubernetesJobSpec? LastSpec { get; private set; }
@@ -2159,6 +2419,9 @@ public sealed class AdapterContractTests
 
         public Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
             => Task.FromResult<KubernetesJobResult?>(Result ?? new KubernetesJobResult(true, jobName, "ok", null));
+
+        public Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
+            => Task.FromResult(Result?.Logs ?? "running logs");
     }
 
     private sealed class CapturingKubernetesJobApi : IKubernetesJobApi
@@ -2167,9 +2430,12 @@ public sealed class AdapterContractTests
         public k8s.Models.V1ConfigMap? CreatedConfigMap { get; private set; }
         public List<string> DeletedJobs { get; } = [];
         public List<string> DeletedConfigMaps { get; } = [];
+        public List<k8s.Models.V1Secret> CreatedSecrets { get; } = [];
+        public List<string> DeletedSecrets { get; } = [];
         public Queue<k8s.Models.V1Job> Statuses { get; init; } = new();
         public IReadOnlyList<k8s.Models.V1Pod> Pods { get; init; } = [];
         public string PodLogs { get; init; } = string.Empty;
+        public Exception? PodLogException { get; init; }
 
         public Task<k8s.Models.V1Job> CreateJobAsync(k8s.Models.V1Job job, string namespaceName, CancellationToken cancellationToken)
         {
@@ -2194,7 +2460,19 @@ public sealed class AdapterContractTests
             => Task.FromResult(Pods);
 
         public Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken)
-            => Task.FromResult(PodLogs);
+            => PodLogException is null ? Task.FromResult(PodLogs) : Task.FromException<string>(PodLogException);
+
+        public Task CreateSecretAsync(k8s.Models.V1Secret secret, string namespaceName, CancellationToken cancellationToken)
+        {
+            CreatedSecrets.Add(secret);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        {
+            DeletedSecrets.Add(name);
+            return Task.CompletedTask;
+        }
 
         public Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken)
         {

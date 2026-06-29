@@ -104,6 +104,10 @@ public interface IAiSettingsStore
 {
     Task<AiSettings?> GetAsync(CancellationToken cancellationToken);
 
+    Task<AiSettings?> GetAsync(string id, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AiSettings>> ListAsync(CancellationToken cancellationToken);
+
     Task<AiSettings> UpsertAsync(AiSettings settings, CancellationToken cancellationToken);
 }
 

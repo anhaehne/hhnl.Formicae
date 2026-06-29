@@ -76,20 +76,53 @@ export type WorkflowChatMessage = {
 };
 
 export type AiSettings = {
+  id: string;
+  name: string;
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
+  agentKind: string;
+  acpProvider?: string | null;
+  acpCommand?: string | null;
   authMethod: string;
   llmApiKeySecretName?: string | null;
   hasApiKeySecret: boolean;
+  hasApiKey: boolean;
+  apiKeyEnvironmentVariable?: string | null;
+  hasSubscriptionAuth: boolean;
+  subscriptionCredentialFileName?: string | null;
+  subscriptionCredentialMountPath?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CodexAuthSetupStatus = {
+  aiSettingsId: string;
+  jobName: string;
+  status: string;
+  output: string;
+  failureReason?: string | null;
+  deviceLoginUrl?: string | null;
+  deviceLoginCode?: string | null;
 };
 
 export type UpdateAiSettingsRequest = {
+  id?: string | null;
+  name?: string | null;
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
+  agentKind: string;
+  acpProvider?: string | null;
+  acpCommand?: string | null;
   authMethod: string;
   llmApiKeySecretName?: string | null;
+  llmApiKey?: string | null;
+  apiKeyEnvironmentVariable?: string | null;
+  subscriptionCredentialJson?: string | null;
+  subscriptionCredentialFileName?: string | null;
+  subscriptionCredentialMountPath?: string | null;
+  codexAuthJson?: string | null;
 };
 
 export type IntegrationSummary = {
@@ -245,8 +278,8 @@ export async function logout(): Promise<void> {
   await sendNoContent("/api/auth/logout", { method: "POST" });
 }
 
-export async function getAiSettings(): Promise<AiSettings> {
-  return send<AiSettings>("/api/ai-settings");
+export async function getAiSettings(): Promise<AiSettings[]> {
+  return send<AiSettings[]>("/api/ai-settings");
 }
 
 export async function updateAiSettings(request: UpdateAiSettingsRequest): Promise<AiSettings> {
@@ -255,6 +288,14 @@ export async function updateAiSettings(request: UpdateAiSettingsRequest): Promis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)
   });
+}
+
+export async function startCodexAuthConnection(settingsId: string): Promise<CodexAuthSetupStatus> {
+  return send<CodexAuthSetupStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/codex-auth/connect`, { method: "POST" });
+}
+
+export async function getCodexAuthConnectionStatus(settingsId: string, jobName: string): Promise<CodexAuthSetupStatus> {
+  return send<CodexAuthSetupStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/codex-auth/connect/${encodeURIComponent(jobName)}`);
 }
 
 export async function listIntegrations(): Promise<IntegrationSummary[]> {
@@ -276,7 +317,6 @@ export async function getIntegration(integrationId: string): Promise<Integration
 export async function rotateWebhookSecret(integrationId: string): Promise<IntegrationDetail> {
   return send<IntegrationDetail>(`/api/integrations/${encodeURIComponent(integrationId)}/webhook-secret`, { method: "POST" });
 }
-
 
 export async function deleteIntegration(integrationId: string): Promise<void> {
   await sendNoContent(`/api/integrations/${encodeURIComponent(integrationId)}`, { method: "DELETE" });
@@ -387,5 +427,3 @@ async function readError(response: Response): Promise<string> {
     return text;
   }
 }
-
-

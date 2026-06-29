@@ -21,6 +21,8 @@ Keep REST endpoints as the authoritative read model. The browser should:
 
 Use HTTP callbacks for Worker -> Server communication. Treat worker callbacks as durable ingestion events that update persisted workflow state and audit data, not as browser-specific messages. Browser notifications are a projection of persisted server state.
 
+Realtime worker output in the management UI should flow through the same projection path: the worker posts live agent messages to the API, the API persists and redacts them, then the API emits `agentMessage.appended` events to subscribed browser clients through SignalR.
+
 ## Event Contract
 
 Realtime workflow events should use a shared envelope:
@@ -47,6 +49,8 @@ Expected event types:
 
 Events must be emitted only after successful persistence. Consumers may use `sequence` to order events within a workflow and `eventId` for deduplication.
 
+For live worker messages, `agentMessage.appended` is the browser-facing event. Its payload should contain only the persisted message fields needed by the management UI, such as message id, task run id, timestamp, role or stream name, and redacted content. It must not expose raw worker callback secrets, environment variables, credentials, or unredacted command output.
+
 ## Server To Browser
 
 Future components:
@@ -63,11 +67,13 @@ Reconnect behavior should be simple and recovery-oriented:
 
 This keeps realtime delivery opportunistic. REST remains the recovery source if events are missed while disconnected.
 
+When the API ingests a worker callback for a workflow that is open in the management UI, the browser should receive the resulting `agentMessage.appended` event through the workflow group after the message has been committed. The UI may append the message locally for low-latency display and still refetch the workflow or task run snapshot when it detects a sequence gap, reconnects, or needs authoritative status.
+
 Scale-out requirements follow the [SignalR scale-out guidance](https://learn.microsoft.com/en-us/aspnet/core/signalr/scale). A single API replica can run without a backplane. Multi-replica deployments require sticky sessions plus a SignalR backplane or a managed SignalR service so group membership and event fanout work across replicas.
 
 ## Server To Worker
 
-Keep API-created Kubernetes Jobs as the Server -> Worker command path for now. Keep the worker HTTP callback as the Worker -> Server status and message path.
+Keep API-created Kubernetes Jobs as the Server -> Worker command path for now. Keep the worker HTTP callback as the Worker -> Server status and message path. This supports realtime management UI streaming without creating a direct Worker -> Browser channel: workers report to the API, and the API fans out persisted events to authorized browser subscribers.
 
 Future hardening should add:
 

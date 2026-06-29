@@ -67,6 +67,9 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.ToTable("ai_settings");
             entity.HasKey(settings => settings.Id);
             entity.Property(settings => settings.Id).IsRequired();
+            entity.Property(settings => settings.Name).IsRequired().HasDefaultValue(hhnl.Formicae.Application.Workflows.AiSettings.DefaultName);
+            entity.Property(settings => settings.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(settings => settings.AgentKind).IsRequired();
             entity.Property(settings => settings.AuthMethod).IsRequired();
         });
 

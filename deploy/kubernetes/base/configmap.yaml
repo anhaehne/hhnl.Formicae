@@ -29,6 +29,7 @@ data:
   OpenHands__CodexSubscriptionImage: ""
   OpenHands__CodexSubscriptionBootstrapCommand: ""
   OpenHands__CodexSubscriptionCommand: ""
+  OpenHands__CodexSubscriptionLoginCommand: ""
   KubernetesJobs__Namespace: "formicae"
   KubernetesJobs__Image: "docker.io/limeray/hhnl-formicae-worker:0.2.1"
   KubernetesJobs__WorkspaceVolumeClaim: "formicae-workspaces"

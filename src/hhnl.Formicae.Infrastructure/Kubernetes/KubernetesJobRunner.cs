@@ -10,6 +10,8 @@ public interface IKubernetesJobRunner
     Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
 
     Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken);
+
+    Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken);
 }
 
 public sealed record KubernetesJobSpec(
@@ -19,13 +21,18 @@ public sealed record KubernetesJobSpec(
     IReadOnlyList<string> Command,
     string AuthMethod = KubernetesJobAuthMethods.ApiKey,
     IReadOnlyList<KubernetesJobContextFile>? ContextFiles = null,
-    string ContextFilesMountPath = "/workspace/formicae/context");
+    string ContextFilesMountPath = "/workspace/formicae/context",
+    IReadOnlyList<KubernetesJobSecretFile>? SecretFiles = null,
+    KubernetesJobSecretEnvironment? SecretEnvironment = null);
 public sealed record KubernetesJobContextFile(string FileName, string Content);
+public sealed record KubernetesJobSecretFile(string SecretName, string MountPath, IReadOnlyDictionary<string, string> Data);
+public sealed record KubernetesJobSecretEnvironment(string SecretName, IReadOnlyDictionary<string, string> Data);
 public sealed record KubernetesJobStartResult(string JobName);
 public sealed record KubernetesJobResult(bool Succeeded, string JobName, string Logs, string? FailureReason);
 
 public static class KubernetesJobAuthMethods
 {
+    public const string None = "None";
     public const string ApiKey = "ApiKey";
     public const string CodexSubscription = "CodexSubscription";
 }
@@ -53,6 +60,8 @@ public interface IKubernetesJobApi
     Task<V1Job> ReadJobStatusAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task<IReadOnlyList<V1Pod>> ListPodsAsync(string namespaceName, string labelSelector, CancellationToken cancellationToken);
     Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken);
+    Task CreateSecretAsync(V1Secret secret, string namespaceName, CancellationToken cancellationToken);
+    Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken);
 }
@@ -91,6 +100,12 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
         return await reader.ReadToEndAsync(cancellationToken);
     }
 
+    public Task CreateSecretAsync(V1Secret secret, string namespaceName, CancellationToken cancellationToken)
+        => client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName, cancellationToken: cancellationToken);
+
+    public Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        => client.CoreV1.DeleteNamespacedSecretAsync(name, namespaceName, cancellationToken: cancellationToken);
+
     public Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken)
         => client.BatchV1.DeleteNamespacedJobAsync(
             name,
@@ -122,6 +137,7 @@ public sealed class KubernetesJobRunner(
     {
         var namespaceName = ResolveNamespace();
         var job = BuildJob(spec);
+        await CreateSecretsAsync(spec, namespaceName, cancellationToken);
         V1Job createdJob;
 
         try
@@ -187,6 +203,9 @@ public sealed class KubernetesJobRunner(
 
         return null;
     }
+    public async Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
+        => await ReadLogsAsync(jobName, ResolveNamespace(), cancellationToken);
+
     private string ResolveNamespace()
         => string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
 
@@ -254,14 +273,15 @@ public sealed class KubernetesJobRunner(
         };
 
         var envFrom = new List<V1EnvFromSource>();
-        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.ApiKey))
+        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.ApiKey) && !string.IsNullOrWhiteSpace(options.Value.LlmApiKeySecretName))
         {
-            AddOptionalSecretEnvFrom(envFrom, options.Value.LlmApiKeySecretName);
+            envFrom.Add(new V1EnvFromSource { SecretRef = new V1SecretEnvSource { Name = options.Value.LlmApiKeySecretName, Optional = true } });
         }
 
         var volumes = new List<V1Volume>();
         var volumeMounts = new List<V1VolumeMount>();
         if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.CodexSubscription)
+            && (spec.SecretFiles is null || spec.SecretFiles.Count == 0)
             && !string.IsNullOrWhiteSpace(options.Value.CodexAuthSecretName))
         {
             volumes.Add(new V1Volume
@@ -270,22 +290,35 @@ public sealed class KubernetesJobRunner(
                 Secret = new V1SecretVolumeSource
                 {
                     SecretName = options.Value.CodexAuthSecretName,
-                    Items =
-                    [
-                        new V1KeyToPath
-                        {
-                            Key = options.Value.CodexAuthSecretKey,
-                            Path = options.Value.CodexAuthSecretKey
-                        }
-                    ]
+                    Items = [new V1KeyToPath { Key = options.Value.CodexAuthSecretKey, Path = options.Value.CodexAuthSecretKey }]
                 }
             });
-            volumeMounts.Add(new V1VolumeMount
+            volumeMounts.Add(new V1VolumeMount { Name = "codex-auth", MountPath = options.Value.CodexAuthMountPath, ReadOnlyProperty = true });
+        }
+        if (spec.SecretFiles?.Count > 0)
+        {
+            var index = 0;
+            foreach (var secretFile in spec.SecretFiles)
             {
-                Name = "codex-auth",
-                MountPath = options.Value.CodexAuthMountPath,
-                ReadOnlyProperty = true
-            });
+                var volumeName = $"formicae-secret-{index++}";
+                volumes.Add(new V1Volume
+                {
+                    Name = volumeName,
+                    Secret = new V1SecretVolumeSource
+                    {
+                        SecretName = secretFile.SecretName,
+                        Items = secretFile.Data.Keys
+                            .Select(key => new V1KeyToPath { Key = key, Path = key })
+                            .ToList()
+                    }
+                });
+                volumeMounts.Add(new V1VolumeMount
+                {
+                    Name = volumeName,
+                    MountPath = secretFile.MountPath,
+                    ReadOnlyProperty = true
+                });
+            }
         }
 
         if (spec.ContextFiles?.Count > 0)
@@ -331,10 +364,7 @@ public sealed class KubernetesJobRunner(
                                 Name = ContainerName,
                                 Image = spec.Image,
                                 ImagePullPolicy = "IfNotPresent",
-                                Env = spec.Environment
-                                    .OrderBy(pair => pair.Key)
-                                    .Select(pair => new V1EnvVar { Name = pair.Key, Value = pair.Value })
-                                    .ToList(),
+                                Env = BuildEnvironmentVariables(spec),
                                 EnvFrom = envFrom.Count == 0 ? null : envFrom,
                                 Command = spec.Command.ToList(),
                                 VolumeMounts = volumeMounts.Count == 0 ? null : volumeMounts
@@ -346,6 +376,88 @@ public sealed class KubernetesJobRunner(
         };
     }
 
+    private static List<V1EnvVar> BuildEnvironmentVariables(KubernetesJobSpec spec)
+    {
+        var env = spec.Environment
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new V1EnvVar { Name = pair.Key, Value = pair.Value })
+            .ToList();
+
+        if (spec.SecretEnvironment is not null)
+        {
+            env.AddRange(spec.SecretEnvironment.Data.Keys.OrderBy(key => key).Select(key => new V1EnvVar
+            {
+                Name = key,
+                ValueFrom = new V1EnvVarSource
+                {
+                    SecretKeyRef = new V1SecretKeySelector { Name = spec.SecretEnvironment.SecretName, Key = key }
+                }
+            }));
+        }
+
+        return env;
+    }
+
+    private async Task CreateSecretsAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
+    {
+        var secrets = new List<(string Name, IReadOnlyDictionary<string, string> Data)>();
+        if (spec.SecretEnvironment is not null)
+        {
+            secrets.Add((spec.SecretEnvironment.SecretName, spec.SecretEnvironment.Data));
+        }
+
+        if (spec.SecretFiles is not null)
+        {
+            secrets.AddRange(spec.SecretFiles.Select(secretFile => (secretFile.SecretName, secretFile.Data)));
+        }
+
+        foreach (var secretFile in secrets)
+        {
+            var secret = new V1Secret
+            {
+                ApiVersion = "v1",
+                Kind = "Secret",
+                Metadata = new V1ObjectMeta
+                {
+                    Name = secretFile.Name,
+                    Labels = new Dictionary<string, string>
+                    {
+                        [ManagedByLabel] = ManagedByValue,
+                        ["app.kubernetes.io/name"] = "formicae-agent-secret",
+                        ["formicae.hhnl.de/task"] = spec.Name
+                    }
+                },
+                Type = "Opaque",
+                Data = secretFile.Data.ToDictionary(pair => pair.Key, pair => Encoding.UTF8.GetBytes(pair.Value))
+            };
+
+            try
+            {
+                await jobApi.CreateSecretAsync(secret, namespaceName, cancellationToken);
+            }
+            catch (Exception exception) when (IsAlreadyExistsConflict(exception))
+            {
+                // A retry can reuse the existing deterministic per-job secret.
+            }
+        }
+    }
+    private async Task DeleteSecretFilesAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await jobApi.DeleteSecretAsync(CodexAuthSecretName(jobName), namespaceName, cancellationToken);
+            await jobApi.DeleteSecretAsync(ApiKeySecretName(jobName), namespaceName, cancellationToken);
+        }
+        catch (Exception exception) when (IsNotFound(exception))
+        {
+        }
+    }
+
+    public static string CodexAuthSecretName(string jobName)
+        => $"{jobName}-codex-auth";
+
+    public static string ApiKeySecretName(string jobName)
+        => $"{jobName}-api-auth";
     private static V1ConfigMap? BuildContextConfigMap(KubernetesJobSpec spec, V1Job job)
     {
         if (spec.ContextFiles is not { Count: > 0 })
@@ -407,16 +519,6 @@ public sealed class KubernetesJobRunner(
         }
     }
 
-    private static void AddOptionalSecretEnvFrom(List<V1EnvFromSource> envFrom, string secretName)
-    {
-        if (string.IsNullOrWhiteSpace(secretName))
-        {
-            return;
-        }
-
-        envFrom.Add(new V1EnvFromSource { SecretRef = new V1SecretEnvSource { Name = secretName, Optional = true } });
-    }
-
     private static bool IsAuthMethod(string? actual, string expected)
         => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
 
@@ -473,6 +575,22 @@ public sealed class KubernetesJobRunner(
             || exception.Message.Contains("\"code\":409", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void AppendLogReadFailure(StringBuilder builder, Exception exception)
+    {
+        if (IsPodStartingLogUnavailable(exception))
+        {
+            builder.AppendLine("Container is starting. Pulling the image or preparing the pod; login output will appear shortly.");
+            return;
+        }
+
+        builder.AppendLine($"Unable to read logs: {exception.Message}");
+    }
+
+    private static bool IsPodStartingLogUnavailable(Exception exception)
+        => exception.Message.Contains("waiting to start", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("ContainerCreating", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("PodInitializing", StringComparison.OrdinalIgnoreCase);
+
     private async Task<string> ReadLogsAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
         var pods = await jobApi.ListPodsAsync(namespaceName, $"job-name={jobName}", cancellationToken);
@@ -492,7 +610,11 @@ public sealed class KubernetesJobRunner(
             }
             catch (KubernetesException exception)
             {
-                builder.AppendLine($"Unable to read logs: {exception.Message}");
+                AppendLogReadFailure(builder, exception);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                AppendLogReadFailure(builder, exception);
             }
         }
 
@@ -501,6 +623,8 @@ public sealed class KubernetesJobRunner(
 
     private async Task DeleteIfConfiguredAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
+        await DeleteSecretFilesAsync(jobName, namespaceName, cancellationToken);
+
         if (!options.Value.DeleteFinishedJobs)
         {
             return;

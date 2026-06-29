@@ -5,11 +5,13 @@ using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure;
 using hhnl.Formicae.Infrastructure.Identity;
 using hhnl.Formicae.Infrastructure.Kubernetes;
+using hhnl.Formicae.Infrastructure.OpenHands;
 using hhnl.Formicae.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.WebUtilities;
@@ -434,6 +436,23 @@ app.MapPost("/api/worker/agent-messages", async (
     return Results.Accepted();
 });
 
+app.MapPost("/api/worker/agent-auth", async (
+    WorkerAgentAuthRefreshRequest request,
+    HttpRequest httpRequest,
+    WorkerAgentAuthRefreshService authRefreshes,
+    IOptions<KubernetesJobOptions> kubernetesJobOptions,
+    CancellationToken cancellationToken) =>
+{
+    var callbackSecret = kubernetesJobOptions.Value.WorkerCallbackSecret;
+    if (!string.IsNullOrWhiteSpace(callbackSecret)
+        && !string.Equals(httpRequest.Headers["X-Formicae-Worker-Callback-Secret"].FirstOrDefault(), callbackSecret, StringComparison.Ordinal))
+    {
+        return Results.Unauthorized();
+    }
+
+    var accepted = await authRefreshes.RecordAsync(request, cancellationToken);
+    return accepted ? Results.Accepted() : Results.NotFound();
+});
 app.MapPost("/api/webhooks/github", async (
     HttpRequest request,
     GitHubWebhookHandler handler,
@@ -441,7 +460,34 @@ app.MapPost("/api/webhooks/github", async (
 
 app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
-    CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.GetAsync(cancellationToken)));
+    CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));
+
+app.MapPost("/api/ai-settings/{settingsId}/codex-auth/connect", async (
+    string settingsId,
+    [FromServices] CodexAuthSetupService codexAuthSetup,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var started = await codexAuthSetup.StartAsync(settingsId, cancellationToken);
+        return Results.Accepted($"/api/ai-settings/{settingsId}/codex-auth/connect/{started.JobName}", started);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapGet("/api/ai-settings/{settingsId}/codex-auth/connect/{jobName}", async (
+    string settingsId,
+    string jobName,
+    [FromServices] CodexAuthSetupService codexAuthSetup,
+    CancellationToken cancellationToken) => Results.Ok(await codexAuthSetup.GetStatusAsync(settingsId, jobName, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
 app.MapPut("/api/ai-settings", async (
     UpdateAiSettingsRequest request,
@@ -902,4 +948,3 @@ static Uri GetPublicBaseUri(HttpRequest request)
 public sealed record UpdateManagementUserRolesRequest(IReadOnlyList<string>? Roles);
 
 public partial class Program;
-
