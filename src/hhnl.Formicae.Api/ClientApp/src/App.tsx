@@ -29,6 +29,7 @@ import {
   listRuns,
   listSignals,
   listWorkflows,
+  listWorkflowDefinitions,
   logout,
   ManagementRole,
   ManagementUser,
@@ -45,11 +46,14 @@ import {
   updateManagementUserRoles,
 
   WorkflowChatMessage,
+  WorkflowDefinitionResponse,
   WorkflowEvent,
   WorkflowLog,
   WorkflowSignal,
   WorkflowSummary
 } from "./api";
+import WorkflowDefinitionsPage from "./WorkflowDefinitionsPage";
+import { getEnabledDefinitionVersions } from "./workflowGraph";
 
 const workflowStatuses = ["Queued", "Planning", "Implementing", "CreatingPullRequest", "Reviewing", "Completed", "Failed", "Canceled"];
 const workflowSteps = ["None", "Plan", "Implement", "CreatePullRequest", "AddressComments", "Done"];
@@ -61,6 +65,7 @@ type FormState = {
   repositoryUrl: string;
   baseBranch: string;
   model: string;
+  workflowDefinitionVersionId: string;
 };
 
 type AiSettingsFormState = {
@@ -80,7 +85,7 @@ type AiSettingsFormState = {
   subscriptionCredentialMountPath: string;
 };
 
-type Page = "workflows" | "integrations" | "repositories" | "users" | "settings";
+type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "settings";
 
 type GitHubIntegrationFormState = {
   displayName: string;
@@ -104,7 +109,8 @@ const initialForm: FormState = {
   issueUrl: "",
   repositoryUrl: "",
   baseBranch: "main",
-  model: ""
+  model: "",
+  workflowDefinitionVersionId: ""
 };
 
 const initialAiSettingsForm: AiSettingsFormState = {
@@ -145,14 +151,18 @@ export default function App() {
   const [codexAuthConnection, setCodexAuthConnection] = useState<CodexAuthSetupStatus>();
   const [startingCodexAuth, setStartingCodexAuth] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionResponse[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
   const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
+  const [loadingWorkflowDefinitions, setLoadingWorkflowDefinitions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [retryingRunId, setRetryingRunId] = useState<string>();
   const [retryingWorkflowId, setRetryingWorkflowId] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
+  const [workflowDefinitionError, setWorkflowDefinitionError] = useState<string>();
+  const [workflowDefinitionSaved, setWorkflowDefinitionSaved] = useState<string>();
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const [integrationDetail, setIntegrationDetail] = useState<IntegrationDetail>();
@@ -204,6 +214,10 @@ export default function App() {
   const failureEvents = useMemo(
     () => detail.events.filter(event => (event.type === "WorkflowFailed" || event.level === "Error") && event.detailsJson),
     [detail.events]
+  );
+  const enabledDefinitionVersions = useMemo(
+    () => getEnabledDefinitionVersions(workflowDefinitions),
+    [workflowDefinitions]
   );
   const refreshCurrentUser = useCallback(async () => {
     try {
@@ -261,13 +275,38 @@ export default function App() {
     }
   }, [selectedWorkflowId]);
 
+  const refreshWorkflowDefinitions = useCallback(async (definitionId?: string, versionId?: string) => {
+    setLoadingWorkflowDefinitions(true);
+    setWorkflowDefinitionError(undefined);
+    try {
+      const definitions = await listWorkflowDefinitions();
+      setWorkflowDefinitions(definitions);
+      setForm(current => {
+        if (current.workflowDefinitionVersionId || definitions.length === 0) {
+          return current;
+        }
+
+        const defaultVersion = getEnabledDefinitionVersions(definitions)[0];
+        return {
+          ...current,
+          workflowDefinitionVersionId: defaultVersion?.version.id ?? ""
+        };
+      });
+    } catch (error) {
+      setWorkflowDefinitionError(error instanceof Error ? error.message : "Could not load workflow definitions.");
+    } finally {
+      setLoadingWorkflowDefinitions(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!currentUser || !canViewWorkflows) {
       return;
     }
 
     void refreshWorkflows();
-  }, [canViewWorkflows, currentUser, refreshWorkflows]);
+    void refreshWorkflowDefinitions();
+  }, [canViewWorkflows, currentUser, refreshWorkflowDefinitions, refreshWorkflows]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -279,7 +318,7 @@ export default function App() {
     const inviteRedeemed = params.get("inviteRedeemed");
     const inviteError = params.get("inviteError");
 
-    if (page === "repositories" || page === "integrations" || page === "users" || page === "settings" || page === "workflows") {
+    if (page === "repositories" || page === "integrations" || page === "users" || page === "settings" || page === "workflows" || page === "workflow-definitions") {
       setActivePage(page);
     }
 
@@ -628,13 +667,30 @@ export default function App() {
       return;
     }
 
+    const selectedDefinitionVersion = enabledDefinitionVersions.find(item => item.version.id === form.workflowDefinitionVersionId);
+    if (enabledDefinitionVersions.length > 0 && !selectedDefinitionVersion) {
+      setFormError("Select an enabled workflow definition before starting.");
+      return;
+    }
+    if (enabledDefinitionVersions.length === 0) {
+      setFormError("No enabled workflow definition versions are available.");
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const workflowDefinition = selectedDefinitionVersion;
+      if (!workflowDefinition) {
+        throw new Error("Select an enabled workflow definition before starting.");
+      }
+
       const workflow = await startWorkflow({
         issueUrl: form.issueUrl.trim(),
         repositoryUrl: form.repositoryUrl.trim(),
         baseBranch: form.baseBranch.trim() || "main",
-        model: form.model.trim() || null
+        model: form.model.trim() || null,
+        workflowDefinitionId: workflowDefinition.definition.id,
+        workflowDefinitionVersionId: workflowDefinition.version.id
       });
       setSelectedWorkflowId(workflow.workflowId);
       setForm(current => ({ ...current, issueUrl: "", model: "" }));
@@ -1057,6 +1113,14 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`menu-button${activePage === "workflow-definitions" ? " active" : ""}`}
+              onClick={() => setActivePage("workflow-definitions")}
+              disabled={!canViewWorkflows}
+            >
+              Definitions
+            </button>
+            <button
+              type="button"
               className={`menu-button${activePage === "integrations" ? " active" : ""}`}
               onClick={() => setActivePage("integrations")}
               disabled={!canAdminister}
@@ -1090,6 +1154,10 @@ export default function App() {
           {activePage === "workflows" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
               {loadingWorkflows ? "Refreshing" : "Refresh"}
+            </button>
+          ) : activePage === "workflow-definitions" ? (
+            <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
+              {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
             </button>
           ) : activePage === "integrations" ? (
             <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
@@ -1152,8 +1220,26 @@ export default function App() {
                 />
               </label>
             </div>
+            <label>
+              <span>Workflow Definition</span>
+              <select
+                value={form.workflowDefinitionVersionId}
+                onChange={event => setForm(current => ({ ...current, workflowDefinitionVersionId: event.target.value }))}
+                disabled={enabledDefinitionVersions.length === 0 || !canTriggerWorkflows}
+              >
+                {enabledDefinitionVersions.map(({ definition, version }) => (
+                  <option key={version.id} value={version.id}>
+                    {definition.name} v{version.version}{version.isDefault ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {enabledDefinitionVersions.length === 0 ? (
+              <p className="muted">No enabled workflow definition versions are available.</p>
+            ) : null}
+            {workflowDefinitionError ? <p className="error-text">{workflowDefinitionError}</p> : null}
             {formError ? <p className="error-text">{formError}</p> : null}
-            <button type="submit" className="primary-button" disabled={submitting || !canTriggerWorkflows}>
+            <button type="submit" className="primary-button" disabled={submitting || !canTriggerWorkflows || enabledDefinitionVersions.length === 0}>
               {submitting ? "Starting" : "Start Workflow"}
             </button>
           </form>
@@ -1367,6 +1453,23 @@ export default function App() {
         )}
       </section>
         </>
+      ) : activePage === "workflow-definitions" ? (
+        <WorkflowDefinitionsPage
+          definitions={workflowDefinitions}
+          loading={loadingWorkflowDefinitions}
+          error={workflowDefinitionError}
+          saved={workflowDefinitionSaved}
+          canAdminister={canAdminister}
+          onRefresh={refreshWorkflowDefinitions}
+          onSaved={message => {
+            setWorkflowDefinitionSaved(message);
+            setWorkflowDefinitionError(undefined);
+          }}
+          onError={message => {
+            setWorkflowDefinitionError(message);
+            setWorkflowDefinitionSaved(undefined);
+          }}
+        />
       ) : activePage === "integrations" ? (
         <IntegrationsPage
           integrations={integrations}
@@ -2314,6 +2417,8 @@ function pageTitle(page: Page) {
   switch (page) {
     case "workflows":
       return "Workflow Management";
+    case "workflow-definitions":
+      return "Workflow Definitions";
     case "integrations":
       return "Integrations";
     case "repositories":

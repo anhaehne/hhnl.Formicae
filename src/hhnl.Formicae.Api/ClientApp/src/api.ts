@@ -3,6 +3,8 @@ export type StartWorkflowRequest = {
   repositoryUrl: string;
   baseBranch?: string | null;
   model?: string | null;
+  workflowDefinitionId?: string | null;
+  workflowDefinitionVersionId?: string | null;
 };
 
 export type WorkflowSummary = {
@@ -16,6 +18,67 @@ export type WorkflowSummary = {
   pullRequestUrl?: string | null;
   failureReason?: string | null;
 };
+
+export type WorkflowDefinitionDocument = {
+  schema: string;
+  startStepId: string;
+  steps: WorkflowDefinitionStep[];
+};
+
+export type WorkflowDefinitionStep = {
+  id: string;
+  uses: string;
+  nextStepId?: string | null;
+  displayName?: string | null;
+};
+
+export type WorkflowDefinitionValidationError = {
+  code: string;
+  message: string;
+  path?: string | null;
+};
+
+export type WorkflowDefinitionResponse = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  versions: WorkflowDefinitionVersionResponse[];
+};
+
+export type WorkflowDefinitionVersionResponse = {
+  id: string;
+  workflowDefinitionId: string;
+  version: number;
+  dslSchemaVersion: string;
+  isEnabled: boolean;
+  isDefault: boolean;
+  definition: WorkflowDefinitionDocument;
+  createdAt: string;
+};
+
+export type CreateWorkflowDefinitionRequest = {
+  name: string;
+};
+
+export type CreateWorkflowDefinitionVersionRequest = {
+  version?: number | null;
+  isEnabled: boolean;
+  isDefault: boolean;
+  definition: WorkflowDefinitionDocument;
+};
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly validationErrors: WorkflowDefinitionValidationError[];
+
+  constructor(message: string, status: number, validationErrors: WorkflowDefinitionValidationError[] = []) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.validationErrors = validationErrors;
+  }
+}
 
 export type TaskRun = {
   id: string;
@@ -355,6 +418,30 @@ export async function listWorkflows(limit = 25): Promise<WorkflowSummary[]> {
   return send<WorkflowSummary[]>(`/api/workflows?limit=${encodeURIComponent(limit)}`);
 }
 
+export async function listWorkflowDefinitions(): Promise<WorkflowDefinitionResponse[]> {
+  return send<WorkflowDefinitionResponse[]>("/api/workflow-definitions");
+}
+
+export async function getWorkflowDefinition(definitionId: string): Promise<WorkflowDefinitionResponse> {
+  return send<WorkflowDefinitionResponse>(`/api/workflow-definitions/${encodeURIComponent(definitionId)}`);
+}
+
+export async function createWorkflowDefinition(request: CreateWorkflowDefinitionRequest): Promise<WorkflowDefinitionResponse> {
+  return send<WorkflowDefinitionResponse>("/api/workflow-definitions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function createWorkflowDefinitionVersion(definitionId: string, request: CreateWorkflowDefinitionVersionRequest): Promise<WorkflowDefinitionVersionResponse> {
+  return send<WorkflowDefinitionVersionResponse>(`/api/workflow-definitions/${encodeURIComponent(definitionId)}/versions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
 export async function startWorkflow(request: StartWorkflowRequest): Promise<WorkflowSummary> {
   return send<WorkflowSummary>("/api/workflows/github-issue", {
     method: "POST",
@@ -398,8 +485,7 @@ export async function listChatMessages(workflowId: string): Promise<WorkflowChat
 async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
   if (!response.ok) {
-    const message = await readError(response);
-    throw new Error(message);
+    throw await readError(response);
   }
 
   return response.json() as Promise<T>;
@@ -408,22 +494,31 @@ async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T>
 async function sendNoContent(input: RequestInfo | URL, init?: RequestInit): Promise<void> {
   const response = await fetch(input, init);
   if (!response.ok) {
-    const message = await readError(response);
-    throw new Error(message);
+    throw await readError(response);
   }
 }
 
-async function readError(response: Response): Promise<string> {
+async function readError(response: Response): Promise<ApiError> {
   const fallback = `${response.status} ${response.statusText}`;
   const text = await response.text();
   if (!text) {
-    return fallback;
+    return new ApiError(fallback, response.status);
   }
 
   try {
-    const payload = JSON.parse(text) as { error?: string };
-    return payload.error ?? fallback;
+    const payload = JSON.parse(text) as { error?: string; errors?: WorkflowDefinitionValidationError[] };
+    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+      return new ApiError(formatValidationErrors(payload.errors), response.status, payload.errors);
+    }
+
+    return new ApiError(payload.error ?? fallback, response.status);
   } catch {
-    return text;
+    return new ApiError(text, response.status);
   }
+}
+
+function formatValidationErrors(errors: WorkflowDefinitionValidationError[]) {
+  return errors
+    .map(error => error.path ? `${error.path}: ${error.message}` : error.message)
+    .join("\n");
 }

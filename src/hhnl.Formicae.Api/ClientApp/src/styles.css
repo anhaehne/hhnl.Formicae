@@ -597,9 +597,97 @@ tbody tr:hover {
   white-space: nowrap;
 }
 .integrations-page,
-.repositories-page {
+.repositories-page,
+.workflow-definitions-page {
   margin: 0 auto;
   max-width: 1440px;
+}
+
+.workflow-definition-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(300px, 380px);
+}
+
+.definition-list-panel,
+.definition-editor-panel {
+  align-self: start;
+}
+
+.definition-action-button {
+  margin-bottom: 12px;
+  width: 100%;
+}
+
+.definition-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-canvas-panel {
+  min-width: 0;
+}
+
+.workflow-canvas {
+  background: #f7f8f5;
+  border: 1px solid #d7dbd2;
+  border-radius: 8px;
+  height: 640px;
+  overflow: hidden;
+}
+
+.workflow-step-node {
+  background: #ffffff;
+  border: 1px solid #bdc6bd;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgb(24 31 27 / 10%);
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  padding: 10px 12px;
+}
+
+.workflow-step-node.selected {
+  border-color: #12625d;
+  box-shadow: 0 0 0 3px rgb(18 98 93 / 16%);
+}
+
+.workflow-step-node strong,
+.workflow-step-node span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-step-node span:last-of-type {
+  color: #596057;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.definition-toggle-row {
+  margin-bottom: 14px;
+}
+
+.validation-error-list {
+  background: #fff5f3;
+  border: 1px solid #f2c1ba;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px;
+}
+
+.validation-error-list p {
+  margin-bottom: 0;
+}
+
+.validation-code {
+  color: #7c635f;
+  display: block;
+  font-size: 0.72rem;
+  margin-top: 3px;
 }
 
 .repository-toolbar {
@@ -1258,6 +1346,14 @@ pre.collapsed-content::after {
 }
 
 @media (max-width: 900px) {
+  .workflow-definition-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-canvas {
+    height: 520px;
+  }
+
   .ai-setup-layout {
     grid-template-columns: 1fr;
   }
