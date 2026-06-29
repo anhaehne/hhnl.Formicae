@@ -79,17 +79,34 @@ export type AiSettings = {
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
+  agentKind: string;
+  acpProvider?: string | null;
+  acpCommand?: string | null;
   authMethod: string;
   llmApiKeySecretName?: string | null;
   hasApiKeySecret: boolean;
+  hasApiKey: boolean;
+  apiKeyEnvironmentVariable?: string | null;
+  hasSubscriptionAuth: boolean;
+  subscriptionCredentialFileName?: string | null;
+  subscriptionCredentialMountPath?: string | null;
 };
 
 export type UpdateAiSettingsRequest = {
   provider?: string | null;
   model?: string | null;
   endpointUrl?: string | null;
+  agentKind: string;
+  acpProvider?: string | null;
+  acpCommand?: string | null;
   authMethod: string;
   llmApiKeySecretName?: string | null;
+  llmApiKey?: string | null;
+  apiKeyEnvironmentVariable?: string | null;
+  subscriptionCredentialJson?: string | null;
+  subscriptionCredentialFileName?: string | null;
+  subscriptionCredentialMountPath?: string | null;
+  codexAuthJson?: string | null;
 };
 
 export type IntegrationSummary = {

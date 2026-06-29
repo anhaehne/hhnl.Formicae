@@ -18,5 +18,6 @@ public sealed class OpenHandsOptions
 public static class OpenHandsAuthMethods
 {
     public const string ApiKey = "ApiKey";
+    public const string OpenHandsCloud = "OpenHandsCloud";
     public const string CodexSubscription = "CodexSubscription";
 }

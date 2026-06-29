@@ -100,8 +100,17 @@ public sealed class AiSettings
     public string? Provider { get; set; }
     public string? Model { get; set; }
     public string? EndpointUrl { get; set; }
+    public string AgentKind { get; set; } = AgentKinds.OpenHands;
+    public string? AcpProvider { get; set; }
+    public string? AcpCommand { get; set; }
     public string AuthMethod { get; set; } = OpenHandsAuthMethods.ApiKey;
     public string? LlmApiKeySecretName { get; set; }
+    public string? LlmApiKey { get; set; }
+    public string? ApiKeyEnvironmentVariable { get; set; }
+    public string? SubscriptionCredentialJson { get; set; }
+    public string? SubscriptionCredentialFileName { get; set; }
+    public string? SubscriptionCredentialMountPath { get; set; }
+    public string? CodexAuthJson { get; set; }
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
@@ -115,16 +124,45 @@ public sealed record AiSettingsResponse(
     string? Provider,
     string? Model,
     string? EndpointUrl,
+    string AgentKind,
+    string? AcpProvider,
+    string? AcpCommand,
     string AuthMethod,
     string? LlmApiKeySecretName,
-    bool HasApiKeySecret);
+    bool HasApiKeySecret,
+    bool HasApiKey,
+    string? ApiKeyEnvironmentVariable,
+    bool HasSubscriptionAuth,
+    string? SubscriptionCredentialFileName,
+    string? SubscriptionCredentialMountPath);
 
 public sealed record UpdateAiSettingsRequest(
-    string? Provider,
-    string? Model,
-    string? EndpointUrl,
-    string AuthMethod,
-    string? LlmApiKeySecretName);
+    string? Provider = null,
+    string? Model = null,
+    string? EndpointUrl = null,
+    string AuthMethod = OpenHandsAuthMethods.ApiKey,
+    string? LlmApiKeySecretName = null,
+    string AgentKind = AgentKinds.OpenHands,
+    string? AcpProvider = null,
+    string? AcpCommand = null,
+    string? LlmApiKey = null,
+    string? ApiKeyEnvironmentVariable = null,
+    string? SubscriptionCredentialJson = null,
+    string? SubscriptionCredentialFileName = null,
+    string? SubscriptionCredentialMountPath = null,
+    string? CodexAuthJson = null);public static class AgentKinds
+{
+    public const string OpenHands = "OpenHands";
+    public const string Acp = "Acp";
+}
+
+public static class AcpProviders
+{
+    public const string ClaudeCode = "ClaudeCode";
+    public const string Codex = "Codex";
+    public const string GeminiCli = "GeminiCli";
+    public const string Custom = "Custom";
+}
 
 public sealed record WorkflowSummaryResponse(
     Guid WorkflowId,

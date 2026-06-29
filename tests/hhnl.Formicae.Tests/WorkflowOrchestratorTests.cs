@@ -2167,6 +2167,8 @@ public sealed class AdapterContractTests
         public k8s.Models.V1ConfigMap? CreatedConfigMap { get; private set; }
         public List<string> DeletedJobs { get; } = [];
         public List<string> DeletedConfigMaps { get; } = [];
+        public List<k8s.Models.V1Secret> CreatedSecrets { get; } = [];
+        public List<string> DeletedSecrets { get; } = [];
         public Queue<k8s.Models.V1Job> Statuses { get; init; } = new();
         public IReadOnlyList<k8s.Models.V1Pod> Pods { get; init; } = [];
         public string PodLogs { get; init; } = string.Empty;
@@ -2195,6 +2197,18 @@ public sealed class AdapterContractTests
 
         public Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken)
             => Task.FromResult(PodLogs);
+
+        public Task CreateSecretAsync(k8s.Models.V1Secret secret, string namespaceName, CancellationToken cancellationToken)
+        {
+            CreatedSecrets.Add(secret);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        {
+            DeletedSecrets.Add(name);
+            return Task.CompletedTask;
+        }
 
         public Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken)
         {

@@ -63,9 +63,17 @@ type FormState = {
 type AiSettingsFormState = {
   provider: string;
   model: string;
+  endpointUrl: string;
+  agentKind: string;
+  acpProvider: string;
+  acpCommand: string;
   authMethod: string;
   llmApiKeySecretName: string;
-  endpointUrl: string;
+  llmApiKey: string;
+  apiKeyEnvironmentVariable: string;
+  subscriptionCredentialJson: string;
+  subscriptionCredentialFileName: string;
+  subscriptionCredentialMountPath: string;
 };
 
 type Page = "workflows" | "integrations" | "repositories" | "users" | "settings";
@@ -98,9 +106,17 @@ const initialForm: FormState = {
 const initialAiSettingsForm: AiSettingsFormState = {
   provider: "",
   model: "",
+  endpointUrl: "",
+  agentKind: "OpenHands",
+  acpProvider: "ClaudeCode",
+  acpCommand: "",
   authMethod: "ApiKey",
   llmApiKeySecretName: "",
-  endpointUrl: ""
+  llmApiKey: "",
+  apiKeyEnvironmentVariable: "",
+  subscriptionCredentialJson: "",
+  subscriptionCredentialFileName: "",
+  subscriptionCredentialMountPath: ""
 };
 
 const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
@@ -590,9 +606,18 @@ export default function App() {
       const settings = await updateAiSettings({
         provider: aiSettingsForm.provider.trim() || null,
         model: aiSettingsForm.model.trim() || null,
+        endpointUrl: aiSettingsForm.endpointUrl.trim() || null,
+        agentKind: aiSettingsForm.agentKind,
+        acpProvider: aiSettingsForm.agentKind === "Acp" ? aiSettingsForm.acpProvider : null,
+        acpCommand: aiSettingsForm.acpCommand.trim() || null,
         authMethod: aiSettingsForm.authMethod,
         llmApiKeySecretName: aiSettingsForm.llmApiKeySecretName.trim() || null,
-        endpointUrl: aiSettingsForm.endpointUrl.trim() || null
+        llmApiKey: aiSettingsForm.llmApiKey || null,
+        apiKeyEnvironmentVariable: aiSettingsForm.apiKeyEnvironmentVariable.trim() || null,
+        subscriptionCredentialJson: aiSettingsForm.subscriptionCredentialJson || null,
+        subscriptionCredentialFileName: aiSettingsForm.subscriptionCredentialFileName.trim() || null,
+        subscriptionCredentialMountPath: aiSettingsForm.subscriptionCredentialMountPath.trim() || null,
+        codexAuthJson: aiSettingsForm.authMethod === "CodexSubscription" ? aiSettingsForm.subscriptionCredentialJson || null : null
       });
       setAiSettings(settings);
       setAiSettingsForm(toAiSettingsForm(settings));
@@ -1970,61 +1995,99 @@ function SettingsPage({
         </div>
         <form onSubmit={onSubmit}>
           <div className="settings-section">
-            <h3>Basic</h3>
+            <h3>Agent</h3>
+            <div className="form-row">
+              <label>
+                <span>Agent Type</span>
+                <select value={aiSettingsForm.agentKind} onChange={event => setAiSettingsForm(current => ({ ...current, agentKind: event.target.value }))}>
+                  <option value="OpenHands">OpenHands</option>
+                  <option value="Acp">ACP agent</option>
+                </select>
+              </label>
+              {aiSettingsForm.agentKind === "Acp" ? (
+                <label>
+                  <span>ACP Preset</span>
+                  <select value={aiSettingsForm.acpProvider} onChange={event => setAiSettingsForm(current => ({ ...current, acpProvider: event.target.value }))}>
+                    <option value="ClaudeCode">Claude Code</option>
+                    <option value="Codex">Codex</option>
+                    <option value="GeminiCli">Gemini CLI</option>
+                    <option value="Custom">Custom</option>
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            {aiSettingsForm.agentKind === "Acp" ? (
+              <label>
+                <span>ACP Command</span>
+                <input value={aiSettingsForm.acpCommand} onChange={event => setAiSettingsForm(current => ({ ...current, acpCommand: event.target.value }))} placeholder="custom stdio ACP server command" />
+              </label>
+            ) : null}
             <div className="form-row">
               <label>
                 <span>Provider</span>
-                <input
-                  value={aiSettingsForm.provider}
-                  onChange={event => setAiSettingsForm(current => ({ ...current, provider: event.target.value }))}
-                  placeholder="OpenAI, Anthropic, custom"
-                />
+                <input value={aiSettingsForm.provider} onChange={event => setAiSettingsForm(current => ({ ...current, provider: event.target.value }))} placeholder="OpenAI, Anthropic, OpenHands Cloud" />
               </label>
               <label>
                 <span>Model</span>
-                <input
-                  value={aiSettingsForm.model}
-                  onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))}
-                  placeholder="optional default"
-                />
+                <input value={aiSettingsForm.model} onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))} placeholder="optional default" />
               </label>
             </div>
+          </div>
+          <div className="settings-section">
+            <h3>Authentication</h3>
             <label>
               <span>Auth Method</span>
-              <select
-                value={aiSettingsForm.authMethod}
-                onChange={event => setAiSettingsForm(current => ({ ...current, authMethod: event.target.value }))}
-              >
+              <select value={aiSettingsForm.authMethod} onChange={event => setAiSettingsForm(current => ({ ...current, authMethod: event.target.value }))}>
                 <option value="ApiKey">API key</option>
-                <option value="CodexSubscription">Codex subscription</option>
+                <option value="OpenHandsCloud">OpenHands Cloud API key</option>
+                <option value="CodexSubscription">Subscription credentials</option>
               </select>
             </label>
-            <label>
-              <span>API Key Secret Name</span>
-              <input
-                value={aiSettingsForm.llmApiKeySecretName}
-                onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKeySecretName: event.target.value }))}
-                placeholder="Kubernetes secret name"
-              />
-            </label>
-            <div className="secret-status">
-              <span>API key</span>
-              <StatusBadge value={aiSettings?.hasApiKeySecret ? "Configured" : "NotConfigured"} />
-            </div>
+            {aiSettingsForm.authMethod === "CodexSubscription" ? (
+              <>
+                <div className="form-row">
+                  <label>
+                    <span>Credential File</span>
+                    <input value={aiSettingsForm.subscriptionCredentialFileName} onChange={event => setAiSettingsForm(current => ({ ...current, subscriptionCredentialFileName: event.target.value }))} placeholder="auth.json" />
+                  </label>
+                  <label>
+                    <span>Credential Directory</span>
+                    <input value={aiSettingsForm.subscriptionCredentialMountPath} onChange={event => setAiSettingsForm(current => ({ ...current, subscriptionCredentialMountPath: event.target.value }))} placeholder="/root/.codex" />
+                  </label>
+                </div>
+                <label>
+                  <span>Credential JSON</span>
+                  <textarea value={aiSettingsForm.subscriptionCredentialJson} onChange={event => setAiSettingsForm(current => ({ ...current, subscriptionCredentialJson: event.target.value }))} placeholder={aiSettings?.hasSubscriptionAuth ? "Configured. Leave blank to keep existing credentials." : "Paste subscription credential JSON"} rows={6} />
+                </label>
+                <div className="secret-status"><span>Subscription credentials</span><StatusBadge value={aiSettings?.hasSubscriptionAuth ? "Configured" : "NotConfigured"} /></div>
+              </>
+            ) : (
+              <>
+                <div className="form-row">
+                  <label>
+                    <span>API Key Env Var</span>
+                    <input value={aiSettingsForm.apiKeyEnvironmentVariable} onChange={event => setAiSettingsForm(current => ({ ...current, apiKeyEnvironmentVariable: event.target.value }))} placeholder="LLM_API_KEY" />
+                  </label>
+                  <label>
+                    <span>API Key</span>
+                    <input value={aiSettingsForm.llmApiKey} onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKey: event.target.value }))} placeholder={aiSettings?.hasApiKey ? "Configured. Leave blank to keep existing key." : "Paste API key"} type="password" />
+                  </label>
+                </div>
+                <label>
+                  <span>API Key Secret Name</span>
+                  <input value={aiSettingsForm.llmApiKeySecretName} onChange={event => setAiSettingsForm(current => ({ ...current, llmApiKeySecretName: event.target.value }))} placeholder="optional Kubernetes secret name" />
+                </label>
+                <div className="secret-status"><span>API key</span><StatusBadge value={aiSettings?.hasApiKey || aiSettings?.hasApiKeySecret ? "Configured" : "NotConfigured"} /></div>
+              </>
+            )}
           </div>
           <div className="settings-section">
             <h3>Advanced</h3>
             <label>
               <span>Endpoint / Base URL</span>
-              <input
-                value={aiSettingsForm.endpointUrl}
-                onChange={event => setAiSettingsForm(current => ({ ...current, endpointUrl: event.target.value }))}
-                placeholder="https://api.example.com/v1"
-                type="url"
-              />
+              <input value={aiSettingsForm.endpointUrl} onChange={event => setAiSettingsForm(current => ({ ...current, endpointUrl: event.target.value }))} placeholder="https://api.example.com/v1" type="url" />
             </label>
-          </div>
-          {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
+          </div>          {aiSettingsError ? <p className="error-text">{aiSettingsError}</p> : null}
           {aiSettingsSaved ? <p className="success-text">{aiSettingsSaved}</p> : null}
           <button type="submit" className="primary-button" disabled={savingAiSettings || !canAdminister}>
             {savingAiSettings ? "Saving" : "Save AI Settings"}
@@ -2076,9 +2139,17 @@ function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {
     provider: settings.provider ?? "",
     model: settings.model ?? "",
+    endpointUrl: settings.endpointUrl ?? "",
+    agentKind: settings.agentKind ?? "OpenHands",
+    acpProvider: settings.acpProvider ?? "ClaudeCode",
+    acpCommand: settings.acpCommand ?? "",
     authMethod: settings.authMethod,
     llmApiKeySecretName: settings.llmApiKeySecretName ?? "",
-    endpointUrl: settings.endpointUrl ?? ""
+    llmApiKey: "",
+    apiKeyEnvironmentVariable: settings.apiKeyEnvironmentVariable ?? "",
+    subscriptionCredentialJson: "",
+    subscriptionCredentialFileName: settings.subscriptionCredentialFileName ?? "",
+    subscriptionCredentialMountPath: settings.subscriptionCredentialMountPath ?? ""
   };
 }
 
