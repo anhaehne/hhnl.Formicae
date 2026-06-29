@@ -98,6 +98,16 @@ public interface IWorkflowStore
     Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowDefinition>> ListWorkflowDefinitionsAsync(CancellationToken cancellationToken);
+    Task<WorkflowDefinition?> GetWorkflowDefinitionAsync(Guid definitionId, CancellationToken cancellationToken);
+    Task<WorkflowDefinition> CreateWorkflowDefinitionAsync(WorkflowDefinition definition, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowDefinitionVersion>> ListWorkflowDefinitionVersionsAsync(Guid definitionId, CancellationToken cancellationToken);
+    Task<WorkflowDefinitionVersion?> GetWorkflowDefinitionVersionAsync(Guid versionId, CancellationToken cancellationToken);
+    Task<WorkflowDefinitionVersion?> GetLatestWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken);
+    Task<WorkflowDefinitionVersion?> GetLatestEnabledWorkflowDefinitionVersionAsync(Guid definitionId, CancellationToken cancellationToken);
+    Task<WorkflowDefinitionVersion?> GetDefaultEnabledWorkflowDefinitionVersionAsync(CancellationToken cancellationToken);
+    Task<WorkflowDefinitionVersion> CreateWorkflowDefinitionVersionAsync(WorkflowDefinitionVersion version, CancellationToken cancellationToken);
+    Task EnsureDefaultWorkflowDefinitionAsync(WorkflowDefinition definition, WorkflowDefinitionVersion version, CancellationToken cancellationToken);
 }
 
 public interface IAiSettingsStore

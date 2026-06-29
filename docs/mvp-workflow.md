@@ -1,7 +1,7 @@
 # MVP Workflow
 
-The MVP workflow is intentionally static so agents can understand and test it quickly.
-Configurable workflows are planned separately in [Configurable Workflows Architecture](configurable-workflows-architecture.md); that document maps the static MVP flow to the future definition model without changing the current behavior described here.
+The MVP workflow is represented by a stored default workflow definition version so runs can record the immutable definition snapshot they use. Execution remains the existing built-in path, which keeps the first runtime slice intentionally static and easy to test.
+Configurable workflows are planned separately in [Configurable Workflows Architecture](configurable-workflows-architecture.md); that document maps this MVP flow to the broader future definition model.
 
 ## Trigger
 
@@ -11,8 +11,16 @@ Configurable workflows are planned separately in [Configurable Workflows Archite
 - `repositoryUrl`
 - `baseBranch`
 - `model`
+- optional `workflowDefinitionId`
+- optional `workflowDefinitionVersionId`
 
-The workflow starts in `Queued` with `CurrentStep = None`. The API background orchestrator monitors the work item provider under a PostgreSQL distributed lock and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
+When no definition fields are supplied, Formicae uses the enabled default MVP definition version:
+
+```text
+Plan -> Implement -> CreatePullRequest -> AddressComments
+```
+
+The workflow starts in `Queued` with `CurrentStep = None` and stores the selected workflow definition id, version id, and DSL schema version. The API background orchestrator monitors the work item provider under a PostgreSQL distributed lock and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
 
 ## State Machine
 

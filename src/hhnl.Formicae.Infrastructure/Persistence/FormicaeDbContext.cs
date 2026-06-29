@@ -12,6 +12,8 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
+    public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
+    public DbSet<WorkflowDefinitionVersion> WorkflowDefinitionVersions => Set<WorkflowDefinitionVersion>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
@@ -31,6 +33,30 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(workflow => workflow.BaseBranch).IsRequired();
             entity.Property(workflow => workflow.Status).HasConversion<string>();
             entity.Property(workflow => workflow.CurrentStep).HasConversion<string>();
+            entity.Property(workflow => workflow.DslSchemaVersion);
+            entity.HasIndex(workflow => workflow.WorkflowDefinitionId);
+            entity.HasIndex(workflow => workflow.WorkflowDefinitionVersionId);
+        });
+
+        modelBuilder.Entity<WorkflowDefinition>(entity =>
+        {
+            entity.ToTable("workflow_definitions");
+            entity.HasKey(definition => definition.Id);
+            entity.Property(definition => definition.Name).IsRequired();
+        });
+
+        modelBuilder.Entity<WorkflowDefinitionVersion>(entity =>
+        {
+            entity.ToTable("workflow_definition_versions");
+            entity.HasKey(version => version.Id);
+            entity.Property(version => version.DslSchemaVersion).IsRequired();
+            entity.Property(version => version.DefinitionJson).IsRequired();
+            entity.HasIndex(version => new { version.WorkflowDefinitionId, version.Version }).IsUnique();
+            entity.HasIndex(version => new { version.IsDefault, version.IsEnabled });
+            entity.HasOne<WorkflowDefinition>()
+                .WithMany()
+                .HasForeignKey(version => version.WorkflowDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<TaskRun>(entity =>

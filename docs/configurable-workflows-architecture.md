@@ -1,10 +1,23 @@
 # Configurable Workflows Architecture
 
-Status: planned architecture. This document describes the intended direction for configurable workflows; it does not describe current runtime behavior or commit a final DSL schema.
+Status: planned architecture with an implemented v1 subset. This document describes the intended direction for configurable workflows and calls out the first persisted-definition slice below.
+
+## Implemented v1 Subset
+
+The first implemented subset stores immutable workflow definition versions and records the selected definition/version/schema on each workflow run. The default MVP workflow is seeded as an enabled default version using schema `formicae.workflow/v1alpha1`.
+
+The v1 runtime subset is intentionally narrow:
+
+- Sequential built-in task graph only.
+- Supported built-ins are `builtins.plan`, `builtins.implement`, `builtins.create-pull-request`, and `builtins.address-comments`.
+- Definitions are validated before enabled versions are saved and before a run is created.
+- The existing orchestrator remains the scheduler and verifies a built-in task exists in the stored graph before scheduling it.
+
+Not implemented yet: typed data-flow, registry snapshots, custom tasks, loops, branches, parallelism, UI editor drafts, arbitrary script execution, or custom execution.
 
 ## Current MVP Relationship
 
-The current MVP workflow is intentionally hardcoded:
+The current MVP workflow is still executed by the existing built-in orchestration path:
 
 ```text
 Plan -> Implement -> CreatePullRequest -> AddressComments

@@ -510,6 +510,8 @@ public sealed class WorkflowOrchestrator(
 
     private async Task StartTaskRunAsync(Workflow workflow, TaskRun run, CancellationToken cancellationToken)
     {
+        await EnsureWorkflowDefinitionAllowsTaskAsync(workflow, run.Kind, cancellationToken);
+
         var wasRunning = run.Status == TaskRunStatus.Running;
         run.Status = TaskRunStatus.Running;
         run.StartedAt ??= clock.UtcNow;
@@ -661,4 +663,78 @@ public sealed class WorkflowOrchestrator(
             Level = result.Succeeded ? "Information" : "Error",
             Message = result.Output
         }, cancellationToken);
+
+    private async Task EnsureWorkflowDefinitionAllowsTaskAsync(
+        Workflow workflow,
+        TaskRunKind kind,
+        CancellationToken cancellationToken)
+    {
+        var version = workflow.WorkflowDefinitionVersionId.HasValue
+            ? await store.GetWorkflowDefinitionVersionAsync(workflow.WorkflowDefinitionVersionId.Value, cancellationToken)
+            : null;
+        if (version is null && workflow.WorkflowDefinitionVersionId.HasValue)
+        {
+            throw new InvalidOperationException($"Workflow definition version '{workflow.WorkflowDefinitionVersionId}' was not found.");
+        }
+
+        if (version is null)
+        {
+            version = await store.GetDefaultEnabledWorkflowDefinitionVersionAsync(cancellationToken);
+            if (version is null)
+            {
+                var (definition, defaultVersion) = DefaultWorkflowDefinitions.CreateMvp(clock.UtcNow);
+                await store.EnsureDefaultWorkflowDefinitionAsync(definition, defaultVersion, cancellationToken);
+                version = defaultVersion;
+            }
+
+            workflow.WorkflowDefinitionId = version.WorkflowDefinitionId;
+            workflow.WorkflowDefinitionVersionId = version.Id;
+            workflow.DslSchemaVersion = version.DslSchemaVersion;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        }
+
+        if (!version.IsEnabled)
+        {
+            throw new InvalidOperationException($"Workflow definition version '{version.Id}' is disabled.");
+        }
+
+        var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
+        var validation = new WorkflowDefinitionValidator().Validate(document);
+        if (!validation.IsValid || document is null)
+        {
+            throw new InvalidOperationException("Workflow definition version is invalid.");
+        }
+
+        var expectedUses = WorkflowDefinitionValidator.UsesFor(kind);
+        var step = document.Steps.FirstOrDefault(step => string.Equals(step.Uses, expectedUses, StringComparison.Ordinal));
+        if (step is null)
+        {
+            throw new InvalidOperationException($"Workflow definition version '{version.Id}' does not include required built-in task '{expectedUses}'.");
+        }
+
+        var expectedNext = ExpectedNextKind(kind);
+        if (expectedNext is null)
+        {
+            return;
+        }
+
+        var nextStep = string.IsNullOrWhiteSpace(step.NextStepId)
+            ? null
+            : document.Steps.FirstOrDefault(candidate => string.Equals(candidate.Id, step.NextStepId, StringComparison.Ordinal));
+        var expectedNextUses = WorkflowDefinitionValidator.UsesFor(expectedNext.Value);
+        if (nextStep is null || !string.Equals(nextStep.Uses, expectedNextUses, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Workflow definition version '{version.Id}' does not include required transition from '{expectedUses}' to '{expectedNextUses}'.");
+        }
+    }
+
+    private static TaskRunKind? ExpectedNextKind(TaskRunKind kind)
+        => kind switch
+        {
+            TaskRunKind.Plan => TaskRunKind.Implement,
+            TaskRunKind.Implement => TaskRunKind.CreatePullRequest,
+            TaskRunKind.CreatePullRequest => TaskRunKind.AddressComments,
+            TaskRunKind.AddressComments => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
+        };
 }
