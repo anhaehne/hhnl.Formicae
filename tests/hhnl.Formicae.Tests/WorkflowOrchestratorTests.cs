@@ -1757,7 +1757,7 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
-    public async Task OpenHands_runner_uses_prompt_hash_in_job_name()
+    public async Task OpenHands_runner_uses_prompt_hash_and_unique_nonce_in_job_name()
     {
         var workflowId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var firstJobRunner = new CapturingJobRunner();
@@ -1802,9 +1802,10 @@ public sealed class AdapterContractTests
         Assert.NotNull(secondJobRunner.LastSpec);
         Assert.NotNull(repeatedJobRunner.LastSpec);
         Assert.NotEqual(firstJobRunner.LastSpec.Name, secondJobRunner.LastSpec.Name);
-        Assert.Equal(firstJobRunner.LastSpec.Name, repeatedJobRunner.LastSpec.Name);
+        Assert.NotEqual(firstJobRunner.LastSpec.Name, repeatedJobRunner.LastSpec.Name);
         Assert.True(firstJobRunner.LastSpec.Name.Length <= 63);
-        Assert.StartsWith("formicae-addresscomments-1111111111111111111111111111", firstJobRunner.LastSpec.Name);
+        Assert.StartsWith("formicae-addresscomments-11111111111111111111", firstJobRunner.LastSpec.Name);
+        Assert.Matches("-[a-f0-9]{8}-[a-f0-9]{8}$", firstJobRunner.LastSpec.Name);
     }
 
     [Fact]

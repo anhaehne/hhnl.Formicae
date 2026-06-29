@@ -73,7 +73,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
     {
         var prefix = $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}";
         var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(task.Prompt)))[..8].ToLowerInvariant();
-        var suffix = $"-{hash}";
+        var nonce = Guid.NewGuid().ToString("N")[..8];
+        var suffix = $"-{hash}-{nonce}";
         var maxPrefixLength = 63 - suffix.Length;
         return $"{prefix[..Math.Min(prefix.Length, maxPrefixLength)]}{suffix}";
     }
