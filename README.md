@@ -158,3 +158,4 @@ When enabling a GitHub identity provider, the UI first sends the current browser
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.
 
 Planned configurable workflow architecture is documented in [docs/configurable-workflows-architecture.md](docs/configurable-workflows-architecture.md).
+Planned realtime workflow update architecture is documented in [docs/realtime-communication-architecture.md](docs/realtime-communication-architecture.md).
