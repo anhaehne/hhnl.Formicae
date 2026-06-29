@@ -472,7 +472,7 @@ public sealed class WorkflowOrchestrator(
     {
         if (string.IsNullOrWhiteSpace(run.ExternalId))
         {
-            return new AgentRunResult(false, run.Id.ToString("N"), string.Empty, "Running task run does not have an external job id.");
+            return null;
         }
 
         return await agentRunner.TryGetResultAsync(run.ExternalId, cancellationToken);

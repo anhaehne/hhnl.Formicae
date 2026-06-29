@@ -544,6 +544,42 @@ public sealed class WorkflowOrchestratorTests
         });
     }
 
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_Waits_for_running_agent_task_without_external_id()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Implement,
+            Status = TaskRunStatus.Running
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToImplement]);
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new DeferredAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, CancellationToken.None);
+        Assert.Equal(0, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Implementing, updated.Status);
+        Assert.Null(updated.FailureReason);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Running, run.Status);
+        Assert.Null(run.ExternalId);
+    }
+
     [Fact]
     public async Task AdvanceRunnableWorkflows_Does_not_add_revision_comment_for_deferred_first_plan_with_streamed_output()
     {
