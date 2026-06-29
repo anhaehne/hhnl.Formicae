@@ -65,16 +65,13 @@ public sealed class WorkflowOrchestrator(
         }
         catch (Exception exception)
         {
-            await FailWorkflowAsync(workflow, exception.Message, new
-            {
-                exceptionType = exception.GetType().FullName,
-                exception.Message
-            }, cancellationToken);
+            await FailWorkflowAsync(workflow, exception.Message, BuildExceptionFailureDetails(exception), cancellationToken);
             await store.AddLogAsync(new WorkflowLog
             {
                 WorkflowId = workflow.Id,
                 Level = "Error",
-                Message = exception.Message
+                Message = exception.ToString(),
+                CreatedAt = clock.UtcNow
             }, cancellationToken);
             return true;
         }
@@ -586,6 +583,14 @@ public sealed class WorkflowOrchestrator(
             externalId = result.ExternalId,
             failureReason = result.FailureReason,
             outputExcerpt = Excerpt(result.Output)
+        };
+
+    private static object BuildExceptionFailureDetails(Exception exception)
+        => new
+        {
+            exceptionType = exception.GetType().FullName,
+            exception.Message,
+            stackTrace = exception.ToString()
         };
 
     private static string Excerpt(string output)

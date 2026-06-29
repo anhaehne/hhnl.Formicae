@@ -173,7 +173,10 @@ export default function App() {
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
     [detail.workflow, selectedWorkflowId, workflows]
   );
-
+  const failureEvents = useMemo(
+    () => detail.events.filter(event => event.level === "Error" && event.detailsJson),
+    [detail.events]
+  );
   const refreshCurrentUser = useCallback(async () => {
     try {
       setCurrentUser(await getCurrentUser());
@@ -1106,6 +1109,23 @@ export default function App() {
 
             <div className="detail-stack">
               {detail.error ? <p className="error-text">{detail.error}</p> : null}
+              {failureEvents.length > 0 ? (
+                <section>
+                  <h3>Failure Details</h3>
+                  <div className="failure-detail-list">
+                    {failureEvents.map(event => (
+                      <article className="failure-detail" key={event.id}>
+                        <div className="timeline-meta">
+                          <time>{formatDate(event.createdAt)}</time>
+                          <StatusBadge value={event.type} />
+                        </div>
+                        <p>{event.message}</p>
+                        <Expandable title="Stack Trace" content={formatJson(event.detailsJson ?? "")} pre />
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               {detail.signals.length > 0 ? (
                 <section>
                   <h3>Signals</h3>

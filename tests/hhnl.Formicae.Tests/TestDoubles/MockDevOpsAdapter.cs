@@ -27,6 +27,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Exception? ReactToIssueException { get; set; }
     public Exception? ReactToIssueCommentException { get; set; }
     public Exception? ReactToPullRequestCommentException { get; set; }
+    public Exception? CreateBranchException { get; set; }
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
         => AddIssueWithLabels(issueUrl, title, body, [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement], comments);
@@ -149,6 +150,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task<string> CreateBranchAsync(CreateBranchRequest request, CancellationToken cancellationToken)
     {
         CreateBranchCalls.Add(new CreateBranchCall(request));
+        if (CreateBranchException is not null)
+        {
+            throw CreateBranchException;
+        }
+
         return Task.FromResult(request.BranchName);
     }
 

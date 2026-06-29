@@ -366,6 +366,50 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_records_exception_stack_trace_when_implementation_fails_before_task_run()
+    {
+        var store = new InMemoryWorkflowStore();
+        var issueUrl = "https://github.com/acme/widgets/issues/45";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = issueUrl,
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Implementing,
+            CurrentStep = WorkflowStep.Implement
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            Output = "Plan output"
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter
+        {
+            CreateBranchException = new NullReferenceException("GraphQL linked branch failed.")
+        };
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var events = await store.ListEventsAsync(workflow.Id, CancellationToken.None);
+        var logs = await store.ListLogsAsync(workflow.Id, CancellationToken.None);
+        var implementRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, CancellationToken.None);
+
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Failed, updated.Status);
+        Assert.Equal("GraphQL linked branch failed.", updated.FailureReason);
+        Assert.Null(implementRun);
+        var failed = Assert.Single(events, evt => evt.Type == WorkflowEventTypes.WorkflowFailed);
+        Assert.Contains("System.NullReferenceException", failed.DetailsJson);
+        Assert.Contains("GraphQL linked branch failed.", failed.DetailsJson);
+        Assert.Contains("stackTrace", failed.DetailsJson);
+        Assert.Contains(logs, log => log.Level == "Error" && log.Message.Contains("System.NullReferenceException", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_keeps_workflow_runnable_when_work_item_provider_is_temporarily_unavailable()
     {
         var store = new InMemoryWorkflowStore();

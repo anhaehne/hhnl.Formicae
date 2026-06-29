@@ -711,14 +711,16 @@ pre {
 .timeline-list,
 .signal-list,
 .chat-list,
-.agent-message-list {
+.agent-message-list,
+.failure-detail-list {
   display: grid;
   gap: 10px;
 }
 
 .timeline-item,
 .chat-row,
-.signal-row {
+.signal-row,
+.failure-detail {
   border: 1px solid #d7dbd2;
   border-radius: 8px;
   padding: 10px 12px;
