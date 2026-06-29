@@ -1008,6 +1008,26 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public void OctokitGitHubApi_GraphQl_variable_serialization_preserves_issueId_key()
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["query"] = "mutation($issueId: ID!) { noop }",
+            ["variables"] = new Dictionary<string, object?>
+            {
+                ["issueId"] = "I_kwDOTEB3Fc8AAAABG9ZiRw",
+                ["oid"] = "base-sha",
+                ["name"] = "formicae/test"
+            }
+        };
+
+        var json = SerializeWithOctokitSimpleJson(body);
+
+        Assert.Contains("\"issueId\":\"I_kwDOTEB3Fc8AAAABG9ZiRw\"", json);
+        Assert.DoesNotContain("issue_id", json);
+    }
+
+    [Fact]
     public void OctokitGitHubApi_GraphQl_linked_branch_response_deserializes_with_octokit_simple_json()
     {
         const string json = """
@@ -1027,6 +1047,19 @@ public sealed class WorkflowOrchestratorTests
         var response = DeserializeWithOctokitSimpleJson<OctokitGitHubApi.CreateLinkedBranchGraphQlResponse>(json);
 
         Assert.Equal("formicae/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", response.data?.createLinkedBranch?.linkedBranch?.@ref?.name);
+    }
+
+    private static string SerializeWithOctokitSimpleJson(object value)
+    {
+        var simpleJsonType = typeof(GitHubClient).Assembly.GetType("Octokit.SimpleJson")
+            ?? throw new InvalidOperationException("Octokit.SimpleJson type was not found.");
+        var serializeMethod = simpleJsonType
+            .GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Single(method => method.Name == "SerializeObject"
+                && method.GetParameters() is [{ ParameterType: { } parameterType }]
+                && parameterType == typeof(object));
+
+        return (string)serializeMethod.Invoke(null, [value])!;
     }
 
     private static T DeserializeWithOctokitSimpleJson<T>(string json)

@@ -64,7 +64,10 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
               }
             }
             """;
-        var response = await PostGraphQlAsync<CreateLinkedBranchGraphQlResponse>(mutation, new { issueId, oid = baseOid, name = branchName }, cancellationToken);
+                var response = await PostGraphQlAsync<CreateLinkedBranchGraphQlResponse>(
+            mutation,
+            new Dictionary<string, object?> { ["issueId"] = issueId, ["oid"] = baseOid, ["name"] = branchName },
+            cancellationToken);
         return response.data?.createLinkedBranch?.linkedBranch?.@ref?.name ?? branchName;
     }
 
@@ -121,7 +124,10 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
               }
             }
             """;
-        var response = await PostGraphQlAsync<IssueNodeIdGraphQlResponse>(query, new { owner, name = repository, number = issueNumber }, cancellationToken);
+                var response = await PostGraphQlAsync<IssueNodeIdGraphQlResponse>(
+            query,
+            new Dictionary<string, object?> { ["owner"] = owner, ["name"] = repository, ["number"] = issueNumber },
+            cancellationToken);
         var issueId = response.data?.repository?.issue?.id;
         if (!string.IsNullOrWhiteSpace(issueId))
         {
@@ -131,7 +137,7 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
         throw new InvalidOperationException($"GitHub GraphQL issue response did not include an issue id for {owner}/{repository}#{issueNumber}.");
     }
 
-    private async Task<TResponse> PostGraphQlAsync<TResponse>(string query, object variables, CancellationToken cancellationToken)
+    private async Task<TResponse> PostGraphQlAsync<TResponse>(string query, IReadOnlyDictionary<string, object?> variables, CancellationToken cancellationToken)
         where TResponse : GraphQlResponseBase
     {
         IApiResponse<TResponse> response;
@@ -139,7 +145,7 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
         {
             response = await client.Connection.Post<TResponse>(
                 new Uri("graphql", UriKind.Relative),
-                new { query, variables },
+                new Dictionary<string, object?> { ["query"] = query, ["variables"] = variables },
                 "application/json",
                 "application/json",
                 new Dictionary<string, string>(),
