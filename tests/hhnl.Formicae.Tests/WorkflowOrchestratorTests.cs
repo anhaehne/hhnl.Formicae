@@ -2123,6 +2123,37 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task Kubernetes_runner_returns_waiting_message_when_pod_logs_are_not_ready()
+    {
+        var api = new CapturingKubernetesJobApi
+        {
+            Pods =
+            [
+                new k8s.Models.V1Pod
+                {
+                    Metadata = new k8s.Models.V1ObjectMeta
+                    {
+                        Name = "formicae-codex-login-pod",
+                        CreationTimestamp = DateTime.UtcNow
+                    }
+                }
+            ],
+            PodLogException = new InvalidOperationException("container \"worker\" is waiting to start: ContainerCreating")
+        };
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            PollIntervalSeconds = 1,
+            TimeoutSeconds = 5
+        }), []);
+
+        var logs = await runner.ReadJobLogsAsync("formicae-codex-login", CancellationToken.None);
+
+        Assert.Contains("--- pod/formicae-codex-login-pod logs ---", logs);
+        Assert.Contains("Unable to read logs", logs);
+        Assert.Contains("ContainerCreating", logs);
+    }
+    [Fact]
     public async Task Kubernetes_runner_mounts_context_configmap_owned_by_job()
     {
         var api = new CapturingKubernetesJobApi
@@ -2290,6 +2321,7 @@ public sealed class AdapterContractTests
         Assert.Equal("codex login --device", jobRunner.LastSpec.Environment["FORMICAE_CODEX_LOGIN_COMMAND"]);
         Assert.Equal("callback-secret", jobRunner.LastSpec.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
     }
+
     private sealed class CapturingJobRunner : IKubernetesJobRunner
     {
         public KubernetesJobSpec? LastSpec { get; private set; }
@@ -2319,6 +2351,7 @@ public sealed class AdapterContractTests
         public Queue<k8s.Models.V1Job> Statuses { get; init; } = new();
         public IReadOnlyList<k8s.Models.V1Pod> Pods { get; init; } = [];
         public string PodLogs { get; init; } = string.Empty;
+        public Exception? PodLogException { get; init; }
 
         public Task<k8s.Models.V1Job> CreateJobAsync(k8s.Models.V1Job job, string namespaceName, CancellationToken cancellationToken)
         {
@@ -2343,7 +2376,7 @@ public sealed class AdapterContractTests
             => Task.FromResult(Pods);
 
         public Task<string> ReadPodLogAsync(string name, string namespaceName, string container, CancellationToken cancellationToken)
-            => Task.FromResult(PodLogs);
+            => PodLogException is null ? Task.FromResult(PodLogs) : Task.FromException<string>(PodLogException);
 
         public Task CreateSecretAsync(k8s.Models.V1Secret secret, string namespaceName, CancellationToken cancellationToken)
         {

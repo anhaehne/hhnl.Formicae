@@ -596,6 +596,10 @@ public sealed class KubernetesJobRunner(
             {
                 builder.AppendLine($"Unable to read logs: {exception.Message}");
             }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                builder.AppendLine($"Unable to read logs: {exception.Message}");
+            }
         }
 
         return builder.ToString();
