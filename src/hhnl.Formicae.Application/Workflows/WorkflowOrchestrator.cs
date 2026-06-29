@@ -594,9 +594,24 @@ public sealed class WorkflowOrchestrator(
         };
 
     private static string Excerpt(string output)
-        => string.IsNullOrWhiteSpace(output)
-            ? string.Empty
-            : output.Trim().Length <= 500 ? output.Trim() : output.Trim()[..500];
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return string.Empty;
+        }
+
+        const int maxLength = 4000;
+        const int headLength = 1200;
+        const string separator = "\n... output truncated; showing beginning and end ...\n";
+        var trimmed = output.Trim();
+        if (trimmed.Length <= maxLength)
+        {
+            return trimmed;
+        }
+
+        var tailLength = maxLength - headLength - separator.Length;
+        return string.Concat(trimmed.AsSpan(0, headLength), separator, trimmed.AsSpan(trimmed.Length - tailLength));
+    }
 
     private Task AddEventAsync(
         Guid workflowId,

@@ -31,6 +31,7 @@ internal sealed record WorkerEnvironment(
     string ExternalId,
     Uri? CallbackUrl,
     string? CallbackSecret,
+    string? AiSettingsId,
     string ContextPath,
     string? GitAccessToken)
 {
@@ -48,6 +49,7 @@ internal sealed record WorkerEnvironment(
             Optional("FORMICAE_EXTERNAL_ID") ?? Environment.MachineName,
             Uri.TryCreate(Optional("FORMICAE_WORKER_CALLBACK_URL"), UriKind.Absolute, out var callbackUrl) ? callbackUrl : null,
             Optional("FORMICAE_WORKER_CALLBACK_SECRET"),
+            Optional("FORMICAE_AI_SETTINGS_ID"),
             Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context",
             Optional("FORMICAE_GIT_ACCESS_TOKEN"));
     }
@@ -118,6 +120,7 @@ internal static class WorkerCommand
 
         args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
         var codexExit = await RunProcessAsync("npx", args, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
+        await reporter.ReportCodexAuthAsync(environment.AiSettingsId, ReadCodexAuth(), cancellationToken);
         if (codexExit != 0 || !environment.RequiresRepositoryCheckout)
         {
             return codexExit;
@@ -183,14 +186,26 @@ internal static class WorkerCommand
     private static void CopyCodexAuthIfMounted()
     {
         var targetHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
-        var source = "/root/.codex/auth.json";
+        var sourceDirectory = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_MOUNT_PATH") ?? "/root/.codex";
+        var sourceFileName = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_FILE_NAME") ?? "auth.json";
+        var source = Path.Combine(sourceDirectory, sourceFileName);
         if (!File.Exists(source))
         {
             return;
         }
 
         Directory.CreateDirectory(targetHome);
-        File.Copy(source, Path.Combine(targetHome, "auth.json"), overwrite: true);
+        var target = Path.Combine(targetHome, "auth.json");
+        if (!string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.Ordinal))
+        {
+            File.Copy(source, target, overwrite: true);
+        }
+    }
+
+    private static string? ReadCodexAuth()
+    {
+        var path = Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home", "auth.json");
+        return File.Exists(path) ? File.ReadAllText(path) : null;
     }
 
     private static async Task<int> RunProcessAsync(
@@ -298,7 +313,35 @@ internal sealed class WorkerReporter(Uri? callbackUrl, string? callbackSecret, G
         }
     }
 
+    public async Task ReportCodexAuthAsync(string? aiSettingsId, string? codexAuthJson, CancellationToken cancellationToken = default)
+    {
+        if (callbackUrl is null || string.IsNullOrWhiteSpace(aiSettingsId) || string.IsNullOrWhiteSpace(codexAuthJson))
+        {
+            return;
+        }
+
+        try
+        {
+            var authUrl = new Uri(callbackUrl, "/api/worker/agent-auth");
+            using var request = new HttpRequestMessage(HttpMethod.Post, authUrl)
+            {
+                Content = JsonContent.Create(new WorkerAgentAuthRefresh(workflowId, taskKind, externalId, aiSettingsId, codexAuthJson), options: JsonSerializerOptions.Web)
+            };
+            if (!string.IsNullOrWhiteSpace(callbackSecret))
+            {
+                request.Headers.Add("X-Formicae-Worker-Callback-Secret", callbackSecret);
+            }
+
+            await http.SendAsync(request, cancellationToken);
+        }
+        catch
+        {
+            // The next job can still run with the stored credentials; auth refresh persistence is best effort.
+        }
+    }
+
     public void Dispose() => http.Dispose();
 }
 
 internal sealed record WorkerAgentMessage(Guid WorkflowId, string TaskKind, string ExternalId, string Stream, string Line, DateTimeOffset Timestamp);
+internal sealed record WorkerAgentAuthRefresh(Guid WorkflowId, string TaskKind, string ExternalId, string AiSettingsId, string CodexAuthJson);

@@ -51,6 +51,21 @@ public sealed class AiSettingsService(
         return ToResponse(settings);
     }
 
+    public async Task<bool> UpdateCodexAuthAsync(string id, string codexAuthJson, CancellationToken cancellationToken)
+    {
+        var settings = await store.GetAsync(id, cancellationToken);
+        if (settings is null)
+        {
+            return false;
+        }
+
+        ValidateJson(codexAuthJson, "CodexAuthJson must be valid JSON.");
+        settings.CodexAuthJson = TrimToNull(codexAuthJson);
+        settings.SubscriptionCredentialJson = null;
+        settings.UpdatedAt = clock.UtcNow;
+        await store.UpsertAsync(settings, cancellationToken);
+        return true;
+    }
     public async Task<ResolvedAiSettings> ResolveAsync(CancellationToken cancellationToken)
     {
         var saved = await store.GetAsync(cancellationToken);

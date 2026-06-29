@@ -155,6 +155,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             ["FORMICAE_OPENHANDS_AUTH_METHOD"] = authMethod,
             ["FORMICAE_MODEL"] = model,
             ["FORMICAE_EXTERNAL_ID"] = jobName,
+            ["FORMICAE_AI_SETTINGS_ID"] = settings.Id,
             ["FORMICAE_CONTEXT_PATH"] = "/workspace/formicae/context"
         };
 
@@ -170,7 +171,9 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         }
         else if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
-            environment["CODEX_HOME"] = settings.SubscriptionCredentialMountPath ?? "/root/.codex";
+            environment["CODEX_HOME"] = "/tmp/codex-home";
+            environment["FORMICAE_CODEX_AUTH_MOUNT_PATH"] = settings.SubscriptionCredentialMountPath ?? "/root/.codex";
+            environment["FORMICAE_CODEX_AUTH_FILE_NAME"] = settings.SubscriptionCredentialFileName ?? "auth.json";
             if (!string.IsNullOrWhiteSpace(model)) environment["CODEX_CONFIG"] = $"{{\"model\":\"{model}\"}}";
         }
 

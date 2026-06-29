@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<WorkflowDiscoveryService>();
         services.AddScoped<WorkflowObservabilityService>();
         services.AddScoped<WorkerAgentMessageService>();
+        services.AddScoped<WorkerAgentAuthRefreshService>();
         services.AddScoped<AiSettingsService>();
         services.AddScoped<DevOpsIntegrationService>();
         services.AddScoped<ManagementUserService>();

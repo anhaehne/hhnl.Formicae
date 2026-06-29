@@ -434,6 +434,23 @@ app.MapPost("/api/worker/agent-messages", async (
     return Results.Accepted();
 });
 
+app.MapPost("/api/worker/agent-auth", async (
+    WorkerAgentAuthRefreshRequest request,
+    HttpRequest httpRequest,
+    WorkerAgentAuthRefreshService authRefreshes,
+    IOptions<KubernetesJobOptions> kubernetesJobOptions,
+    CancellationToken cancellationToken) =>
+{
+    var callbackSecret = kubernetesJobOptions.Value.WorkerCallbackSecret;
+    if (!string.IsNullOrWhiteSpace(callbackSecret)
+        && !string.Equals(httpRequest.Headers["X-Formicae-Worker-Callback-Secret"].FirstOrDefault(), callbackSecret, StringComparison.Ordinal))
+    {
+        return Results.Unauthorized();
+    }
+
+    var accepted = await authRefreshes.RecordAsync(request, cancellationToken);
+    return accepted ? Results.Accepted() : Results.NotFound();
+});
 app.MapPost("/api/webhooks/github", async (
     HttpRequest request,
     GitHubWebhookHandler handler,
@@ -902,4 +919,3 @@ static Uri GetPublicBaseUri(HttpRequest request)
 public sealed record UpdateManagementUserRolesRequest(IReadOnlyList<string>? Roles);
 
 public partial class Program;
-
