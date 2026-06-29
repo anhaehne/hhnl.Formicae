@@ -297,6 +297,30 @@ textarea:focus {
   letter-spacing: 0.08em;
   padding: 5px 8px;
 }
+.copied-button {
+  background: #e7f5ec;
+  border-color: #94cda4;
+  color: #1d5f36;
+}
+
+.auth-success-card {
+  background: #e7f5ec;
+  border: 1px solid #b8dec3;
+  border-radius: 6px;
+  color: #1d5f36;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.auth-success-card strong {
+  font-size: 0.95rem;
+}
+
+.auth-success-card span {
+  color: #2f6d45;
+  font-size: 0.84rem;
+}
 
 
 .auth-output {
@@ -1096,6 +1120,30 @@ pre.collapsed-content::after {
   font-weight: 800;
   letter-spacing: 0.08em;
   padding: 5px 8px;
+}
+.copied-button {
+  background: #e7f5ec;
+  border-color: #94cda4;
+  color: #1d5f36;
+}
+
+.auth-success-card {
+  background: #e7f5ec;
+  border: 1px solid #b8dec3;
+  border-radius: 6px;
+  color: #1d5f36;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.auth-success-card strong {
+  font-size: 0.95rem;
+}
+
+.auth-success-card span {
+  color: #2f6d45;
+  font-size: 0.84rem;
 }
 
 

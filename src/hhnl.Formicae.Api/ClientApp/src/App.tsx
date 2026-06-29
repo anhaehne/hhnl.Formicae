@@ -2112,6 +2112,14 @@ function SettingsPage({
   const apiKeyConfigured = selectedAiSettings?.hasApiKey || selectedAiSettings?.hasApiKeySecret;
   const subscriptionConfigured = selectedAiSettings?.hasSubscriptionAuth;
   const authOutput = stripAnsi(codexAuthConnection?.output ?? "");
+  const loginSucceeded = codexAuthConnection?.status === "Succeeded";
+  const [deviceCodeCopied, setDeviceCodeCopied] = useState(false);
+  useEffect(() => setDeviceCodeCopied(false), [codexAuthConnection?.deviceLoginCode]);
+  async function handleCopyDeviceCode(value: string) {
+    await copyText(value);
+    setDeviceCodeCopied(true);
+    window.setTimeout(() => setDeviceCodeCopied(false), 1800);
+  }
 
   return (
     <section className="settings-page ai-setup-page">
@@ -2203,26 +2211,37 @@ function SettingsPage({
                     </div>
                     {codexAuthConnection ? (
                       <div className="auth-output-block">
-                        <div className="secret-status"><span>Login job</span><StatusBadge value={codexAuthConnection.status} /></div>
-                        {codexAuthConnection.failureReason ? <p className="error-text">{codexAuthConnection.failureReason}</p> : null}
-                        {codexAuthConnection.deviceLoginUrl || codexAuthConnection.deviceLoginCode ? (
-                          <div className="device-login-card">
-                            {codexAuthConnection.deviceLoginUrl ? (
-                              <div className="device-login-row">
-                                <span>Open</span>
-                                <a href={codexAuthConnection.deviceLoginUrl} target="_blank" rel="noreferrer">{codexAuthConnection.deviceLoginUrl}</a>
-                              </div>
-                            ) : null}
-                            {codexAuthConnection.deviceLoginCode ? (
-                              <div className="device-login-row">
-                                <span>Code</span>
-                                <code>{codexAuthConnection.deviceLoginCode}</code>
-                                <button type="button" className="secondary-button compact-button" onClick={() => copyText(codexAuthConnection.deviceLoginCode!)}>Copy</button>
-                              </div>
-                            ) : null}
+                        {loginSucceeded ? (
+                          <div className="auth-success-card">
+                            <strong>Codex login succeeded.</strong>
+                            <span>Subscription credentials are connected and ready for agent runs.</span>
                           </div>
-                        ) : null}
-                        <pre className="auth-output">{authOutput || "Waiting for login output..."}</pre>
+                        ) : (
+                          <>
+                            <div className="secret-status"><span>Login job</span><StatusBadge value={codexAuthConnection.status} /></div>
+                            {codexAuthConnection.failureReason ? <p className="error-text">{codexAuthConnection.failureReason}</p> : null}
+                            {codexAuthConnection.deviceLoginUrl || codexAuthConnection.deviceLoginCode ? (
+                              <div className="device-login-card">
+                                {codexAuthConnection.deviceLoginUrl ? (
+                                  <div className="device-login-row">
+                                    <span>Open</span>
+                                    <a href={codexAuthConnection.deviceLoginUrl} target="_blank" rel="noreferrer">{codexAuthConnection.deviceLoginUrl}</a>
+                                  </div>
+                                ) : null}
+                                {codexAuthConnection.deviceLoginCode ? (
+                                  <div className="device-login-row">
+                                    <span>Code</span>
+                                    <code>{codexAuthConnection.deviceLoginCode}</code>
+                                    <button type="button" className={`secondary-button compact-button${deviceCodeCopied ? " copied-button" : ""}`} onClick={() => handleCopyDeviceCode(codexAuthConnection.deviceLoginCode!)}>
+                                      {deviceCodeCopied ? "Copied" : "Copy"}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <pre className="auth-output">{authOutput || "Waiting for login output..."}</pre>
+                          </>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -2432,8 +2451,8 @@ function stripAnsi(value: string) {
   return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
-function copyText(value: string) {
-  void navigator.clipboard?.writeText(value);
+async function copyText(value: string) {
+  await navigator.clipboard?.writeText(value);
 }
 function formatJson(value: string) {
   try {
