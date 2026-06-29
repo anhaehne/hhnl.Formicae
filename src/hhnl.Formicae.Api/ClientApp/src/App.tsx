@@ -2111,6 +2111,7 @@ function SettingsPage({
 }) {
   const apiKeyConfigured = selectedAiSettings?.hasApiKey || selectedAiSettings?.hasApiKeySecret;
   const subscriptionConfigured = selectedAiSettings?.hasSubscriptionAuth;
+  const authOutput = stripAnsi(codexAuthConnection?.output ?? "");
 
   return (
     <section className="settings-page ai-setup-page">
@@ -2204,7 +2205,24 @@ function SettingsPage({
                       <div className="auth-output-block">
                         <div className="secret-status"><span>Login job</span><StatusBadge value={codexAuthConnection.status} /></div>
                         {codexAuthConnection.failureReason ? <p className="error-text">{codexAuthConnection.failureReason}</p> : null}
-                        <pre className="auth-output">{codexAuthConnection.output || "Waiting for login output..."}</pre>
+                        {codexAuthConnection.deviceLoginUrl || codexAuthConnection.deviceLoginCode ? (
+                          <div className="device-login-card">
+                            {codexAuthConnection.deviceLoginUrl ? (
+                              <div className="device-login-row">
+                                <span>Open</span>
+                                <a href={codexAuthConnection.deviceLoginUrl} target="_blank" rel="noreferrer">{codexAuthConnection.deviceLoginUrl}</a>
+                              </div>
+                            ) : null}
+                            {codexAuthConnection.deviceLoginCode ? (
+                              <div className="device-login-row">
+                                <span>Code</span>
+                                <code>{codexAuthConnection.deviceLoginCode}</code>
+                                <button type="button" className="secondary-button compact-button" onClick={() => copyText(codexAuthConnection.deviceLoginCode!)}>Copy</button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        <pre className="auth-output">{authOutput || "Waiting for login output..."}</pre>
                       </div>
                     ) : null}
                   </div>
@@ -2410,6 +2428,13 @@ function formatDuration(startedAt?: string | null, completedAt?: string | null) 
   return `${hours}h ${minutes % 60}m`;
 }
 
+function stripAnsi(value: string) {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function copyText(value: string) {
+  void navigator.clipboard?.writeText(value);
+}
 function formatJson(value: string) {
   try {
     return JSON.stringify(JSON.parse(value), null, 2);

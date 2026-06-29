@@ -2285,6 +2285,32 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task CodexAuthSetupService_sanitizes_device_login_output()
+    {
+        var settingsService = new AiSettingsService(new InMemoryAiSettingsStore(), Options.Create(new OpenHandsOptions()), new SystemClock());
+        var jobRunner = new CapturingJobRunner
+        {
+            Result = new KubernetesJobResult(
+                true,
+                "formicae-codex-login",
+                "Follow these steps\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n   \u001b[94mE4UQ-ZWLG0\u001b[0m\n",
+                null)
+        };
+        var service = new CodexAuthSetupService(
+            jobRunner,
+            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        var status = await service.GetStatusAsync("codex-ai", "formicae-codex-login", CancellationToken.None);
+
+        Assert.Equal("https://auth.openai.com/codex/device", status.DeviceLoginUrl);
+        Assert.Equal("E4UQ-ZWLG0", status.DeviceLoginCode);
+        Assert.True(!status.Output.Any(character => char.IsControl(character) && character is not '\r' and not '\n' and not '\t'), string.Join(",", status.Output.Select(character => ((int)character).ToString())));
+        Assert.Contains("https://auth.openai.com/codex/device", status.Output);
+        Assert.Contains("E4UQ-ZWLG0", status.Output);
+    }
+    [Fact]
     public async Task CodexAuthSetupService_uses_device_auth_login_by_default()
     {
         var settingsStore = new InMemoryAiSettingsStore();

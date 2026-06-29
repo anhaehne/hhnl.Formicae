@@ -1,13 +1,14 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Infrastructure.OpenHands;
 
-public sealed record CodexAuthSetupStartResponse(string AiSettingsId, string JobName, string Status, string Output, string? FailureReason);
+public sealed record CodexAuthSetupStartResponse(string AiSettingsId, string JobName, string Status, string Output, string? FailureReason, string? DeviceLoginUrl, string? DeviceLoginCode);
 
-public sealed record CodexAuthSetupStatusResponse(string AiSettingsId, string JobName, string Status, string Output, string? FailureReason);
+public sealed record CodexAuthSetupStatusResponse(string AiSettingsId, string JobName, string Status, string Output, string? FailureReason, string? DeviceLoginUrl, string? DeviceLoginCode);
 
 public sealed class CodexAuthSetupService(
     IKubernetesJobRunner jobRunner,
@@ -16,6 +17,9 @@ public sealed class CodexAuthSetupService(
     AiSettingsService aiSettingsService)
 {
     private static readonly IReadOnlyList<string> WorkerCommand = ["dotnet", "hhnl.Formicae.Worker.dll"];
+    private static readonly Regex AnsiEscapeRegex = new("\u001b\\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
+    private static readonly Regex DeviceLoginUrlRegex = new(@"https://auth\.openai\.com/codex/device", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex DeviceLoginCodeRegex = new(@"\b[A-Z0-9]{4}-[A-Z0-9]{5}\b", RegexOptions.Compiled);
 
     public async Task<CodexAuthSetupStartResponse> StartAsync(string aiSettingsId, CancellationToken cancellationToken)
     {
@@ -48,7 +52,7 @@ public sealed class CodexAuthSetupService(
 
         var spec = new KubernetesJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, KubernetesJobAuthMethods.None);
         var start = await jobRunner.StartJobAsync(spec, cancellationToken);
-        return new CodexAuthSetupStartResponse(settings.Id, start.JobName, "Running", string.Empty, null);
+        return new CodexAuthSetupStartResponse(settings.Id, start.JobName, "Running", string.Empty, null, null, null);
     }
 
     public async Task<CodexAuthSetupStatusResponse> GetStatusAsync(string aiSettingsId, string jobName, CancellationToken cancellationToken)
@@ -57,16 +61,32 @@ public sealed class CodexAuthSetupService(
         if (result is null)
         {
             var logs = await jobRunner.ReadJobLogsAsync(jobName, cancellationToken);
-            return new CodexAuthSetupStatusResponse(aiSettingsId, jobName, "Running", logs, null);
+            var output = CleanOutput(logs);
+            return new CodexAuthSetupStatusResponse(aiSettingsId, jobName, "Running", output, null, ExtractDeviceLoginUrl(output), ExtractDeviceLoginCode(output));
         }
 
+        var resultOutput = CleanOutput(result.Logs);
         return new CodexAuthSetupStatusResponse(
             aiSettingsId,
             jobName,
             result.Succeeded ? "Succeeded" : "Failed",
-            result.Logs,
-            result.FailureReason);
+            resultOutput,
+            result.FailureReason,
+            ExtractDeviceLoginUrl(resultOutput),
+            ExtractDeviceLoginCode(resultOutput));
     }
+
+    private static string CleanOutput(string output)
+    {
+        var withoutAnsi = AnsiEscapeRegex.Replace(output, string.Empty);
+        return new string(withoutAnsi.Where(character => character is '\r' or '\n' or '\t' || !char.IsControl(character)).ToArray());
+    }
+
+    private static string? ExtractDeviceLoginUrl(string output)
+        => DeviceLoginUrlRegex.Match(output) is { Success: true } match ? match.Value : null;
+
+    private static string? ExtractDeviceLoginCode(string output)
+        => DeviceLoginCodeRegex.Match(output) is { Success: true } match ? match.Value : null;
 
     private string ResolveLoginCommand()
         => string.IsNullOrWhiteSpace(openHandsOptions.Value.CodexSubscriptionLoginCommand)

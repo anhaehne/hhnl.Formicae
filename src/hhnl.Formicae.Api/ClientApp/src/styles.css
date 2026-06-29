@@ -262,6 +262,43 @@ textarea:focus {
   padding-top: 12px;
 }
 
+.device-login-card {
+  background: #ffffff;
+  border: 1px solid #d7dbd2;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+
+.device-login-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.device-login-row > span {
+  color: #5d635a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 44px;
+  text-transform: uppercase;
+}
+
+.device-login-row code {
+  background: #eff3ec;
+  border: 1px solid #d7dbd2;
+  border-radius: 4px;
+  color: #202124;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 5px 8px;
+}
+
+
 .auth-output {
   background: #202124;
   border-radius: 6px;
@@ -1024,6 +1061,43 @@ pre.collapsed-content::after {
   margin-top: 12px;
   padding-top: 12px;
 }
+
+.device-login-card {
+  background: #ffffff;
+  border: 1px solid #d7dbd2;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+
+.device-login-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.device-login-row > span {
+  color: #5d635a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 44px;
+  text-transform: uppercase;
+}
+
+.device-login-row code {
+  background: #eff3ec;
+  border: 1px solid #d7dbd2;
+  border-radius: 4px;
+  color: #202124;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 5px 8px;
+}
+
 
 .auth-output {
   background: #202124;

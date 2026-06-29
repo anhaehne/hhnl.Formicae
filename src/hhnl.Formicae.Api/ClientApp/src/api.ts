@@ -102,6 +102,8 @@ export type CodexAuthSetupStatus = {
   status: string;
   output: string;
   failureReason?: string | null;
+  deviceLoginUrl?: string | null;
+  deviceLoginCode?: string | null;
 };
 
 export type UpdateAiSettingsRequest = {
