@@ -87,6 +87,8 @@ type AiSettingsFormState = {
 
 type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "settings";
 
+const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "settings"];
+
 type GitHubIntegrationFormState = {
   displayName: string;
   clientId: string;
@@ -332,7 +334,7 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const page = params.get("page");
+    const page = parsePage(params.get("page"));
     const integrationId = params.get("integrationId");
     const installationId = params.get("installationId");
     const setupAction = params.get("setupAction");
@@ -340,7 +342,7 @@ export default function App() {
     const inviteRedeemed = params.get("inviteRedeemed");
     const inviteError = params.get("inviteError");
 
-    if (page === "repositories" || page === "integrations" || page === "users" || page === "settings" || page === "workflows" || page === "workflow-definitions") {
+    if (page) {
       setActivePage(page);
     }
 
@@ -366,6 +368,17 @@ export default function App() {
       setActivePage("users");
       setAuthError(inviteError);
     }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const page = parsePage(new URLSearchParams(window.location.search).get("page"));
+      setActivePage(page ?? "workflows");
+      setMenuOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
   useEffect(() => {
     if (!codexAuthConnection || codexAuthConnection.status !== "Running") {
@@ -1075,6 +1088,7 @@ export default function App() {
   }
 
   function navigateToPage(page: Page) {
+    pushUrlParams({ page });
     setActivePage(page);
     setMenuOpen(false);
   }
@@ -2477,6 +2491,10 @@ function pageTitle(page: Page) {
   }
 }
 
+function parsePage(value: string | null): Page | undefined {
+  return pages.includes(value as Page) ? (value as Page) : undefined;
+}
+
 function buildReturnUrl(values: Record<string, string | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
@@ -2500,6 +2518,14 @@ function buildAbsoluteInviteLink(code: string) {
 function replaceUrlParams(values: Record<string, string | undefined>) {
   window.history.replaceState({}, document.title, buildReturnUrl(values));
 }
+
+function pushUrlParams(values: Record<string, string | undefined>) {
+  const url = buildReturnUrl(values);
+  if (url !== `${window.location.pathname}${window.location.search}`) {
+    window.history.pushState({}, document.title, url);
+  }
+}
+
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {
     name: settings.name ?? "New AI",
