@@ -139,6 +139,7 @@ const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
 
 export default function App() {
   const [activePage, setActivePage] = useState<Page>("workflows");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const modelTouched = useRef(false);
   const [aiSettingsList, setAiSettingsList] = useState<AiSettings[]>([]);
@@ -202,6 +203,14 @@ export default function App() {
   const canViewWorkflows = currentUser?.canViewWorkflows === true;
   const canTriggerWorkflows = currentUser?.canTriggerWorkflows === true;
   const canAdminister = currentUser?.canAdminister === true;
+  const navigationItems = [
+    { page: "workflows", label: "Workflows", disabled: false },
+    { page: "workflow-definitions", label: "Definitions", disabled: !canViewWorkflows },
+    { page: "integrations", label: "Integrations", disabled: !canAdminister },
+    { page: "repositories", label: "Repositories", disabled: !canAdminister },
+    { page: "users", label: "Users", disabled: false },
+    { page: "settings", label: "Settings", disabled: !canAdminister }
+  ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -258,6 +267,19 @@ export default function App() {
     loginRedirectStarted.current = true;
     handleLogin(window.location.pathname + window.location.search);
   }, [currentUser]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 961px)");
+    const closeMenu = () => {
+      if (query.matches) {
+        setMenuOpen(false);
+      }
+    };
+
+    closeMenu();
+    query.addEventListener("change", closeMenu);
+    return () => query.removeEventListener("change", closeMenu);
+  }, []);
 
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
@@ -1052,6 +1074,55 @@ export default function App() {
     }
   }
 
+  function navigateToPage(page: Page) {
+    setActivePage(page);
+    setMenuOpen(false);
+  }
+
+  function renderRefreshButton() {
+    if (activePage === "workflows") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
+          {loadingWorkflows ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "workflow-definitions") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
+          {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "integrations") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
+          {loadingIntegrations ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "repositories") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
+          {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "users") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
+          Refresh
+        </button>
+      );
+    }
+
+    return null;
+  }
+
   if (!currentUser) {
     return (
       <main className="auth-gate-page">
@@ -1090,91 +1161,8 @@ export default function App() {
     );
   }
 
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Formicae</p>
-          <h1>{pageTitle(activePage)}</h1>
-        </div>
-        <div className="topbar-actions">
-          <AccountStatus
-            currentUser={currentUser}
-            busy={authBusy}
-            onLogout={handleLogout}
-          />
-          <nav className="app-menu" aria-label="Primary navigation">
-            <button
-              type="button"
-              className={`menu-button${activePage === "workflows" ? " active" : ""}`}
-              onClick={() => setActivePage("workflows")}
-            >
-              Workflows
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "workflow-definitions" ? " active" : ""}`}
-              onClick={() => setActivePage("workflow-definitions")}
-              disabled={!canViewWorkflows}
-            >
-              Definitions
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "integrations" ? " active" : ""}`}
-              onClick={() => setActivePage("integrations")}
-              disabled={!canAdminister}
-            >
-              Integrations
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "repositories" ? " active" : ""}`}
-              onClick={() => setActivePage("repositories")}
-              disabled={!canAdminister}
-            >
-              Repositories
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "users" ? " active" : ""}`}
-              onClick={() => setActivePage("users")}
-            >
-              Users
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "settings" ? " active" : ""}`}
-              onClick={() => setActivePage("settings")}
-              disabled={!canAdminister}
-            >
-              Settings
-            </button>
-          </nav>
-          {activePage === "workflows" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
-              {loadingWorkflows ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "workflow-definitions" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
-              {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "integrations" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
-              {loadingIntegrations ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "repositories" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
-              {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "users" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
-              Refresh
-            </button>
-          ) : null}
-        </div>
-      </header>
-      {activePage === "workflows" ? (
+  function renderActivePage() {
+    return activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -1548,8 +1536,67 @@ export default function App() {
           onSubmit={handleAiSettingsSubmit}
           canAdminister={canAdminister}
         />
-      )}
-      <footer className="app-footer">Formicae {appVersion ? `v${appVersion}` : "version loading"}</footer>
+    );
+  }
+
+  return (
+    <main className={`app-shell${menuOpen ? " menu-open" : ""}`}>
+      <button
+        type="button"
+        className="drawer-backdrop"
+        aria-label="Close navigation"
+        onClick={() => setMenuOpen(false)}
+      />
+      <div className="app-layout">
+        <aside className="side-nav" aria-label="Primary navigation">
+          <div className="side-nav-brand">
+            <p className="eyebrow">Formicae</p>
+            <strong>Control</strong>
+          </div>
+          <nav className="side-nav-menu">
+            {navigationItems.map(item => (
+              <button
+                type="button"
+                className={`menu-button${activePage === item.page ? " active" : ""}`}
+                onClick={() => navigateToPage(item.page)}
+                disabled={item.disabled}
+                key={item.page}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="side-nav-footer">
+            <AccountStatus
+              currentUser={currentUser}
+              busy={authBusy}
+              onLogout={handleLogout}
+            />
+            <span className="app-version">Formicae {appVersion ? `v${appVersion}` : "version loading"}</span>
+          </div>
+        </aside>
+        <section className="app-content">
+          <header className="content-header">
+            <button
+              type="button"
+              className="mobile-menu-button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={menuOpen}
+            >
+              Menu
+            </button>
+            <div>
+              <p className="eyebrow">Formicae</p>
+              <h1>{pageTitle(activePage)}</h1>
+            </div>
+            <div className="content-header-actions">
+              {renderRefreshButton()}
+            </div>
+          </header>
+          {renderActivePage()}
+        </section>
+      </div>
     </main>
   );
 }
