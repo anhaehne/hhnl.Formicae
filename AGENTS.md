@@ -8,6 +8,7 @@
 
 ## Merging Policy
 
+- When working directly on `main`, fetch from `origin` and check for new remote changes before starting edits.
 - Update from the target base branch before merging branches.
 - Review incoming changes for conflicts with current work and repository instructions.
 - Do not overwrite or revert user changes unless explicitly asked.

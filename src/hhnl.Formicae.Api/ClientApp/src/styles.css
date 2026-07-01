@@ -48,8 +48,11 @@ a:hover {
   background: #ffffff;
   border-right: 1px solid #d7dbd2;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: 100vh;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
   padding: 22px 16px;
   position: sticky;
   top: 0;
@@ -68,6 +71,8 @@ a:hover {
 }
 
 .side-nav-menu {
+  align-content: start;
+  align-items: start;
   display: grid;
   gap: 6px;
   padding: 18px 0;
@@ -152,8 +157,10 @@ a:hover {
   border: 0;
   border-radius: 6px;
   color: #4a4f49;
+  align-self: start;
   cursor: pointer;
   font-weight: 750;
+  height: auto;
   min-height: 32px;
   padding: 9px 10px;
   text-align: left;
