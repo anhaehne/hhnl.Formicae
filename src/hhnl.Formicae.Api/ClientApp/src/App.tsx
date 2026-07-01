@@ -350,16 +350,16 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const routePage = parsePagePath(location.pathname);
-    const page = parsePage(params.get("page"));
     const targetPage =
       params.get("installationId") ? "repositories" :
       params.get("inviteRedeemed") === "true" || params.get("inviteError") ? "users" :
-      routePage ?? page ?? "workflows";
+      routePage ?? "workflows";
+    params.delete("page");
+    const query = params.toString();
+    const targetSearch = query ? `?${query}` : "";
 
-    if (page || routePage !== targetPage) {
-      params.delete("page");
-      const query = params.toString();
-      navigate(`${pagePaths[targetPage]}${query ? `?${query}` : ""}`, { replace: true });
+    if (location.pathname !== pagePaths[targetPage] || location.search !== targetSearch) {
+      navigate(`${pagePaths[targetPage]}${targetSearch}`, { replace: true });
       return;
     }
 
