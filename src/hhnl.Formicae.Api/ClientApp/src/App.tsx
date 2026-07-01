@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   addConnectedRepository,
   AiSettings,
@@ -89,6 +90,15 @@ type Page = "workflows" | "workflow-definitions" | "integrations" | "repositorie
 
 const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "settings"];
 
+const pagePaths: Record<Page, string> = {
+  "workflows": "/workflows",
+  "workflow-definitions": "/workflow-definitions",
+  "integrations": "/integrations",
+  "repositories": "/repositories",
+  "users": "/users",
+  "settings": "/settings"
+};
+
 type GitHubIntegrationFormState = {
   displayName: string;
   clientId: string;
@@ -140,6 +150,8 @@ const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
 };
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activePage, setActivePage] = useState<Page>("workflows");
   const [menuOpen, setMenuOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
@@ -205,6 +217,9 @@ export default function App() {
   const canViewWorkflows = currentUser?.canViewWorkflows === true;
   const canTriggerWorkflows = currentUser?.canTriggerWorkflows === true;
   const canAdminister = currentUser?.canAdminister === true;
+  const replaceUrlParams = useCallback((values: Record<string, string | undefined>) => {
+    navigate(buildReturnUrl(values), { replace: true });
+  }, [navigate]);
   const navigationItems = [
     { page: "workflows", label: "Workflows", disabled: false },
     { page: "workflow-definitions", label: "Definitions", disabled: !canViewWorkflows },
@@ -333,8 +348,27 @@ export default function App() {
   }, [canViewWorkflows, currentUser, refreshWorkflowDefinitions, refreshWorkflows]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
+    const routePage = parsePagePath(location.pathname);
     const page = parsePage(params.get("page"));
+    const targetPage =
+      params.get("installationId") ? "repositories" :
+      params.get("inviteRedeemed") === "true" || params.get("inviteError") ? "users" :
+      routePage ?? page ?? "workflows";
+
+    if (page || routePage !== targetPage) {
+      params.delete("page");
+      const query = params.toString();
+      navigate(`${pagePaths[targetPage]}${query ? `?${query}` : ""}`, { replace: true });
+      return;
+    }
+
+    setActivePage(targetPage);
+    setMenuOpen(false);
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
     const integrationId = params.get("integrationId");
     const installationId = params.get("installationId");
     const setupAction = params.get("setupAction");
@@ -342,16 +376,11 @@ export default function App() {
     const inviteRedeemed = params.get("inviteRedeemed");
     const inviteError = params.get("inviteError");
 
-    if (page) {
-      setActivePage(page);
-    }
-
     if (integrationId) {
       setSelectedIntegrationId(integrationId);
     }
 
     if (installationId) {
-      setActivePage("repositories");
       setRepositorySaved(`GitHub App ${setupAction ?? "installation"} completed for installation ${installationId}.`);
     }
 
@@ -360,26 +389,13 @@ export default function App() {
     }
 
     if (inviteRedeemed === "true") {
-      setActivePage("users");
       setAuthError(undefined);
     }
 
     if (inviteError) {
-      setActivePage("users");
       setAuthError(inviteError);
     }
-  }, []);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const page = parsePage(new URLSearchParams(window.location.search).get("page"));
-      setActivePage(page ?? "workflows");
-      setMenuOpen(false);
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [location.search]);
   useEffect(() => {
     if (!codexAuthConnection || codexAuthConnection.status !== "Running") {
       return;
@@ -538,7 +554,7 @@ export default function App() {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const invite = params.get("invite");
     if (!invite || processedInvite.current === invite || !currentUser.authenticated || currentUser.authorized) {
       return;
@@ -558,21 +574,21 @@ export default function App() {
         replaceUrlParams({ page: "users", inviteError: error instanceof Error ? error.message : "Could not redeem invite." });
       })
       .finally(() => setAuthBusy(false));
-  }, [currentUser, refreshCurrentUser]);
+  }, [currentUser, location.search, refreshCurrentUser, replaceUrlParams]);
 
   useEffect(() => {
     if (!currentUser?.authenticated) {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const integrationId = params.get("enableIdentityProviderId");
     if (!integrationId || processedIdentityActivation.current === integrationId) {
       return;
     }
 
     processedIdentityActivation.current = integrationId;
-    setActivePage("integrations");
+    navigate(pagePaths.integrations, { replace: true });
     setSelectedIntegrationId(integrationId);
     setIntegrationError(undefined);
     setIntegrationSaved(undefined);
@@ -588,7 +604,7 @@ export default function App() {
         setIntegrationError(error instanceof Error ? error.message : "Could not enable identity provider.");
         replaceUrlParams({ page: "integrations", integrationId });
       });
-  }, [currentUser?.authenticated, refreshCurrentUser, refreshIntegrations]);
+  }, [currentUser?.authenticated, location.search, navigate, refreshCurrentUser, refreshIntegrations, replaceUrlParams]);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -1088,8 +1104,7 @@ export default function App() {
   }
 
   function navigateToPage(page: Page) {
-    pushUrlParams({ page });
-    setActivePage(page);
+    navigate(pagePaths[page]);
     setMenuOpen(false);
   }
 
@@ -2495,16 +2510,22 @@ function parsePage(value: string | null): Page | undefined {
   return pages.includes(value as Page) ? (value as Page) : undefined;
 }
 
+function parsePagePath(pathname: string): Page | undefined {
+  const entry = Object.entries(pagePaths).find(([, path]) => pathname === path || pathname === `${path}/`);
+  return entry?.[0] as Page | undefined;
+}
+
 function buildReturnUrl(values: Record<string, string | undefined>) {
+  const page = parsePage(values.page ?? null) ?? "workflows";
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
-    if (value) {
+    if (key !== "page" && value) {
       params.set(key, value);
     }
   }
 
   const query = params.toString();
-  return query ? `/?${query}` : "/";
+  return query ? `${pagePaths[page]}?${query}` : pagePaths[page];
 }
 
 function formatRoleName(role: string) {
@@ -2513,17 +2534,6 @@ function formatRoleName(role: string) {
 
 function buildAbsoluteInviteLink(code: string) {
   return `${window.location.origin}${buildReturnUrl({ page: "users", invite: code })}`;
-}
-
-function replaceUrlParams(values: Record<string, string | undefined>) {
-  window.history.replaceState({}, document.title, buildReturnUrl(values));
-}
-
-function pushUrlParams(values: Record<string, string | undefined>) {
-  const url = buildReturnUrl(values);
-  if (url !== `${window.location.pathname}${window.location.search}`) {
-    window.history.pushState({}, document.title, url);
-  }
 }
 
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
