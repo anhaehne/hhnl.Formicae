@@ -110,7 +110,8 @@ When invoking a skill, follow its `SKILL.md` instructions exactly.
 
 ## Versioning
 
-- Increase the project version for every source change using Semantic Versioning.
+- Increase the project version at most once per branch using Semantic Versioning.
+- Do not increase the version again on the same branch unless the severity changes, for example from a patch-level bug fix to a minor feature.
 - Keep `Directory.Build.props`, `deploy/helm/formicae/Chart.yaml`, `deploy/helm/formicae/values.yaml`, and release/deployment docs aligned to the same version.
 - Use a patch bump for bug fixes and documentation-only release changes, a minor bump for backward-compatible features, and a major bump for breaking changes.
 ## Implementation Guidance

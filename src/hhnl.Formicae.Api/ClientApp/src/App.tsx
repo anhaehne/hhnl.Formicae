@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   addConnectedRepository,
   AiSettings,
@@ -87,6 +88,17 @@ type AiSettingsFormState = {
 
 type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "settings";
 
+const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "settings"];
+
+const pagePaths: Record<Page, string> = {
+  "workflows": "/workflows",
+  "workflow-definitions": "/workflow-definitions",
+  "integrations": "/integrations",
+  "repositories": "/repositories",
+  "users": "/users",
+  "settings": "/settings"
+};
+
 type GitHubIntegrationFormState = {
   displayName: string;
   clientId: string;
@@ -138,7 +150,10 @@ const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
 };
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activePage, setActivePage] = useState<Page>("workflows");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const modelTouched = useRef(false);
   const [aiSettingsList, setAiSettingsList] = useState<AiSettings[]>([]);
@@ -202,6 +217,17 @@ export default function App() {
   const canViewWorkflows = currentUser?.canViewWorkflows === true;
   const canTriggerWorkflows = currentUser?.canTriggerWorkflows === true;
   const canAdminister = currentUser?.canAdminister === true;
+  const replaceUrlParams = useCallback((values: Record<string, string | undefined>) => {
+    navigate(buildReturnUrl(values), { replace: true });
+  }, [navigate]);
+  const navigationItems = [
+    { page: "workflows", label: "Workflows", disabled: false },
+    { page: "workflow-definitions", label: "Definitions", disabled: !canViewWorkflows },
+    { page: "integrations", label: "Integrations", disabled: !canAdminister },
+    { page: "repositories", label: "Repositories", disabled: !canAdminister },
+    { page: "users", label: "Users", disabled: false },
+    { page: "settings", label: "Settings", disabled: !canAdminister }
+  ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
   const selectedWorkflow = useMemo(
     () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
@@ -259,6 +285,19 @@ export default function App() {
     handleLogin(window.location.pathname + window.location.search);
   }, [currentUser]);
 
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 961px)");
+    const closeMenu = () => {
+      if (query.matches) {
+        setMenuOpen(false);
+      }
+    };
+
+    closeMenu();
+    query.addEventListener("change", closeMenu);
+    return () => query.removeEventListener("change", closeMenu);
+  }, []);
+
   const refreshWorkflows = useCallback(async () => {
     setLoadingWorkflows(true);
     setListError(undefined);
@@ -309,8 +348,27 @@ export default function App() {
   }, [canViewWorkflows, currentUser, refreshWorkflowDefinitions, refreshWorkflows]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const page = params.get("page");
+    const params = new URLSearchParams(location.search);
+    const routePage = parsePagePath(location.pathname);
+    const targetPage =
+      params.get("installationId") ? "repositories" :
+      params.get("inviteRedeemed") === "true" || params.get("inviteError") ? "users" :
+      routePage ?? "workflows";
+    params.delete("page");
+    const query = params.toString();
+    const targetSearch = query ? `?${query}` : "";
+
+    if (location.pathname !== pagePaths[targetPage] || location.search !== targetSearch) {
+      navigate(`${pagePaths[targetPage]}${targetSearch}`, { replace: true });
+      return;
+    }
+
+    setActivePage(targetPage);
+    setMenuOpen(false);
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
     const integrationId = params.get("integrationId");
     const installationId = params.get("installationId");
     const setupAction = params.get("setupAction");
@@ -318,16 +376,11 @@ export default function App() {
     const inviteRedeemed = params.get("inviteRedeemed");
     const inviteError = params.get("inviteError");
 
-    if (page === "repositories" || page === "integrations" || page === "users" || page === "settings" || page === "workflows" || page === "workflow-definitions") {
-      setActivePage(page);
-    }
-
     if (integrationId) {
       setSelectedIntegrationId(integrationId);
     }
 
     if (installationId) {
-      setActivePage("repositories");
       setRepositorySaved(`GitHub App ${setupAction ?? "installation"} completed for installation ${installationId}.`);
     }
 
@@ -336,15 +389,13 @@ export default function App() {
     }
 
     if (inviteRedeemed === "true") {
-      setActivePage("users");
       setAuthError(undefined);
     }
 
     if (inviteError) {
-      setActivePage("users");
       setAuthError(inviteError);
     }
-  }, []);
+  }, [location.search]);
   useEffect(() => {
     if (!codexAuthConnection || codexAuthConnection.status !== "Running") {
       return;
@@ -503,7 +554,7 @@ export default function App() {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const invite = params.get("invite");
     if (!invite || processedInvite.current === invite || !currentUser.authenticated || currentUser.authorized) {
       return;
@@ -523,21 +574,21 @@ export default function App() {
         replaceUrlParams({ page: "users", inviteError: error instanceof Error ? error.message : "Could not redeem invite." });
       })
       .finally(() => setAuthBusy(false));
-  }, [currentUser, refreshCurrentUser]);
+  }, [currentUser, location.search, refreshCurrentUser, replaceUrlParams]);
 
   useEffect(() => {
     if (!currentUser?.authenticated) {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const integrationId = params.get("enableIdentityProviderId");
     if (!integrationId || processedIdentityActivation.current === integrationId) {
       return;
     }
 
     processedIdentityActivation.current = integrationId;
-    setActivePage("integrations");
+    navigate(pagePaths.integrations, { replace: true });
     setSelectedIntegrationId(integrationId);
     setIntegrationError(undefined);
     setIntegrationSaved(undefined);
@@ -553,7 +604,7 @@ export default function App() {
         setIntegrationError(error instanceof Error ? error.message : "Could not enable identity provider.");
         replaceUrlParams({ page: "integrations", integrationId });
       });
-  }, [currentUser?.authenticated, refreshCurrentUser, refreshIntegrations]);
+  }, [currentUser?.authenticated, location.search, navigate, refreshCurrentUser, refreshIntegrations, replaceUrlParams]);
 
   useEffect(() => {
     if (!selectedWorkflowId) {
@@ -1052,6 +1103,55 @@ export default function App() {
     }
   }
 
+  function navigateToPage(page: Page) {
+    navigate(pagePaths[page]);
+    setMenuOpen(false);
+  }
+
+  function renderRefreshButton() {
+    if (activePage === "workflows") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
+          {loadingWorkflows ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "workflow-definitions") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
+          {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "integrations") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
+          {loadingIntegrations ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "repositories") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
+          {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
+        </button>
+      );
+    }
+
+    if (activePage === "users") {
+      return (
+        <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
+          Refresh
+        </button>
+      );
+    }
+
+    return null;
+  }
+
   if (!currentUser) {
     return (
       <main className="auth-gate-page">
@@ -1090,91 +1190,8 @@ export default function App() {
     );
   }
 
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Formicae</p>
-          <h1>{pageTitle(activePage)}</h1>
-        </div>
-        <div className="topbar-actions">
-          <AccountStatus
-            currentUser={currentUser}
-            busy={authBusy}
-            onLogout={handleLogout}
-          />
-          <nav className="app-menu" aria-label="Primary navigation">
-            <button
-              type="button"
-              className={`menu-button${activePage === "workflows" ? " active" : ""}`}
-              onClick={() => setActivePage("workflows")}
-            >
-              Workflows
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "workflow-definitions" ? " active" : ""}`}
-              onClick={() => setActivePage("workflow-definitions")}
-              disabled={!canViewWorkflows}
-            >
-              Definitions
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "integrations" ? " active" : ""}`}
-              onClick={() => setActivePage("integrations")}
-              disabled={!canAdminister}
-            >
-              Integrations
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "repositories" ? " active" : ""}`}
-              onClick={() => setActivePage("repositories")}
-              disabled={!canAdminister}
-            >
-              Repositories
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "users" ? " active" : ""}`}
-              onClick={() => setActivePage("users")}
-            >
-              Users
-            </button>
-            <button
-              type="button"
-              className={`menu-button${activePage === "settings" ? " active" : ""}`}
-              onClick={() => setActivePage("settings")}
-              disabled={!canAdminister}
-            >
-              Settings
-            </button>
-          </nav>
-          {activePage === "workflows" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshWorkflows()} disabled={loadingWorkflows}>
-              {loadingWorkflows ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "workflow-definitions" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
-              {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "integrations" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshIntegrations()} disabled={loadingIntegrations}>
-              {loadingIntegrations ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "repositories" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshAvailableRepositories()} disabled={loadingAvailableRepositories}>
-              {loadingAvailableRepositories ? "Refreshing" : "Refresh"}
-            </button>
-          ) : activePage === "users" ? (
-            <button type="button" className="secondary-button" onClick={() => void refreshCurrentUser()} disabled={authBusy}>
-              Refresh
-            </button>
-          ) : null}
-        </div>
-      </header>
-      {activePage === "workflows" ? (
+  function renderActivePage() {
+    return activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -1548,8 +1565,67 @@ export default function App() {
           onSubmit={handleAiSettingsSubmit}
           canAdminister={canAdminister}
         />
-      )}
-      <footer className="app-footer">Formicae {appVersion ? `v${appVersion}` : "version loading"}</footer>
+    );
+  }
+
+  return (
+    <main className={`app-shell${menuOpen ? " menu-open" : ""}`}>
+      <button
+        type="button"
+        className="drawer-backdrop"
+        aria-label="Close navigation"
+        onClick={() => setMenuOpen(false)}
+      />
+      <div className="app-layout">
+        <aside className="side-nav" aria-label="Primary navigation">
+          <div className="side-nav-brand">
+            <p className="eyebrow">Formicae</p>
+            <strong>Control</strong>
+          </div>
+          <nav className="side-nav-menu">
+            {navigationItems.map(item => (
+              <button
+                type="button"
+                className={`menu-button${activePage === item.page ? " active" : ""}`}
+                onClick={() => navigateToPage(item.page)}
+                disabled={item.disabled}
+                key={item.page}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="side-nav-footer">
+            <AccountStatus
+              currentUser={currentUser}
+              busy={authBusy}
+              onLogout={handleLogout}
+            />
+            <span className="app-version">Formicae {appVersion ? `v${appVersion}` : "version loading"}</span>
+          </div>
+        </aside>
+        <section className="app-content">
+          <header className="content-header">
+            <button
+              type="button"
+              className="mobile-menu-button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={menuOpen}
+            >
+              Menu
+            </button>
+            <div>
+              <p className="eyebrow">Formicae</p>
+              <h1>{pageTitle(activePage)}</h1>
+            </div>
+            <div className="content-header-actions">
+              {renderRefreshButton()}
+            </div>
+          </header>
+          {renderActivePage()}
+        </section>
+      </div>
     </main>
   );
 }
@@ -2430,16 +2506,26 @@ function pageTitle(page: Page) {
   }
 }
 
+function parsePage(value: string | null): Page | undefined {
+  return pages.includes(value as Page) ? (value as Page) : undefined;
+}
+
+function parsePagePath(pathname: string): Page | undefined {
+  const entry = Object.entries(pagePaths).find(([, path]) => pathname === path || pathname === `${path}/`);
+  return entry?.[0] as Page | undefined;
+}
+
 function buildReturnUrl(values: Record<string, string | undefined>) {
+  const page = parsePage(values.page ?? null) ?? "workflows";
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
-    if (value) {
+    if (key !== "page" && value) {
       params.set(key, value);
     }
   }
 
   const query = params.toString();
-  return query ? `/?${query}` : "/";
+  return query ? `${pagePaths[page]}?${query}` : pagePaths[page];
 }
 
 function formatRoleName(role: string) {
@@ -2450,9 +2536,6 @@ function buildAbsoluteInviteLink(code: string) {
   return `${window.location.origin}${buildReturnUrl({ page: "users", invite: code })}`;
 }
 
-function replaceUrlParams(values: Record<string, string | undefined>) {
-  window.history.replaceState({}, document.title, buildReturnUrl(values));
-}
 function toAiSettingsForm(settings: AiSettings): AiSettingsFormState {
   return {
     name: settings.name ?? "New AI",
