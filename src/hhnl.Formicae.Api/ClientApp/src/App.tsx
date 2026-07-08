@@ -982,7 +982,7 @@ export default function App() {
       return;
     }
 
-    window.location.href = integrationDetail.setupInstructions.installationUrl;
+    window.open(integrationDetail.setupInstructions.installationUrl, "_blank", "noopener,noreferrer");
   }
 
   async function handleIdentityToggle(enabled: boolean) {
