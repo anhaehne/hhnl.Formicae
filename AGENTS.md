@@ -5,6 +5,7 @@
 - Always respond in English.
 - Keep changes scoped to the user's current request.
 - Do not revert user changes unless explicitly asked.
+- Always include how many tests were added in pull request summaries.
 
 ## Merging Policy
 
