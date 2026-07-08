@@ -2,7 +2,8 @@ namespace hhnl.Formicae.Application.Integrations;
 
 public enum DevOpsProviderType
 {
-    GitHub = 0
+    GitHub = 0,
+    Gitea = 1
 }
 
 public enum IntegrationCapability
@@ -18,6 +19,8 @@ public sealed class DevOpsIntegration
     public Guid Id { get; set; } = Guid.NewGuid();
     public DevOpsProviderType ProviderType { get; set; }
     public string DisplayName { get; set; } = string.Empty;
+    public string? ServerUrl { get; set; }
+    public string? AccessToken { get; set; }
     public string GitHubAppClientId { get; set; } = string.Empty;
     public string? GitHubAppSlug { get; set; }
     public string? GitHubAppClientSecretReference { get; set; }

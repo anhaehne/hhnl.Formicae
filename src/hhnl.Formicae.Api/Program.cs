@@ -29,6 +29,7 @@ builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSectio
 builder.Services.AddSingleton<WorkflowTickNotifier>();
 builder.Services.AddSingleton<IWorkflowTickSignal>(serviceProvider => serviceProvider.GetRequiredService<WorkflowTickNotifier>());
 builder.Services.AddScoped<GitHubWebhookHandler>();
+builder.Services.AddScoped<GiteaWebhookHandler>();
 builder.Services.AddFormicaeInfrastructure(builder.Configuration);
 builder.Services
     .AddIdentityCore<FormicaeUser>()
@@ -464,6 +465,11 @@ app.MapPost("/api/webhooks/github", async (
     GitHubWebhookHandler handler,
     CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
 
+app.MapPost("/api/webhooks/gitea", async (
+    HttpRequest request,
+    GiteaWebhookHandler handler,
+    CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
+
 app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
     CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));
@@ -539,6 +545,27 @@ app.MapPost("/api/integrations/github", async (
     }
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapPost("/api/integrations/gitea", async (
+    CreateGiteaIntegrationRequest request,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var integration = await integrations.CreateGiteaIntegrationAsync(request, GetRequestBaseUri(httpRequest), cancellationToken);
+        return Results.Created($"/api/integrations/{integration.Id}", integration);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapGet("/api/integrations/{integrationId:guid}", async (
     Guid integrationId,
     HttpRequest httpRequest,
@@ -580,6 +607,28 @@ app.MapPut("/api/integrations/{integrationId:guid}/github-app", async (
         return Results.BadRequest(new { error = exception.Message });
     }
     catch (Octokit.ApiException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapPut("/api/integrations/{integrationId:guid}/gitea", async (
+    Guid integrationId,
+    UpdateGiteaIntegrationRequest request,
+    HttpRequest httpRequest,
+    DevOpsIntegrationService integrations,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var integration = await integrations.UpdateGiteaIntegrationAsync(integrationId, request, GetRequestBaseUri(httpRequest), cancellationToken);
+        return integration is null ? Results.NotFound() : Results.Ok(integration);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
     }

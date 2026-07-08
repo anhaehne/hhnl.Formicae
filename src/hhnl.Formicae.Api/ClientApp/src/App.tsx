@@ -7,6 +7,7 @@ import {
   CodexAuthSetupStatus,
   ConnectedRepository,
   createInvite,
+  createGiteaIntegration,
   createGitHubIntegration,
   CurrentUser,
   deleteConnectedRepository,
@@ -106,6 +107,13 @@ type GitHubIntegrationFormState = {
   privateKey: string;
 };
 
+type GiteaIntegrationFormState = {
+  displayName: string;
+  serverUrl: string;
+  accessToken: string;
+  webhookSecret: string;
+};
+
 type DetailState = {
   workflow?: WorkflowSummary;
   runs: TaskRun[];
@@ -149,6 +157,13 @@ const initialGitHubIntegrationForm: GitHubIntegrationFormState = {
   privateKey: ""
 };
 
+const initialGiteaIntegrationForm: GiteaIntegrationFormState = {
+  displayName: "Gitea",
+  serverUrl: "",
+  accessToken: "",
+  webhookSecret: ""
+};
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -188,7 +203,11 @@ export default function App() {
   const [deletingIntegration, setDeletingIntegration] = useState(false);
   const [restartingIdentityProvider, setRestartingIdentityProvider] = useState(false);
   const [githubIntegrationForm, setGitHubIntegrationForm] = useState<GitHubIntegrationFormState>(initialGitHubIntegrationForm);
+  const [giteaIntegrationForm, setGiteaIntegrationForm] = useState<GiteaIntegrationFormState>(initialGiteaIntegrationForm);
+  const [integrationProvider, setIntegrationProvider] = useState<"GitHub" | "Gitea">("GitHub");
   const [availableRepositories, setAvailableRepositories] = useState<GitHubUserRepository[]>([]);
+  const [manualRepositoryUrl, setManualRepositoryUrl] = useState("");
+  const [manualRepositoryDefaultBranch, setManualRepositoryDefaultBranch] = useState("main");
   const [repositorySearch, setRepositorySearch] = useState("");
   const [connectedRepositorySearch, setConnectedRepositorySearch] = useState("");
   const [repositoryError, setRepositoryError] = useState<string>();
@@ -851,17 +870,25 @@ export default function App() {
     setIntegrationSaved(undefined);
     setCreatingIntegration(true);
     try {
-      const integration = await createGitHubIntegration({
-        displayName: githubIntegrationForm.displayName.trim() || "GitHub",
-        clientId: githubIntegrationForm.clientId.trim(),
-        clientSecretReference: githubIntegrationForm.clientSecretReference.trim() || null,
-        privateKey: githubIntegrationForm.privateKey.trim(),
-        webhookSecret: null
-      });
+      const integration = integrationProvider === "Gitea"
+        ? await createGiteaIntegration({
+            displayName: giteaIntegrationForm.displayName.trim() || "Gitea",
+            serverUrl: giteaIntegrationForm.serverUrl.trim(),
+            accessToken: giteaIntegrationForm.accessToken.trim(),
+            webhookSecret: giteaIntegrationForm.webhookSecret.trim() || null
+          })
+        : await createGitHubIntegration({
+            displayName: githubIntegrationForm.displayName.trim() || "GitHub",
+            clientId: githubIntegrationForm.clientId.trim(),
+            clientSecretReference: githubIntegrationForm.clientSecretReference.trim() || null,
+            privateKey: githubIntegrationForm.privateKey.trim(),
+            webhookSecret: null
+          });
       setIntegrationDetail(integration);
       setSelectedIntegrationId(integration.id);
       setGitHubIntegrationForm(initialGitHubIntegrationForm);
-      setIntegrationSaved("GitHub integration created.");
+      setGiteaIntegrationForm(initialGiteaIntegrationForm);
+      setIntegrationSaved(`${integration.providerType} integration created.`);
       await refreshIntegrations();
     } catch (error) {
       setIntegrationError(error instanceof Error ? error.message : "Could not create integration.");
@@ -943,6 +970,33 @@ export default function App() {
       setIntegrationDetail(await getIntegration(selectedIntegrationId));
       setRepositorySaved(`${repository.owner}/${repository.name} added.`);
       await refreshIntegrations();
+    } catch (error) {
+      setRepositoryError(error instanceof Error ? error.message : "Could not connect repository.");
+    } finally {
+      setAddingRepositoryUrl(undefined);
+    }
+  }
+
+  async function handleAddManualRepository(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedIntegrationId) {
+      setRepositoryError("Select an integration before adding repositories.");
+      return;
+    }
+
+    setRepositoryError(undefined);
+    setRepositorySaved(undefined);
+    setAddingRepositoryUrl(manualRepositoryUrl);
+    try {
+      const repository = await addConnectedRepository(selectedIntegrationId, {
+        repositoryUrl: manualRepositoryUrl.trim(),
+        defaultBranch: manualRepositoryDefaultBranch.trim() || "main",
+        installationId: null,
+        installationAccount: null
+      });
+      setIntegrationDetail(await getIntegration(selectedIntegrationId));
+      setManualRepositoryUrl("");
+      setRepositorySaved(`${repository.owner}/${repository.name} added.`);
     } catch (error) {
       setRepositoryError(error instanceof Error ? error.message : "Could not connect repository.");
     } finally {
@@ -1495,10 +1549,14 @@ export default function App() {
           integrationError={integrationError}
           integrationSaved={integrationSaved}
           githubIntegrationForm={githubIntegrationForm}
+          giteaIntegrationForm={giteaIntegrationForm}
+          integrationProvider={integrationProvider}
           creatingIntegration={creatingIntegration}
           deletingIntegration={deletingIntegration}
           restartingIdentityProvider={restartingIdentityProvider}
           setGitHubIntegrationForm={setGitHubIntegrationForm}
+          setGiteaIntegrationForm={setGiteaIntegrationForm}
+          setIntegrationProvider={setIntegrationProvider}
           onCreateIntegration={handleCreateIntegration}
           onSelectIntegration={handleSelectIntegration}
           onRotateWebhookSecret={handleRotateWebhookSecret}
@@ -1515,6 +1573,8 @@ export default function App() {
           availableRepositories={availableRepositories}
           repositorySearch={repositorySearch}
           connectedRepositorySearch={connectedRepositorySearch}
+          manualRepositoryUrl={manualRepositoryUrl}
+          manualRepositoryDefaultBranch={manualRepositoryDefaultBranch}
           repositoryError={repositoryError}
           repositorySaved={repositorySaved}
           loadingAvailableRepositories={loadingAvailableRepositories}
@@ -1522,9 +1582,12 @@ export default function App() {
           removingRepositoryId={removingRepositoryId}
           setRepositorySearch={setRepositorySearch}
           setConnectedRepositorySearch={setConnectedRepositorySearch}
+          setManualRepositoryUrl={setManualRepositoryUrl}
+          setManualRepositoryDefaultBranch={setManualRepositoryDefaultBranch}
           onSelectIntegration={handleSelectIntegration}
           onInstallGitHubApp={handleInstallGitHubApp}
           onAddRepository={handleAddRepository}
+          onAddManualRepository={handleAddManualRepository}
           onRemoveRepository={handleRemoveRepository}
           canAdminister={canAdminister}
         />
@@ -1900,10 +1963,14 @@ function IntegrationsPage({
   integrationError,
   integrationSaved,
   githubIntegrationForm,
+  giteaIntegrationForm,
+  integrationProvider,
   creatingIntegration,
   deletingIntegration,
   restartingIdentityProvider,
   setGitHubIntegrationForm,
+  setGiteaIntegrationForm,
+  setIntegrationProvider,
   onCreateIntegration,
   onSelectIntegration,
   onRotateWebhookSecret,
@@ -1918,10 +1985,14 @@ function IntegrationsPage({
   integrationError?: string;
   integrationSaved?: string;
   githubIntegrationForm: GitHubIntegrationFormState;
+  giteaIntegrationForm: GiteaIntegrationFormState;
+  integrationProvider: "GitHub" | "Gitea";
   creatingIntegration: boolean;
   deletingIntegration: boolean;
   restartingIdentityProvider: boolean;
   setGitHubIntegrationForm: Dispatch<SetStateAction<GitHubIntegrationFormState>>;
+  setGiteaIntegrationForm: Dispatch<SetStateAction<GiteaIntegrationFormState>>;
+  setIntegrationProvider: Dispatch<SetStateAction<"GitHub" | "Gitea">>;
   onCreateIntegration: (event: FormEvent<HTMLFormElement>) => void;
   onSelectIntegration: (integrationId: string) => void;
   onRotateWebhookSecret: () => void;
@@ -1936,39 +2007,82 @@ function IntegrationsPage({
         <div className="left-stack">
           <form className="panel" onSubmit={onCreateIntegration}>
             <div className="panel-heading">
-              <h2>GitHub App</h2>
+              <h2>New Integration</h2>
             </div>
+            <label>
+              <span>Provider</span>
+              <select value={integrationProvider} onChange={event => setIntegrationProvider(event.target.value as "GitHub" | "Gitea")}>
+                <option value="GitHub">GitHub</option>
+                <option value="Gitea">Gitea</option>
+              </select>
+            </label>
             <label>
               <span>Display Name</span>
               <input
-                value={githubIntegrationForm.displayName}
-                onChange={event => setGitHubIntegrationForm(current => ({ ...current, displayName: event.target.value }))}
+                value={integrationProvider === "Gitea" ? giteaIntegrationForm.displayName : githubIntegrationForm.displayName}
+                onChange={event => {
+                  const value = event.target.value;
+                  integrationProvider === "Gitea"
+                    ? setGiteaIntegrationForm(current => ({ ...current, displayName: value }))
+                    : setGitHubIntegrationForm(current => ({ ...current, displayName: value }));
+                }}
               />
             </label>
-            <label>
-              <span>Client ID</span>
-              <input
-                value={githubIntegrationForm.clientId}
-                onChange={event => setGitHubIntegrationForm(current => ({ ...current, clientId: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Client Secret Reference</span>
-              <input
-                value={githubIntegrationForm.clientSecretReference}
-                onChange={event => setGitHubIntegrationForm(current => ({ ...current, clientSecretReference: event.target.value }))}
-                placeholder="Optional, required only for identity provider login"
-              />
-            </label>
-            <label>
-              <span>Private Key PEM</span>
-              <textarea
-                rows={8}
-                value={githubIntegrationForm.privateKey}
-                onChange={event => setGitHubIntegrationForm(current => ({ ...current, privateKey: event.target.value }))}
-                placeholder="-----BEGIN RSA PRIVATE KEY-----"
-              />
-            </label>
+            {integrationProvider === "Gitea" ? (
+              <>
+                <label>
+                  <span>Server URL</span>
+                  <input
+                    value={giteaIntegrationForm.serverUrl}
+                    onChange={event => setGiteaIntegrationForm(current => ({ ...current, serverUrl: event.target.value }))}
+                    placeholder="https://gitea.example"
+                  />
+                </label>
+                <label>
+                  <span>Access Token</span>
+                  <input
+                    type="password"
+                    value={giteaIntegrationForm.accessToken}
+                    onChange={event => setGiteaIntegrationForm(current => ({ ...current, accessToken: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span>Webhook Secret</span>
+                  <input
+                    value={giteaIntegrationForm.webhookSecret}
+                    onChange={event => setGiteaIntegrationForm(current => ({ ...current, webhookSecret: event.target.value }))}
+                    placeholder="Generated if empty"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label>
+                  <span>Client ID</span>
+                  <input
+                    value={githubIntegrationForm.clientId}
+                    onChange={event => setGitHubIntegrationForm(current => ({ ...current, clientId: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span>Client Secret Reference</span>
+                  <input
+                    value={githubIntegrationForm.clientSecretReference}
+                    onChange={event => setGitHubIntegrationForm(current => ({ ...current, clientSecretReference: event.target.value }))}
+                    placeholder="Optional, required only for identity provider login"
+                  />
+                </label>
+                <label>
+                  <span>Private Key PEM</span>
+                  <textarea
+                    rows={8}
+                    value={githubIntegrationForm.privateKey}
+                    onChange={event => setGitHubIntegrationForm(current => ({ ...current, privateKey: event.target.value }))}
+                    placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                  />
+                </label>
+              </>
+            )}
             <button type="submit" className="primary-button" disabled={creatingIntegration || !canAdminister}>
               {creatingIntegration ? "Creating" : "Create Integration"}
             </button>
@@ -2006,13 +2120,15 @@ function IntegrationsPage({
           {integrationDetail ? (
             <div className="detail-stack">
               <div className="summary-list compact">
-                <SummaryItem label="Client ID" value={integrationDetail.gitHubAppClientId} mono />
-                <SummaryItem label="App Slug" value={integrationDetail.gitHubAppSlug ?? "Not discovered"} mono />
-                <SummaryItem label="Install URL" value={integrationDetail.setupInstructions.installationUrl || "Not available"} mono />
+                <SummaryItem label="Provider" value={integrationDetail.providerType} />
+                {integrationDetail.serverUrl ? <SummaryItem label="Server URL" value={integrationDetail.serverUrl} mono /> : null}
+                {integrationDetail.providerType === "GitHub" ? <SummaryItem label="Client ID" value={integrationDetail.gitHubAppClientId} mono /> : null}
+                {integrationDetail.providerType === "GitHub" ? <SummaryItem label="App Slug" value={integrationDetail.gitHubAppSlug ?? "Not discovered"} mono /> : null}
+                {integrationDetail.providerType === "GitHub" ? <SummaryItem label="Install URL" value={integrationDetail.setupInstructions.installationUrl || "Not available"} mono /> : null}
                 <SummaryItem label="Webhook URL" value={integrationDetail.webhookUrl} mono />
                 <SummaryItem label="Webhook Secret" value={integrationDetail.webhookSecret} mono />
-                <SummaryItem label="OAuth Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono />
-                <SummaryItem label="Setup Callback URL" value={integrationDetail.setupInstructions.installationCallbackUrl} mono />
+                {integrationDetail.providerType === "GitHub" ? <SummaryItem label="OAuth Callback URL" value={integrationDetail.setupInstructions.callbackUrl} mono /> : null}
+                {integrationDetail.providerType === "GitHub" ? <SummaryItem label="Setup Callback URL" value={integrationDetail.setupInstructions.installationCallbackUrl} mono /> : null}
               </div>
 
               <div className="button-row">
@@ -2022,34 +2138,36 @@ function IntegrationsPage({
                 </button>
               </div>
 
-              <section className="settings-section">
-                <h3>Identity Provider</h3>
-                <label className="toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={integrationDetail.identityProviderEnabled}
-                    onChange={event => onIdentityToggle(event.target.checked)}
-                    disabled={!canAdminister && integrationDetail.identityProviderEnabled}
-                  />
-                  <span>Use as identity provider</span>
-                </label>
-                {integrationDetail.requiresRestart ? (
-                  <div className="warning-actions">
-                    <p className="warning-text">Restart required before GitHub login uses this integration.</p>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={onIdentityRestart}
-                      disabled={restartingIdentityProvider || !canAdminister}
-                    >
-                      {restartingIdentityProvider ? "Restarting" : "Restart"}
-                    </button>
-                  </div>
-                ) : null}
-              </section>
+              {integrationDetail.providerType === "GitHub" ? (
+                <section className="settings-section">
+                  <h3>Identity Provider</h3>
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={integrationDetail.identityProviderEnabled}
+                      onChange={event => onIdentityToggle(event.target.checked)}
+                      disabled={!canAdminister && integrationDetail.identityProviderEnabled}
+                    />
+                    <span>Use as identity provider</span>
+                  </label>
+                  {integrationDetail.requiresRestart ? (
+                    <div className="warning-actions">
+                      <p className="warning-text">Restart required before GitHub login uses this integration.</p>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={onIdentityRestart}
+                        disabled={restartingIdentityProvider || !canAdminister}
+                      >
+                        {restartingIdentityProvider ? "Restarting" : "Restart"}
+                      </button>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
 
               <section>
-                <h3>GitHub App Setup</h3>
+                <h3>{integrationDetail.providerType} Setup</h3>
                 <div className="checklist-grid">
                   <div>
                     <h4>Repository permissions</h4>
@@ -2082,6 +2200,8 @@ function RepositoriesPage({
   availableRepositories,
   repositorySearch,
   connectedRepositorySearch,
+  manualRepositoryUrl,
+  manualRepositoryDefaultBranch,
   repositoryError,
   repositorySaved,
   loadingAvailableRepositories,
@@ -2089,9 +2209,12 @@ function RepositoriesPage({
   removingRepositoryId,
   setRepositorySearch,
   setConnectedRepositorySearch,
+  setManualRepositoryUrl,
+  setManualRepositoryDefaultBranch,
   onSelectIntegration,
   onInstallGitHubApp,
   onAddRepository,
+  onAddManualRepository,
   onRemoveRepository,
   canAdminister
 }: {
@@ -2101,6 +2224,8 @@ function RepositoriesPage({
   availableRepositories: GitHubUserRepository[];
   repositorySearch: string;
   connectedRepositorySearch: string;
+  manualRepositoryUrl: string;
+  manualRepositoryDefaultBranch: string;
   repositoryError?: string;
   repositorySaved?: string;
   loadingAvailableRepositories: boolean;
@@ -2108,15 +2233,19 @@ function RepositoriesPage({
   removingRepositoryId?: string;
   setRepositorySearch: Dispatch<SetStateAction<string>>;
   setConnectedRepositorySearch: Dispatch<SetStateAction<string>>;
+  setManualRepositoryUrl: Dispatch<SetStateAction<string>>;
+  setManualRepositoryDefaultBranch: Dispatch<SetStateAction<string>>;
   onSelectIntegration: (integrationId: string) => void;
   onInstallGitHubApp: () => void;
   onAddRepository: (repository: GitHubUserRepository) => void;
+  onAddManualRepository: (event: FormEvent<HTMLFormElement>) => void;
   onRemoveRepository: (repository: ConnectedRepository) => void;
   canAdminister: boolean;
 }) {
   const connectedUrls = new Set((integrationDetail?.repositories ?? []).map(repository => repository.repositoryUrl.toLowerCase()));
   const available = availableRepositories.filter(repository => matchesRepository(repository, repositorySearch));
   const connected = (integrationDetail?.repositories ?? []).filter(repository => matchesRepository(repository, connectedRepositorySearch));
+  const isGitea = integrationDetail?.providerType === "Gitea";
 
   return (
     <section className="repositories-page">
@@ -2128,7 +2257,9 @@ function RepositoriesPage({
             {integrations.map(integration => <option key={integration.id} value={integration.id}>{integration.displayName}</option>)}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl || !canAdminister}>Install GitHub App</button>
+        {!isGitea ? (
+          <button type="button" className="secondary-button" onClick={onInstallGitHubApp} disabled={!integrationDetail?.setupInstructions.installationUrl || !canAdminister}>Install GitHub App</button>
+        ) : null}
       </section>
 
       {repositoryError ? <p className="error-text repository-message">{repositoryError}</p> : null}
@@ -2137,29 +2268,47 @@ function RepositoriesPage({
       <section className="repository-management-grid">
         <section className="panel">
           <div className="panel-heading">
-            <h2>Available Repositories</h2>
-            {loadingAvailableRepositories ? <span className="muted">Loading</span> : null}
+            <h2>{isGitea ? "Connect Repository" : "Available Repositories"}</h2>
+            {!isGitea && loadingAvailableRepositories ? <span className="muted">Loading</span> : null}
           </div>
-          <label>
-            <span>Search</span>
-            <input value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} placeholder="owner, repository, or URL" />
-          </label>
-          <div className="repository-list">
-            {available.map(repository => {
-              const alreadyConnected = connectedUrls.has(repository.repositoryUrl.toLowerCase());
-              return (
-                <RepositoryCandidateRow
-                  repository={repository}
-                  alreadyConnected={alreadyConnected}
-                  adding={addingRepositoryUrl === repository.repositoryUrl}
-                  canAdminister={canAdminister}
-                  onAdd={() => onAddRepository(repository)}
-                  key={repository.repositoryUrl}
-                />
-              );
-            })}
-            {available.length === 0 ? <p className="muted">No repositories available. Install or grant the GitHub App access, then refresh the repository list.</p> : null}
-          </div>
+          {isGitea ? (
+            <form className="settings-section" onSubmit={onAddManualRepository}>
+              <label>
+                <span>Repository URL</span>
+                <input value={manualRepositoryUrl} onChange={event => setManualRepositoryUrl(event.target.value)} placeholder="https://gitea.example/org/repo" />
+              </label>
+              <label>
+                <span>Default Branch</span>
+                <input value={manualRepositoryDefaultBranch} onChange={event => setManualRepositoryDefaultBranch(event.target.value)} placeholder="main" />
+              </label>
+              <button type="submit" className="primary-button" disabled={!manualRepositoryUrl.trim() || addingRepositoryUrl === manualRepositoryUrl || !canAdminister}>
+                {addingRepositoryUrl === manualRepositoryUrl ? "Adding" : "Add Repository"}
+              </button>
+            </form>
+          ) : (
+            <>
+              <label>
+                <span>Search</span>
+                <input value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} placeholder="owner, repository, or URL" />
+              </label>
+              <div className="repository-list">
+                {available.map(repository => {
+                  const alreadyConnected = connectedUrls.has(repository.repositoryUrl.toLowerCase());
+                  return (
+                    <RepositoryCandidateRow
+                      repository={repository}
+                      alreadyConnected={alreadyConnected}
+                      adding={addingRepositoryUrl === repository.repositoryUrl}
+                      canAdminister={canAdminister}
+                      onAdd={() => onAddRepository(repository)}
+                      key={repository.repositoryUrl}
+                    />
+                  );
+                })}
+                {available.length === 0 ? <p className="muted">No repositories available. Install or grant the GitHub App access, then refresh the repository list.</p> : null}
+              </div>
+            </>
+          )}
         </section>
 
         <section className="panel">

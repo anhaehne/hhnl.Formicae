@@ -1,7 +1,9 @@
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
+using hhnl.Formicae.Infrastructure.DevOps;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
+using hhnl.Formicae.Infrastructure.Gitea;
 using hhnl.Formicae.Infrastructure.Identity;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using hhnl.Formicae.Infrastructure.OpenHands;
@@ -40,6 +42,9 @@ public static class DependencyInjection
         services.AddSingleton<IPromptRenderer, FilePromptRenderer>();
         services.AddScoped<IGitHubAppClient, GitHubAppClient>();
         services.AddScoped<IGitHubClientFactory, GitHubClientFactory>();
+        services.AddScoped<GitHubDevOpsPlatform>();
+        services.AddScoped<IDevOpsPlatformFactory, DevOpsPlatformFactory>();
+        services.AddHttpClient(nameof(GiteaDevOpsPlatform));
 
         if (configuration.GetValue("UseFakeAdapters", true))
         {
@@ -77,8 +82,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddScoped<IWorkItemProvider>(serviceProvider =>
-                new GitHubWorkItemProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
+            services.AddScoped<IWorkItemProvider, DevOpsWorkItemProvider>();
         }
 
         if (IsMode(configuration, "SourceControlMode", "Fake"))
@@ -87,8 +91,7 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddScoped<ISourceControlProvider>(serviceProvider =>
-                new GitHubSourceControlProvider(serviceProvider.GetRequiredService<IGitHubClientFactory>()));
+            services.AddScoped<ISourceControlProvider, DevOpsSourceControlProvider>();
         }
 
         if (IsMode(configuration, "AgentMode", "Fake"))
