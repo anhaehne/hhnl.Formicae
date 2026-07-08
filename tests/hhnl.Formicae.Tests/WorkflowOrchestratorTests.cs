@@ -1409,6 +1409,12 @@ public sealed class WorkflowOrchestratorTests
             return Task.FromResult(Model<Reference>((nameof(Reference.Object), Model<TagObject>((nameof(TagObject.Sha), "base-sha")))));
         }
 
+        public Task<string> CreateReferenceAsync(string owner, string repository, string reference, string sha)
+        {
+            CreatedReferences.Add(new CreatedReference(owner, repository, reference, sha));
+            return Task.FromResult(reference);
+        }
+
         public Task<string> CreateLinkedBranchAsync(string owner, string repository, int issueNumber, string baseOid, string branchName, CancellationToken cancellationToken)
         {
             LinkedBranchCalls.Add(new LinkedBranchCall(owner, repository, issueNumber, baseOid, branchName));

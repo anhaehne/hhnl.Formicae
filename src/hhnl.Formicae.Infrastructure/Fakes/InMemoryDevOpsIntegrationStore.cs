@@ -165,6 +165,8 @@ public sealed class InMemoryDevOpsIntegrationStore : IDevOpsIntegrationStore
             Id = integration.Id,
             ProviderType = integration.ProviderType,
             DisplayName = integration.DisplayName,
+            ServerUrl = integration.ServerUrl,
+            AccessToken = integration.AccessToken,
             GitHubAppClientId = integration.GitHubAppClientId,
             GitHubAppSlug = integration.GitHubAppSlug,
             GitHubAppClientSecretReference = integration.GitHubAppClientSecretReference,

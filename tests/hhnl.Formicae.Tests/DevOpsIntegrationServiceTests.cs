@@ -62,6 +62,99 @@ public sealed class DevOpsIntegrationServiceTests
         Assert.Throws<ArgumentException>(() => DevOpsIntegrationService.ParseGitHubRepositoryUrl(url));
     }
 
+    [Theory]
+    [InlineData("https://gitea.example/acme/widgets", "acme", "widgets")]
+    [InlineData("https://gitea.example/acme/widgets.git", "acme", "widgets")]
+    public void ParseRepositoryUrl_accepts_gitea_urls(string url, string owner, string name)
+    {
+        var repository = DevOpsReferenceParser.ParseRepositoryUrl(DevOpsProviderType.Gitea, url, "https://gitea.example");
+
+        Assert.Equal(owner, repository.Owner);
+        Assert.Equal(name, repository.Name);
+        Assert.Equal($"https://gitea.example/{owner}/{name}", repository.RepositoryUrl);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/acme/widgets/issues/1", DevOpsProviderType.GitHub, null)]
+    [InlineData("https://gitea.example/acme/widgets/issues/1", DevOpsProviderType.Gitea, "https://gitea.example")]
+    public void ParseIssueUrl_accepts_provider_issue_urls(string url, DevOpsProviderType providerType, string? serverUrl)
+    {
+        var issue = DevOpsReferenceParser.ParseIssueUrl(providerType, url, serverUrl);
+
+        Assert.Equal("acme", issue.Owner);
+        Assert.Equal("widgets", issue.Repository);
+        Assert.Equal(1, issue.Number);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/acme/widgets/pull/1", DevOpsProviderType.GitHub, null)]
+    [InlineData("https://gitea.example/acme/widgets/pulls/1", DevOpsProviderType.Gitea, "https://gitea.example")]
+    public void ParsePullRequestUrl_accepts_provider_pull_request_urls(string url, DevOpsProviderType providerType, string? serverUrl)
+    {
+        var pullRequest = DevOpsReferenceParser.ParsePullRequestUrl(providerType, url, serverUrl);
+
+        Assert.Equal("acme", pullRequest.Owner);
+        Assert.Equal("widgets", pullRequest.Repository);
+        Assert.Equal(1, pullRequest.Number);
+    }
+
+    [Fact]
+    public void ParseRepositoryUrl_rejects_issue_url_where_repository_url_expected()
+    {
+        Assert.Throws<ArgumentException>(() => DevOpsReferenceParser.ParseRepositoryUrl(
+            DevOpsProviderType.Gitea,
+            "https://gitea.example/acme/widgets/issues/1",
+            "https://gitea.example"));
+    }
+
+    [Fact]
+    public void ParseRepositoryUrl_rejects_gitea_url_outside_configured_server()
+    {
+        Assert.Throws<ArgumentException>(() => DevOpsReferenceParser.ParseRepositoryUrl(
+            DevOpsProviderType.Gitea,
+            "https://other.example/acme/widgets",
+            "https://gitea.example"));
+    }
+
+    [Fact]
+    public async Task CreateGiteaIntegrationAsync_stores_server_token_and_webhook_secret()
+    {
+        var service = CreateService();
+
+        var integration = await service.CreateGiteaIntegrationAsync(
+            new CreateGiteaIntegrationRequest("Gitea Prod", "https://gitea.example/", "token", "secret"),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        Assert.Equal("Gitea", integration.ProviderType);
+        Assert.Equal("Gitea Prod", integration.DisplayName);
+        Assert.Equal("https://gitea.example/", integration.ServerUrl);
+        Assert.Equal("https://formicae.example/api/webhooks/gitea", integration.WebhookUrl);
+        Assert.Equal("secret", integration.WebhookSecret);
+        Assert.Contains("pull_request", integration.SetupInstructions.RequiredWebhookEvents);
+    }
+
+    [Fact]
+    public async Task UpdateGiteaIntegrationAsync_updates_token_server_and_secret()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGiteaIntegrationAsync(
+            new CreateGiteaIntegrationRequest("Gitea", "https://gitea.example", "token", "secret"),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        var updated = await service.UpdateGiteaIntegrationAsync(
+            integration.Id,
+            new UpdateGiteaIntegrationRequest("Gitea Dev", "https://git.example", "new-token", "new-secret"),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Gitea Dev", updated.DisplayName);
+        Assert.Equal("https://git.example/", updated.ServerUrl);
+        Assert.Equal("new-secret", updated.WebhookSecret);
+    }
+
 
     [Fact]
     public async Task AddRepositoryAsync_requires_github_app_installation()
@@ -92,6 +185,40 @@ public sealed class DevOpsIntegrationServiceTests
         await service.AddRepositoryAsync(integration.Id, request, CancellationToken.None);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddRepositoryAsync(integration.Id, request, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AddRepositoryAsync_accepts_gitea_repository_without_installation()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGiteaIntegrationAsync(
+            new CreateGiteaIntegrationRequest("Gitea", "https://gitea.example", "token", "secret"),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        var repository = await service.AddRepositoryAsync(
+            integration.Id,
+            new AddConnectedRepositoryRequest("https://gitea.example/acme/widgets.git", "main", null, null),
+            CancellationToken.None);
+
+        Assert.NotNull(repository);
+        Assert.Equal("https://gitea.example/acme/widgets", repository.RepositoryUrl);
+        Assert.Null(repository.InstallationId);
+    }
+
+    [Fact]
+    public async Task AddRepositoryAsync_rejects_gitea_repository_outside_configured_server()
+    {
+        var service = CreateService();
+        var integration = await service.CreateGiteaIntegrationAsync(
+            new CreateGiteaIntegrationRequest("Gitea", "https://gitea.example", "token", "secret"),
+            RequestBaseUri,
+            CancellationToken.None);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.AddRepositoryAsync(
+            integration.Id,
+            new AddConnectedRepositoryRequest("https://other.example/acme/widgets", "main", null, null),
+            CancellationToken.None));
     }
 
     [Fact]

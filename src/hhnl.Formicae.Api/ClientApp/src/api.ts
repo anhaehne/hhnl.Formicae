@@ -194,6 +194,7 @@ export type IntegrationSummary = {
   displayName: string;
   gitHubAppClientId: string;
   gitHubAppSlug?: string | null;
+  serverUrl?: string | null;
   webhookUrl: string;
   identityProviderEnabled: boolean;
   requiresRestart: boolean;
@@ -201,7 +202,7 @@ export type IntegrationSummary = {
   updatedAt: string;
 };
 
-export type GitHubSetupInstructions = {
+export type DevOpsSetupInstructions = {
   callbackUrl: string;
   installationCallbackUrl: string;
   installationUrl: string;
@@ -236,7 +237,7 @@ export type ConnectedRepository = {
 export type IntegrationDetail = IntegrationSummary & {
   webhookSecret: string;
   capabilities: string[];
-  setupInstructions: GitHubSetupInstructions;
+  setupInstructions: DevOpsSetupInstructions;
   repositories: ConnectedRepository[];
 };
 
@@ -245,6 +246,13 @@ export type CreateGitHubIntegrationRequest = {
   clientId: string;
   clientSecretReference?: string | null;
   privateKey: string;
+  webhookSecret?: string | null;
+};
+
+export type CreateGiteaIntegrationRequest = {
+  displayName: string;
+  serverUrl: string;
+  accessToken: string;
   webhookSecret?: string | null;
 };
 
@@ -367,6 +375,14 @@ export async function listIntegrations(): Promise<IntegrationSummary[]> {
 
 export async function createGitHubIntegration(request: CreateGitHubIntegrationRequest): Promise<IntegrationDetail> {
   return send<IntegrationDetail>("/api/integrations/github", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function createGiteaIntegration(request: CreateGiteaIntegrationRequest): Promise<IntegrationDetail> {
+  return send<IntegrationDetail>("/api/integrations/gitea", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)

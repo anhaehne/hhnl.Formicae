@@ -55,22 +55,32 @@ public sealed class GitHubWebhookHandler(
         }
 
         var action = envelope?.Action ?? string.Empty;
-        if (!ShouldTriggerWorkflowTick(eventName, action, envelope?.Issue?.PullRequest is not null))
+        var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
+        if (!ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest))
         {
             return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId });
         }
 
-        var completedWorkflowId = await CompleteMergedPullRequestWorkflowAsync(envelope, eventName, action, cancellationToken);
-        var requeuedWorkflowId = await RequeueCompletedPullRequestWorkflowAsync(envelope, eventName, cancellationToken);
+        var processor = new DevOpsWebhookProcessor(store);
+        var processingResult = await processor.ProcessAsync(
+            new DevOpsWebhookEvent(
+                "GitHub",
+                eventName,
+                action,
+                issueCommentIsPullRequest,
+                envelope?.PullRequest?.HtmlUrl,
+                envelope?.PullRequest?.Merged,
+                GetPullRequestUrl(envelope, eventName)),
+            cancellationToken);
         notifier.Signal();
         logger.LogInformation(
             "Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled. Completed workflow: {CompletedWorkflowId}; requeued workflow: {RequeuedWorkflowId}",
             deliveryId,
             eventName,
             action,
-            completedWorkflowId,
-            requeuedWorkflowId);
-        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, completedWorkflowId, requeuedWorkflowId });
+            processingResult.CompletedWorkflowId,
+            processingResult.RequeuedWorkflowId);
+        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, processingResult.CompletedWorkflowId, processingResult.RequeuedWorkflowId });
     }
 
     private async Task<Guid?> CompleteMergedPullRequestWorkflowAsync(
@@ -175,15 +185,7 @@ public sealed class GitHubWebhookHandler(
     }
 
     public static bool ShouldTriggerWorkflowTick(string eventName, string action, bool issueCommentIsPullRequest)
-        => eventName switch
-        {
-            "issues" => IsOneOf(action, "opened", "edited", "reopened", "labeled", "unlabeled"),
-            "issue_comment" => IsOneOf(action, "created", "edited") || issueCommentIsPullRequest && IsOneOf(action, "deleted"),
-            "pull_request" => IsOneOf(action, "opened", "reopened", "synchronize", "ready_for_review", "converted_to_draft", "closed"),
-            "pull_request_review_comment" => IsOneOf(action, "created", "edited"),
-            "pull_request_review" => IsOneOf(action, "submitted", "edited", "dismissed"),
-            _ => false
-        };
+        => DevOpsWebhookProcessor.ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
 
     private static bool IsOneOf(string value, params string[] expectedValues)
     {

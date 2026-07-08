@@ -13,6 +13,13 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         IntegrationCapability.IdentityProvider
     ];
 
+    private static readonly IntegrationCapability[] GiteaCapabilities =
+    [
+        IntegrationCapability.WorkItems,
+        IntegrationCapability.SourceControl,
+        IntegrationCapability.Webhooks
+    ];
+
     public async Task<IntegrationDetail> CreateGitHubIntegrationAsync(
         CreateGitHubIntegrationRequest request,
         Uri requestBaseUri,
@@ -25,16 +32,44 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         {
             ProviderType = DevOpsProviderType.GitHub,
             DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? "GitHub" : request.DisplayName.Trim(),
+            ServerUrl = "https://github.com",
             GitHubAppClientId = request.ClientId.Trim(),
             GitHubAppClientSecretReference = NormalizeOptional(request.ClientSecretReference),
             GitHubAppPrivateKey = NormalizePrivateKey(request.PrivateKey),
             WebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? GenerateWebhookSecret() : request.WebhookSecret.Trim(),
-            WebhookUrl = BuildWebhookUrl(requestBaseUri),
+            WebhookUrl = BuildWebhookUrl(requestBaseUri, DevOpsProviderType.GitHub),
             CreatedAt = now,
             UpdatedAt = now
         };
 
         await RefreshGitHubAppMetadataAsync(integration, cancellationToken);
+
+        return ToDetail(await store.CreateAsync(integration, cancellationToken), requestBaseUri, []);
+    }
+
+    public async Task<IntegrationDetail> CreateGiteaIntegrationAsync(
+        CreateGiteaIntegrationRequest request,
+        Uri requestBaseUri,
+        CancellationToken cancellationToken)
+    {
+        var serverUrl = DevOpsReferenceParser.NormalizeServerUrl(DevOpsProviderType.Gitea, request.ServerUrl).ToString();
+        if (string.IsNullOrWhiteSpace(request.AccessToken))
+        {
+            throw new ArgumentException("Gitea access token is required.", nameof(request.AccessToken));
+        }
+
+        var now = clock.UtcNow;
+        var integration = new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.Gitea,
+            DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? "Gitea" : request.DisplayName.Trim(),
+            ServerUrl = serverUrl,
+            AccessToken = request.AccessToken.Trim(),
+            WebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? GenerateWebhookSecret() : request.WebhookSecret.Trim(),
+            WebhookUrl = BuildWebhookUrl(requestBaseUri, DevOpsProviderType.Gitea),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
 
         return ToDetail(await store.CreateAsync(integration, cancellationToken), requestBaseUri, []);
     }
@@ -78,7 +113,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             return null;
         }
 
-        EnsureGitHub(integration);
+        EnsureProvider(integration, DevOpsProviderType.GitHub);
         var privateKey = NormalizeOptionalPrivateKey(request.PrivateKey);
         if (privateKey is null && string.IsNullOrWhiteSpace(integration.GitHubAppPrivateKey))
         {
@@ -94,10 +129,47 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.GitHubAppPrivateKey = privateKey;
         }
 
-        integration.WebhookUrl = BuildWebhookUrl(requestBaseUri);
+        integration.ServerUrl = "https://github.com";
+        integration.WebhookUrl = BuildWebhookUrl(requestBaseUri, DevOpsProviderType.GitHub);
         integration.UpdatedAt = clock.UtcNow;
         await RefreshGitHubAppMetadataAsync(integration, cancellationToken);
 
+        await store.UpdateAsync(integration, cancellationToken);
+        return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
+    }
+
+    public async Task<IntegrationDetail?> UpdateGiteaIntegrationAsync(
+        Guid integrationId,
+        UpdateGiteaIntegrationRequest request,
+        Uri requestBaseUri,
+        CancellationToken cancellationToken)
+    {
+        var integration = await store.GetAsync(integrationId, cancellationToken);
+        if (integration is null)
+        {
+            return null;
+        }
+
+        EnsureProvider(integration, DevOpsProviderType.Gitea);
+        integration.DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? integration.DisplayName : request.DisplayName.Trim();
+        integration.ServerUrl = DevOpsReferenceParser.NormalizeServerUrl(DevOpsProviderType.Gitea, request.ServerUrl).ToString();
+        if (!string.IsNullOrWhiteSpace(request.AccessToken))
+        {
+            integration.AccessToken = request.AccessToken.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(integration.AccessToken))
+        {
+            throw new ArgumentException("Gitea access token is required.", nameof(request.AccessToken));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.WebhookSecret))
+        {
+            integration.WebhookSecret = request.WebhookSecret.Trim();
+        }
+
+        integration.WebhookUrl = BuildWebhookUrl(requestBaseUri, DevOpsProviderType.Gitea);
+        integration.UpdatedAt = clock.UtcNow;
         await store.UpdateAsync(integration, cancellationToken);
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
     }
@@ -110,9 +182,9 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             return null;
         }
 
-        EnsureGitHub(integration);
+        EnsureProvider(integration, DevOpsProviderType.GitHub);
         integration.WebhookSecret = GenerateWebhookSecret();
-        integration.WebhookUrl = BuildWebhookUrl(requestBaseUri);
+        integration.WebhookUrl = BuildWebhookUrl(requestBaseUri, integration.ProviderType);
         integration.UpdatedAt = clock.UtcNow;
         await store.UpdateAsync(integration, cancellationToken);
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
@@ -129,13 +201,12 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             return null;
         }
 
-        EnsureGitHub(integration);
-        if (!request.InstallationId.HasValue)
+        if (integration.ProviderType == DevOpsProviderType.GitHub && !request.InstallationId.HasValue)
         {
             throw new InvalidOperationException("Repository must be selected from a GitHub App installation. Install or grant the GitHub App access to this repository, refresh the repository list, and add the repository from the available installation repositories list.");
         }
 
-        var repository = ParseGitHubRepositoryUrl(request.RepositoryUrl);
+        var repository = DevOpsReferenceParser.ParseRepositoryUrl(integration.ProviderType, request.RepositoryUrl, integration.ServerUrl);
         var existing = await store.GetRepositoryByUrlAsync(integrationId, repository.RepositoryUrl, cancellationToken);
         if (existing is not null)
         {
@@ -189,7 +260,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             return null;
         }
 
-        EnsureGitHub(integration);
+        EnsureProvider(integration, DevOpsProviderType.GitHub);
         if (enabled && string.IsNullOrWhiteSpace(integration.GitHubAppClientSecretReference))
         {
             throw new InvalidOperationException("GitHub App client secret reference is required before enabling the identity provider.");
@@ -213,7 +284,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             return null;
         }
 
-        EnsureGitHub(integration);
+        EnsureProvider(integration, DevOpsProviderType.GitHub);
         integration.RequiresRestart = false;
         integration.UpdatedAt = clock.UtcNow;
         await store.UpdateAsync(integration, cancellationToken);
@@ -221,7 +292,10 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
     }
 
     public static string BuildWebhookUrl(Uri requestBaseUri)
-        => new Uri(requestBaseUri, "/api/webhooks/github").ToString();
+        => BuildWebhookUrl(requestBaseUri, DevOpsProviderType.GitHub);
+
+    public static string BuildWebhookUrl(Uri requestBaseUri, DevOpsProviderType providerType)
+        => new Uri(requestBaseUri, providerType == DevOpsProviderType.Gitea ? "/api/webhooks/gitea" : "/api/webhooks/github").ToString();
 
     public static string BuildInstallationCallbackUrl(Uri requestBaseUri)
         => new Uri(requestBaseUri, "/api/auth/github/installations/callback").ToString();
@@ -245,29 +319,8 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
 
     public static GitHubRepositoryReference ParseGitHubRepositoryUrl(string repositoryUrl)
     {
-        if (!Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var uri)
-            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("Expected a GitHub repository URL like https://github.com/{owner}/{repo}.", nameof(repositoryUrl));
-        }
-
-        var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length != 2)
-        {
-            throw new ArgumentException("Expected a GitHub repository URL like https://github.com/{owner}/{repo}.", nameof(repositoryUrl));
-        }
-
-        var name = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase)
-            ? parts[1][..^4]
-            : parts[1];
-
-        if (string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("Expected a GitHub repository URL like https://github.com/{owner}/{repo}.", nameof(repositoryUrl));
-        }
-
-        return new GitHubRepositoryReference(parts[0], name, $"https://github.com/{parts[0]}/{name}");
+        var repository = DevOpsReferenceParser.ParseRepositoryUrl(DevOpsProviderType.GitHub, repositoryUrl);
+        return new GitHubRepositoryReference(repository.Owner, repository.Name, repository.RepositoryUrl);
     }
 
     private async Task RefreshGitHubAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
@@ -313,11 +366,11 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static void EnsureGitHub(DevOpsIntegration integration)
+    private static void EnsureProvider(DevOpsIntegration integration, DevOpsProviderType providerType)
     {
-        if (integration.ProviderType != DevOpsProviderType.GitHub)
+        if (integration.ProviderType != providerType)
         {
-            throw new InvalidOperationException("Only GitHub integrations are supported.");
+            throw new InvalidOperationException($"This operation is only supported for {providerType} integrations.");
         }
     }
 
@@ -328,6 +381,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.DisplayName,
             integration.GitHubAppClientId,
             integration.GitHubAppSlug,
+            integration.ServerUrl,
             integration.WebhookUrl,
             integration.IdentityProviderEnabled,
             integration.RequiresRestart,
@@ -344,19 +398,24 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.DisplayName,
             integration.GitHubAppClientId,
             integration.GitHubAppSlug,
+            integration.ServerUrl,
             integration.WebhookUrl,
             integration.WebhookSecret,
             integration.IdentityProviderEnabled,
             integration.RequiresRestart,
-            GitHubCapabilities.Select(capability => capability.ToString()).ToArray(),
-            new GitHubSetupInstructions(
+            (integration.ProviderType == DevOpsProviderType.Gitea ? GiteaCapabilities : GitHubCapabilities).Select(capability => capability.ToString()).ToArray(),
+            new DevOpsSetupInstructions(
                 new Uri(requestBaseUri, "/api/auth/github/callback").ToString(),
                 BuildInstallationCallbackUrl(requestBaseUri),
-                BuildInstallationUrl(integration),
+                integration.ProviderType == DevOpsProviderType.GitHub ? BuildInstallationUrl(integration) : string.Empty,
                 integration.WebhookUrl,
                 integration.WebhookSecret,
-                ["Issues: read/write", "Pull requests: read/write", "Contents: read/write", "Metadata: read-only"],
-                ["issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment"]),
+                integration.ProviderType == DevOpsProviderType.Gitea
+                    ? ["Repository: read/write", "Issues: read/write", "Pull requests: read/write", "Contents: read/write"]
+                    : ["Issues: read/write", "Pull requests: read/write", "Contents: read/write", "Metadata: read-only"],
+                integration.ProviderType == DevOpsProviderType.Gitea
+                    ? ["issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment"]
+                    : ["issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment"]),
             repositories,
             integration.CreatedAt,
             integration.UpdatedAt);
@@ -387,6 +446,18 @@ public sealed record UpdateGitHubAppRequest(
     string? ClientSecretReference,
     string? PrivateKey);
 
+public sealed record CreateGiteaIntegrationRequest(
+    string DisplayName,
+    string ServerUrl,
+    string AccessToken,
+    string? WebhookSecret);
+
+public sealed record UpdateGiteaIntegrationRequest(
+    string? DisplayName,
+    string ServerUrl,
+    string? AccessToken,
+    string? WebhookSecret);
+
 public sealed record AddConnectedRepositoryRequest(
     string RepositoryUrl,
     string? DefaultBranch,
@@ -401,6 +472,7 @@ public sealed record IntegrationSummary(
     string DisplayName,
     string GitHubAppClientId,
     string? GitHubAppSlug,
+    string? ServerUrl,
     string WebhookUrl,
     bool IdentityProviderEnabled,
     bool RequiresRestart,
@@ -413,17 +485,18 @@ public sealed record IntegrationDetail(
     string DisplayName,
     string GitHubAppClientId,
     string? GitHubAppSlug,
+    string? ServerUrl,
     string WebhookUrl,
     string WebhookSecret,
     bool IdentityProviderEnabled,
     bool RequiresRestart,
     IReadOnlyList<string> Capabilities,
-    GitHubSetupInstructions SetupInstructions,
+    DevOpsSetupInstructions SetupInstructions,
     IReadOnlyList<ConnectedRepositoryResponse> Repositories,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
-public sealed record GitHubSetupInstructions(
+public sealed record DevOpsSetupInstructions(
     string CallbackUrl,
     string InstallationCallbackUrl,
     string InstallationUrl,

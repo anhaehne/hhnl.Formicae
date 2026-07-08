@@ -125,6 +125,8 @@ Create runtime credentials separately after the chart is installed.
 
 GitHub workflow access comes from the configured GitHub integration. Create the integration with the GitHub App client id and private key PEM, then use the Repositories page to install or grant the GitHub App access. Formicae mints GitHub App installation tokens for background issue, branch, pull request, reaction, and comment operations for connected repositories.
 
+Gitea workflow access comes from a configured Gitea integration. Create the integration with a Gitea server URL, an access token, and a webhook secret. The token must have repository, issue, pull request, and content read/write access for the repositories Formicae will manage. Gitea repositories are connected manually from the Repositories page by entering the repository URL and default branch. The repository URL must belong to the configured Gitea server URL. GitHub repositories still require a GitHub App installation id; Gitea repositories do not.
+
 For the default OpenHands CLI runner, create an `openhands-llm-api-key` Secret:
 
 ```powershell
@@ -166,6 +168,31 @@ helm upgrade --install formicae formicae/formicae `
 
 When the secret is configured, Formicae verifies `X-Hub-Signature-256` before accepting the delivery. Supported webhook deliveries wake the distributed-lock-protected API workflow loop immediately; unsupported events are acknowledged but ignored. Pull request comment and review deliveries can requeue completed workflows when new feedback is added after a previous comment-addressing pass.
 
+### Gitea Webhooks
+
+Formicae accepts Gitea webhooks at:
+
+```text
+POST /api/webhooks/gitea
+```
+
+In the Gitea repository webhook UI, use these settings:
+
+- Target URL: `https://<public-host>/api/webhooks/gitea`
+- HTTP method: `POST`
+- POST content type: `application/json`
+- Secret: the webhook secret shown on the Formicae integration detail view
+
+Enable these events:
+
+- Issues
+- Issue comments
+- Pull requests
+- Pull request review comments
+- Pull request reviews
+
+Formicae verifies Gitea webhook signatures using `X-Gitea-Signature`. It also accepts compatible `X-Hub-Signature-256` HMAC SHA-256 signatures. Unsupported deliveries are acknowledged but ignored. Pull request merge deliveries complete the workflow, and pull request comments or reviews can requeue completed workflows for another comment-addressing pass.
+
 ### GitHub App Integrations
 
 The management UI includes an Integrations page for GitHub App setup. Create an integration with the GitHub App client id and private key PEM. The client secret reference is optional and is only needed when the same integration is enabled as an identity provider. Formicae uses the private key to discover the app slug, build the install URL, list app installation repositories, and mint short-lived installation tokens for workflow operations.
@@ -187,6 +214,18 @@ Repositories can be removed from the Repositories page. Removing an integration 
 Do not store GitHub App private keys or client secrets in ConfigMaps. Store the private key only in Formicae's persisted integration record or a future secret-backed integration store. Store OAuth client secrets in your secret manager or Kubernetes Secret and keep only the secure reference in Formicae.
 
 GitHub identity-provider mode is enabled from the integration detail view, but activation is login-first: the UI redirects through GitHub login, the callback creates or updates the Identity user, and the API only activates the provider after it can grant that user `ManagementAdmin`. If login fails, activation is rejected and the integration remains disabled. When an identity provider is enabled, anonymous users are redirected to provider login before the management UI is shown. Set `config.managementAuthEnabled=true` to require `WorkflowViewer` for workflow reads, `WorkflowOperator` for workflow commands, and `ManagementAdmin` for configuration/admin APIs. After bootstrap, admin users create one-time invite links on the Users page; invite codes are embedded in the link, stored only as hashes, redeemed automatically after provider login, grant `ManagementAdmin`, and expire according to `config.managementAuthInviteCodeExpiration`. Signed-in users without any management permission are redirected away from the management UI to a standalone invite-code page. External accounts are ASP.NET Core Identity users linked through `AspNetUserLogins`, with GitHub using provider `GitHub` and the GitHub numeric user id as the provider key.
+
+### Gitea Integrations
+
+The management UI includes a Gitea provider option on the Integrations page. Unlike GitHub, Gitea uses token-based setup rather than a GitHub App flow:
+
+- Create a Gitea access token in the Gitea account that should own automation comments and pull requests.
+- Grant token access to the repositories Formicae will manage.
+- Create the Formicae Gitea integration with display name, server URL, access token, and optional webhook secret.
+- Copy the generated webhook URL and secret into each Gitea repository webhook.
+- Add repositories manually from the Repositories page.
+
+Gitea reactions are currently treated as no-ops so workflows continue when the orchestration layer attempts to add reaction feedback.
 
 By default, agent Jobs run the Formicae worker image published as `hhnl-formicae-worker:<version>`. The API creates one worker Job for each agent task and passes workflow metadata, prompt text, model settings, context mount path, auth mode, and `FORMICAE_WORKER_CALLBACK_URL` through environment variables. Set `secrets.workerCallbackSecret` to require worker callbacks to include `X-Formicae-Worker-Callback-Secret`; the API rejects callback posts when the configured secret is missing or mismatched. The worker runs OpenHands or Codex inside the worker container, streams supported JSON agent messages back to `/api/worker/agent-messages`, and still writes stdout/stderr to Kubernetes pod logs as the durable fallback. The worker image includes the .NET SDK, Git, Node.js 22, Python tooling, `uv`, and OpenHands so agent Jobs do not install those requirements at runtime. API-key OpenHands mode requires `LLM_API_KEY` and `LLM_MODEL`.
 
