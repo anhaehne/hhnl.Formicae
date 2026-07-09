@@ -216,10 +216,20 @@ public sealed class GitHubWebhookHandler(
 
         return eventName switch
         {
-            "issue_comment" => envelope.Issue?.PullRequest is null ? null : envelope.Issue.HtmlUrl,
+            "issue_comment" => envelope.Issue?.PullRequest is null ? null : ConvertIssueUrlToPullRequestUrl(envelope.Issue.HtmlUrl),
             "pull_request_review_comment" or "pull_request_review" => envelope.PullRequest?.HtmlUrl,
             _ => null
         };
+    }
+
+    private static string? ConvertIssueUrlToPullRequestUrl(string? issueUrl)
+    {
+        if (string.IsNullOrWhiteSpace(issueUrl))
+        {
+            return null;
+        }
+
+        return issueUrl.Replace("/issues/", "/pull/", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool VerifySignature(byte[] body, string signatureHeader, string secret)

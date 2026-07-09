@@ -54,7 +54,7 @@ public sealed class GitHubWebhookHandlerTests
             {
               "action": "created",
               "issue": {
-                "html_url": "{{pullRequestUrl}}",
+                "html_url": "https://github.com/acme/widgets/issues/23",
                 "pull_request": {}
               }
             }
