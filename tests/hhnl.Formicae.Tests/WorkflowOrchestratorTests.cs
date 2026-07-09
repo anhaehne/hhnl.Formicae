@@ -1780,6 +1780,8 @@ public sealed class AdapterContractTests
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
         Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
         Assert.Equal(OpenHandsAuthMethods.ApiKey, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
+        Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
+        Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
     }
 
     [Fact]
@@ -2047,7 +2049,6 @@ public sealed class AdapterContractTests
     [Fact]
     public async Task OpenHands_runner_injects_github_installation_token_for_repository_work()
     {
-        var jobRunner = new CapturingJobRunner();
         var integrationStore = new InMemoryDevOpsIntegrationStore();
         var integration = await integrationStore.CreateAsync(new DevOpsIntegration
         {
@@ -2068,26 +2069,34 @@ public sealed class AdapterContractTests
             InstallationId = 123
         }, CancellationToken.None);
         var gitHubAppClient = new RecordingOpenHandsGitHubAppClient("installation-token");
-        var runner = new OpenHandsAgentRunner(
-            jobRunner,
-            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
-            Options.Create(new OpenHandsOptions { AuthMethod = OpenHandsAuthMethods.CodexSubscription }),
-            null,
-            integrationStore,
-            gitHubAppClient);
 
-        await runner.StartAsync(new AgentTask(
-            Guid.Parse("77777777-7777-7777-7777-777777777777"),
-            TaskRunKind.Implement,
-            "Implement this",
-            "https://github.com/acme/widgets",
-            "formicae/test",
-            null), CancellationToken.None);
+        foreach (var kind in new[] { TaskRunKind.Plan, TaskRunKind.Implement, TaskRunKind.AddressComments })
+        {
+            var jobRunner = new CapturingJobRunner();
+            var runner = new OpenHandsAgentRunner(
+                jobRunner,
+                Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
+                Options.Create(new OpenHandsOptions { AuthMethod = OpenHandsAuthMethods.CodexSubscription }),
+                null,
+                integrationStore,
+                gitHubAppClient);
 
-        Assert.NotNull(jobRunner.LastSpec);
-        Assert.Equal("installation-token", jobRunner.LastSpec.Environment["FORMICAE_GIT_ACCESS_TOKEN"]);
-        Assert.Equal(integration.Id, gitHubAppClient.IntegrationId);
-        Assert.Equal(123, gitHubAppClient.InstallationId);
+            await runner.StartAsync(new AgentTask(
+                Guid.Parse("77777777-7777-7777-7777-777777777777"),
+                kind,
+                "Run this",
+                "https://github.com/acme/widgets",
+                "formicae/test",
+                null), CancellationToken.None);
+
+            Assert.NotNull(jobRunner.LastSpec);
+            Assert.Equal("installation-token", jobRunner.LastSpec.Environment["FORMICAE_GIT_ACCESS_TOKEN"]);
+            Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
+            Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
+        }
+
+        Assert.Equal([integration.Id, integration.Id, integration.Id], gitHubAppClient.IntegrationIds);
+        Assert.Equal([123, 123, 123], gitHubAppClient.InstallationIds);
     }
     [Fact]
     public async Task OpenHands_runner_allows_codex_subscription_without_configured_model()
@@ -2599,8 +2608,8 @@ public sealed class AdapterContractTests
 
     private sealed class RecordingOpenHandsGitHubAppClient(string token) : IGitHubAppClient
     {
-        public Guid? IntegrationId { get; private set; }
-        public long? InstallationId { get; private set; }
+        public List<Guid> IntegrationIds { get; } = [];
+        public List<long> InstallationIds { get; } = [];
 
         public Task<GitHubAppMetadata> GetAppMetadataAsync(DevOpsIntegration integration, CancellationToken cancellationToken)
             => Task.FromResult(new GitHubAppMetadata("formicae-test", "https://github.com/apps/formicae-test"));
@@ -2610,8 +2619,8 @@ public sealed class AdapterContractTests
 
         public Task<string> CreateInstallationTokenAsync(DevOpsIntegration integration, long installationId, CancellationToken cancellationToken)
         {
-            IntegrationId = integration.Id;
-            InstallationId = installationId;
+            IntegrationIds.Add(integration.Id);
+            InstallationIds.Add(installationId);
             return Task.FromResult(token);
         }
     }
