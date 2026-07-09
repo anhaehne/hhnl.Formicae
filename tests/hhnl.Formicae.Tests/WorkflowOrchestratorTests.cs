@@ -346,6 +346,34 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Starts_planning_on_base_branch_without_creating_workflow_branch()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/44";
+        var repositoryUrl = "https://github.com/acme/widgets";
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            repositoryUrl,
+            "develop",
+            null), CancellationToken.None);
+        var agentRunner = new DeferredAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var task = Assert.Single(agentRunner.StartedTasks);
+        Assert.Equal(1, advanced);
+        Assert.Equal(TaskRunKind.Plan, task.Kind);
+        Assert.Equal("develop", task.BranchName);
+        Assert.NotNull(workflow);
+        Assert.Null(workflow.BranchName);
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_preserves_started_at_for_deferred_run_and_sets_completed_at_later()
     {
         var store = new InMemoryWorkflowStore();
@@ -991,6 +1019,8 @@ public sealed class WorkflowOrchestratorTests
         Assert.Contains("Anything else to add?", agentRunner.LastTask.Prompt);
         Assert.DoesNotContain("Already addressed.", agentRunner.LastTask.Prompt);
         Assert.Contains("/workspace/formicae/context/pull-request-conversation.md", agentRunner.LastTask.Prompt);
+        Assert.Equal(TaskRunKind.AddressComments, agentRunner.LastTask.Kind);
+        Assert.Equal("formicae/comment-follow-up", agentRunner.LastTask.BranchName);
         var contextFile = Assert.Single(agentRunner.LastTask.ContextFiles!);
         Assert.Equal("pull-request-conversation.md", contextFile.FileName);
         Assert.Contains(devOps.DefaultPullRequestUrl, contextFile.Content);
