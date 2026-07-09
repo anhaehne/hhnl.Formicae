@@ -5,7 +5,7 @@
 - Always respond in English.
 - Keep changes scoped to the user's current request.
 - Do not revert user changes unless explicitly asked.
-- Always include how many tests were added in pull request summaries.
+- Always include how many tests were added/removed/edited in pull request summaries.
 
 ## Merging Policy
 
@@ -109,17 +109,18 @@ When invoking a skill, follow its `SKILL.md` instructions exactly.
 - DevOps integrations: GitHub and Azure DevOps.
 - Agent harness: existing CLI with plan mode and goal mode.
 
-
 ## Versioning
 
 - Increase the project version at most once per branch using Semantic Versioning.
 - Do not increase the version again on the same branch unless the severity changes, for example from a patch-level bug fix to a minor feature.
 - Keep `Directory.Build.props`, `deploy/helm/formicae/Chart.yaml`, `deploy/helm/formicae/values.yaml`, and release/deployment docs aligned to the same version.
 - Use a patch bump for bug fixes and documentation-only release changes, a minor bump for backward-compatible features, and a major bump for breaking changes.
+
 ## Implementation Guidance
 
-- Prefer Kubernetes-native designs for orchestration and agent execution.
 - Treat GitHub and Azure DevOps as primary integration targets.
 - Keep MVP work aligned with the static workflow: plan work item, implement work item, create pull request.
 - Preserve future extensibility for customizable workflows, personas, tasks, and environments.
 - For environment customization, account for MCP server integration, custom Docker base images, and tool installs.
+- When planning/implementing a new feature, always check if there are framework native ways or existing packages to achieve the goal/part of the goal.
+- When interfacing with an external component like an API, always check if there are framework native ways or existing packages before creating your own client.
