@@ -62,7 +62,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        if (task.Kind is not (TaskRunKind.Implement or TaskRunKind.AddressComments) || integrationStore is null || gitHubAppClient is null) return null;
+        if (task.Kind is not (TaskRunKind.Plan or TaskRunKind.Implement or TaskRunKind.AddressComments) || integrationStore is null || gitHubAppClient is null) return null;
         var connectedRepository = await integrationStore.GetRepositoryByUrlAsync(task.RepositoryUrl, cancellationToken);
         if (connectedRepository?.InstallationId is not { } installationId) return null;
         var integration = connectedRepository.DevOpsIntegration ?? await integrationStore.GetAsync(connectedRepository.DevOpsIntegrationId, cancellationToken);

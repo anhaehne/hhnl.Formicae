@@ -58,7 +58,8 @@ internal sealed record WorkerEnvironment(
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
     public bool IsCodexAuthSetup => TaskKind is "CodexAuthSetup" || string.Equals(AuthMethod, "CodexSubscriptionSetup", StringComparison.OrdinalIgnoreCase);
-    public bool RequiresRepositoryCheckout => TaskKind is "Implement" or "AddressComments";
+    public bool RequiresRepositoryCheckout => TaskKind is "Plan" or "Implement" or "AddressComments";
+    public bool CanCommitRepositoryChanges => TaskKind is "Implement" or "AddressComments";
 
     private static string Required(string name)
         => Optional(name) ?? throw new InvalidOperationException($"Required environment variable '{name}' is missing.");
@@ -72,20 +73,39 @@ internal sealed record WorkerEnvironment(
 
 internal static class WorkerCommand
 {
+    private const string WorkspaceDirectory = "/workspace";
+    private const string RepositoryDirectory = "/workspace/repo";
+
     public static async Task<int> RunAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory("/workspace");
+        Directory.CreateDirectory(WorkspaceDirectory);
         if (environment.IsCodexAuthSetup)
         {
             return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);
         }
 
-        if (environment.UsesCodexSubscription)
+        var workingDirectory = WorkspaceDirectory;
+        if (environment.RequiresRepositoryCheckout)
         {
-            return await RunCodexAsync(environment, reporter, cancellationToken);
+            workingDirectory = RepositoryDirectory;
+            var checkoutExit = await CheckoutRepositoryAsync(environment, reporter, cancellationToken);
+            if (checkoutExit != 0)
+            {
+                return checkoutExit;
+            }
         }
 
-        return await RunProcessAsync("openhands", ["--headless", "--json", "--override-with-envs", "-t", environment.Prompt], null, reporter, cancellationToken);
+        if (environment.UsesCodexSubscription)
+        {
+            return await RunCodexAsync(environment, workingDirectory, reporter, cancellationToken);
+        }
+
+        return await RunProcessAsync(
+            "openhands",
+            ["--headless", "--json", "--override-with-envs", "-t", environment.Prompt],
+            environment.RequiresRepositoryCheckout ? workingDirectory : null,
+            reporter,
+            cancellationToken);
     }
 
     private static async Task<int> RunCodexAuthSetupAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
@@ -97,7 +117,7 @@ internal static class WorkerCommand
             : environment.CodexLoginCommand;
 
         await reporter.ReportAsync("worker", "Starting Codex subscription login.", cancellationToken);
-        var exitCode = await RunProcessAsync("/bin/sh", ["-lc", command], "/workspace", reporter, cancellationToken);
+        var exitCode = await RunProcessAsync("/bin/sh", ["-lc", command], WorkspaceDirectory, reporter, cancellationToken);
         var codexAuth = ReadCodexAuth();
         await reporter.ReportCodexAuthAsync(environment.AiSettingsId, codexAuth, cancellationToken);
         if (exitCode == 0 && string.IsNullOrWhiteSpace(codexAuth))
@@ -108,36 +128,10 @@ internal static class WorkerCommand
 
         return exitCode;
     }
-    private static async Task<int> RunCodexAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
+    private static async Task<int> RunCodexAsync(WorkerEnvironment environment, string workingDirectory, WorkerReporter reporter, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home");
         CopyCodexAuthIfMounted();
-
-        var workingDirectory = "/workspace";
-        if (environment.RequiresRepositoryCheckout)
-        {
-            workingDirectory = "/workspace/repo";
-            var repositoryUrl = BuildAuthenticatedRepositoryUrl(environment.RepositoryUrl, environment.GitAccessToken);
-            var cloneExit = await RunProcessAsync("git", ["clone", repositoryUrl, workingDirectory], null, reporter, cancellationToken, environment.GitAccessToken);
-            if (cloneExit != 0)
-            {
-                return cloneExit;
-            }
-
-            foreach (var command in new[]
-            {
-                new[] { "checkout", environment.Branch },
-                new[] { "config", "user.email", "formicae@example.invalid" },
-                new[] { "config", "user.name", "Formicae Agent" }
-            })
-            {
-                var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
-                if (exit != 0)
-                {
-                    return exit;
-                }
-            }
-        }
 
         var args = new List<string> { "-y", "@openai/codex", "exec" };
         if (!string.IsNullOrWhiteSpace(environment.Model))
@@ -149,9 +143,22 @@ internal static class WorkerCommand
         args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
         var codexExit = await RunProcessAsync("npx", args, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
         await reporter.ReportCodexAuthAsync(environment.AiSettingsId, ReadCodexAuth(), cancellationToken);
-        if (codexExit != 0 || !environment.RequiresRepositoryCheckout)
+        if (codexExit != 0 || !environment.CanCommitRepositoryChanges)
         {
             return codexExit;
+        }
+
+        foreach (var command in new[]
+        {
+            new[] { "config", "user.email", "formicae@example.invalid" },
+            new[] { "config", "user.name", "Formicae Agent" }
+        })
+        {
+            var exit = await RunProcessAsync("git", command, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
+            if (exit != 0)
+            {
+                return exit;
+            }
         }
 
         var statusOutput = await CaptureProcessAsync("git", ["status", "--porcelain"], workingDirectory, cancellationToken);
@@ -192,6 +199,18 @@ internal static class WorkerCommand
         }
 
         return await RunProcessAsync("git", ["push", "origin", environment.Branch], workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
+    }
+
+    private static async Task<int> CheckoutRepositoryAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
+    {
+        var repositoryUrl = BuildAuthenticatedRepositoryUrl(environment.RepositoryUrl, environment.GitAccessToken);
+        var cloneExit = await RunProcessAsync("git", ["clone", repositoryUrl, RepositoryDirectory], null, reporter, cancellationToken, environment.GitAccessToken);
+        if (cloneExit != 0)
+        {
+            return cloneExit;
+        }
+
+        return await RunProcessAsync("git", ["checkout", environment.Branch], RepositoryDirectory, reporter, cancellationToken, environment.GitAccessToken);
     }
 
     private static string BuildAuthenticatedRepositoryUrl(string repositoryUrl, string? token)
