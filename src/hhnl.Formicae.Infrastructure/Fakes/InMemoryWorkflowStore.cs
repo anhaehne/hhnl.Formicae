@@ -8,6 +8,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly Dictionary<Guid, Workflow> workflows = [];
     private readonly Dictionary<Guid, TaskRun> runs = [];
     private readonly List<WorkflowEvent> events = [];
+    private readonly List<WorkflowTriggerEvent> triggerEvents = [];
     private readonly List<WorkflowLog> logs = [];
     private readonly Dictionary<Guid, WorkflowDefinition> definitions = [];
     private readonly Dictionary<Guid, WorkflowDefinitionVersion> definitionVersions = [];
@@ -137,6 +138,38 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
                 .OrderByDescending(evt => evt.CreatedAt)
                 .ThenByDescending(evt => evt.Id)
                 .ToArray());
+        }
+    }
+
+    public Task AddTriggerEventAsync(WorkflowTriggerEvent evt, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            triggerEvents.Add(evt);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<WorkflowTriggerEvent>> ListTriggerEventsAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<WorkflowTriggerEvent>>(triggerEvents
+                .Where(evt => evt.WorkflowId == workflowId)
+                .OrderByDescending(evt => evt.CreatedAt)
+                .ThenByDescending(evt => evt.Id)
+                .ToArray());
+        }
+    }
+
+    public Task<WorkflowTriggerEvent?> GetTriggerEventByDeliveryAsync(string deliveryId, string triggerId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(triggerEvents.SingleOrDefault(evt =>
+                string.Equals(evt.ExternalDeliveryId, deliveryId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(evt.TriggerId, triggerId, StringComparison.Ordinal)));
         }
     }
 

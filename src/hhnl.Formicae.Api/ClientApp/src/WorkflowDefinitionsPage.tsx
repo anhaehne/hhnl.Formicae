@@ -17,8 +17,13 @@ import {
 } from "@xyflow/react";
 import {
   ApiError,
+  ConnectedRepository,
   createWorkflowDefinition,
   createWorkflowDefinitionVersion,
+  getIntegration,
+  IntegrationDetail,
+  listIntegrations,
+  WorkflowDefinitionTrigger,
   WorkflowDefinitionResponse,
   WorkflowDefinitionValidationError
 } from "./api";
@@ -77,6 +82,8 @@ function WorkflowDefinitionsEditor({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<DraftValidationError[]>([]);
+  const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([]);
+  const [integrationDetails, setIntegrationDetails] = useState<IntegrationDetail[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowStepNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const { fitView } = useReactFlow();
@@ -93,6 +100,37 @@ function WorkflowDefinitionsEditor({
     () => nodes.find(node => node.id === selectedNodeId),
     [nodes, selectedNodeId]
   );
+  const repositoryGroups = useMemo(
+    () => integrationDetails
+      .map(integration => ({
+        integration,
+        repositories: integration.repositories
+      }))
+      .filter(group => group.repositories.length > 0),
+    [integrationDetails]
+  );
+
+  useEffect(() => {
+    let canceled = false;
+    async function loadRepositories() {
+      try {
+        const summaries = await listIntegrations();
+        const details = await Promise.all(summaries.map(summary => getIntegration(summary.id)));
+        if (!canceled) {
+          setIntegrationDetails(details);
+        }
+      } catch {
+        if (!canceled) {
+          setIntegrationDetails([]);
+        }
+      }
+    }
+
+    void loadRepositories();
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (definitions.length === 0 || selectedDefinitionId) {
@@ -116,6 +154,7 @@ function WorkflowDefinitionsEditor({
     setIsDefault(selectedVersion.isDefault);
     setSchema(selectedVersion.definition.schema || selectedVersion.dslSchemaVersion || workflowSchema);
     setStartStepId(selectedVersion.definition.startStepId);
+    setTriggers(selectedVersion.definition.triggers ?? []);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -145,6 +184,7 @@ function WorkflowDefinitionsEditor({
     setIsDefault(false);
     setSchema(workflowSchema);
     setStartStepId("plan");
+    setTriggers([]);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -230,9 +270,52 @@ function WorkflowDefinitionsEditor({
     setSelectedNodeId(nextId);
   }
 
+  function handleAddTrigger() {
+    let suffix = triggers.length + 1;
+    let id = `issueLabel${suffix}`;
+    while (triggers.some(trigger => trigger.id === id)) {
+      suffix += 1;
+      id = `issueLabel${suffix}`;
+    }
+
+    setTriggers(current => [...current, {
+      id,
+      type: "DevOpsIssueLabel",
+      enabled: true,
+      repositoryIds: [],
+      label: "",
+      baseBranch: "",
+      model: ""
+    }]);
+  }
+
+  function updateTrigger(index: number, values: Partial<WorkflowDefinitionTrigger>) {
+    setTriggers(current => current.map((trigger, currentIndex) => currentIndex === index ? { ...trigger, ...values } : trigger));
+  }
+
+  function toggleTriggerRepository(index: number, repositoryId: string, selected: boolean) {
+    setTriggers(current => current.map((trigger, currentIndex) => {
+      if (currentIndex !== index) {
+        return trigger;
+      }
+
+      const nextRepositoryIds = selected
+        ? Array.from(new Set([...trigger.repositoryIds, repositoryId]))
+        : trigger.repositoryIds.filter(id => id !== repositoryId);
+      return { ...trigger, repositoryIds: nextRepositoryIds };
+    }));
+  }
+
+  function removeTrigger(index: number) {
+    setTriggers(current => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const clientErrors = validateGraph(definitionName, nodes, edges, startStepId);
+    const clientErrors = [
+      ...validateGraph(definitionName, nodes, edges, startStepId),
+      ...validateTriggers(triggers)
+    ];
     setValidationErrors(clientErrors);
     if (clientErrors.length > 0) {
       return;
@@ -252,7 +335,7 @@ function WorkflowDefinitionsEditor({
         version: versionNumber.trim() ? Number(versionNumber) : null,
         isEnabled,
         isDefault,
-        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId)
+        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId, normalizeTriggers(triggers))
       });
 
       setSelectedDefinitionId(definition.id);
@@ -396,6 +479,72 @@ function WorkflowDefinitionsEditor({
             )}
           </section>
 
+          <section className="settings-section">
+            <div className="section-heading-row">
+              <h3>Triggers</h3>
+              <button type="button" className="secondary-button compact-button" onClick={handleAddTrigger} disabled={!canAdminister}>Add</button>
+            </div>
+            <div className="trigger-list">
+              {triggers.map((trigger, index) => (
+                <div className="trigger-row" key={`${trigger.id}-${index}`}>
+                  <div className="form-row">
+                    <label>
+                      <span>ID</span>
+                      <input value={trigger.id} onChange={event => updateTrigger(index, { id: event.target.value })} disabled={!canAdminister} />
+                    </label>
+                    <label>
+                      <span>Type</span>
+                      <select value={trigger.type} onChange={event => updateTrigger(index, { type: event.target.value as WorkflowDefinitionTrigger["type"] })} disabled={!canAdminister}>
+                        <option value="DevOpsIssueLabel">DevOpsIssueLabel</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="toggle-label">
+                    <input type="checkbox" checked={trigger.enabled} onChange={event => updateTrigger(index, { enabled: event.target.checked })} disabled={!canAdminister} />
+                    <span>Enabled</span>
+                  </label>
+                  <label>
+                    <span>Label</span>
+                    <input value={trigger.label ?? ""} onChange={event => updateTrigger(index, { label: event.target.value })} disabled={!canAdminister} />
+                  </label>
+                  <div className="trigger-repository-select">
+                    {repositoryGroups.map(group => (
+                      <fieldset key={group.integration.id}>
+                        <legend>{group.integration.providerType} / {group.integration.displayName}</legend>
+                        {group.repositories.map(repository => (
+                          <label className="toggle-label" key={repository.id}>
+                            <input
+                              type="checkbox"
+                              checked={trigger.repositoryIds.includes(repository.id)}
+                              onChange={event => toggleTriggerRepository(index, repository.id, event.target.checked)}
+                              disabled={!canAdminister}
+                            />
+                            <span>{repositoryLabel(repository)}</span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    ))}
+                    {repositoryGroups.length === 0 ? <p className="muted">No connected repositories.</p> : null}
+                  </div>
+                  <div className="form-row">
+                    <label>
+                      <span>Base Branch</span>
+                      <input value={trigger.baseBranch ?? ""} onChange={event => updateTrigger(index, { baseBranch: event.target.value })} placeholder="Repository default" disabled={!canAdminister} />
+                    </label>
+                    <label>
+                      <span>Model</span>
+                      <input value={trigger.model ?? ""} onChange={event => updateTrigger(index, { model: event.target.value })} placeholder="Default AI model" disabled={!canAdminister} />
+                    </label>
+                  </div>
+                  <button type="button" className="secondary-button danger-button compact-button" onClick={() => removeTrigger(index)} disabled={!canAdminister}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {triggers.length === 0 ? <p className="muted">No triggers configured.</p> : null}
+            </div>
+          </section>
+
           <button type="submit" className="primary-button" disabled={saving || !canAdminister}>
             {saving ? "Saving" : "Save Version"}
           </button>
@@ -473,6 +622,49 @@ function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], s
   }
 
   return errors;
+}
+
+function validateTriggers(triggers: WorkflowDefinitionTrigger[]): DraftValidationError[] {
+  const errors: DraftValidationError[] = [];
+  const ids = triggers.map(trigger => trigger.id);
+  const uniqueIds = new Set(ids);
+  if (ids.some(id => !id.trim())) {
+    errors.push({ code: "definition.trigger.id.required", message: "Trigger ids must be non-empty.", path: "triggers[].id", source: "client" });
+  }
+  if (uniqueIds.size !== ids.length) {
+    errors.push({ code: "definition.trigger.id.duplicate", message: "Trigger ids must be unique.", path: "triggers[].id", source: "client" });
+  }
+
+  triggers.forEach((trigger, index) => {
+    if (!trigger.enabled || trigger.type !== "DevOpsIssueLabel") {
+      return;
+    }
+
+    if (!trigger.label?.trim()) {
+      errors.push({ code: "definition.trigger.label.required", message: `Trigger ${index + 1} requires a label.`, path: "triggers[].label", source: "client" });
+    }
+    if (trigger.repositoryIds.length === 0) {
+      errors.push({ code: "definition.trigger.repositories.required", message: `Trigger ${index + 1} requires at least one repository.`, path: "triggers[].repositoryIds", source: "client" });
+    }
+  });
+
+  return errors;
+}
+
+function normalizeTriggers(triggers: WorkflowDefinitionTrigger[]): WorkflowDefinitionTrigger[] {
+  return triggers.map(trigger => ({
+    id: trigger.id.trim(),
+    type: trigger.type,
+    enabled: trigger.enabled,
+    repositoryIds: trigger.repositoryIds,
+    label: trigger.label?.trim() || null,
+    baseBranch: trigger.baseBranch?.trim() || null,
+    model: trigger.model?.trim() || null
+  }));
+}
+
+function repositoryLabel(repository: ConnectedRepository) {
+  return `${repository.owner}/${repository.name} (${repository.defaultBranch})`;
 }
 
 function countBy(values: string[]) {

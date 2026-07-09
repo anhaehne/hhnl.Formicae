@@ -11,7 +11,8 @@ public sealed class GiteaWebhookHandler(
     WorkflowTickNotifier notifier,
     IDevOpsIntegrationStore integrations,
     IWorkflowStore store,
-    ILogger<GiteaWebhookHandler> logger)
+    ILogger<GiteaWebhookHandler> logger,
+    WorkflowTriggerService? triggerService = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -54,24 +55,78 @@ public sealed class GiteaWebhookHandler(
 
         var action = envelope?.Action ?? string.Empty;
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
-        if (!DevOpsWebhookProcessor.ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest))
+        var startedWorkflowIds = triggerService is null
+            ? []
+            : await HandleIssueLabelTriggerAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+        var shouldTriggerWorkflowTick = DevOpsWebhookProcessor.ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
+        if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
         {
-            return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId });
+            return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId, startedWorkflowIds, startedWorkflowCount = 0 });
         }
 
-        var processor = new DevOpsWebhookProcessor(store);
-        var processingResult = await processor.ProcessAsync(
-            new DevOpsWebhookEvent(
-                "Gitea",
-                eventName,
-                action,
-                issueCommentIsPullRequest,
-                envelope?.PullRequest?.HtmlUrl,
-                envelope?.PullRequest?.Merged,
-                GetPullRequestUrl(envelope, eventName)),
-            cancellationToken);
-        notifier.Signal();
-        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, processingResult.CompletedWorkflowId, processingResult.RequeuedWorkflowId });
+        DevOpsWebhookProcessingResult? processingResult = null;
+        if (shouldTriggerWorkflowTick)
+        {
+            var processor = new DevOpsWebhookProcessor(store);
+            processingResult = await processor.ProcessAsync(
+                new DevOpsWebhookEvent(
+                    "Gitea",
+                    eventName,
+                    action,
+                    issueCommentIsPullRequest,
+                    envelope?.PullRequest?.HtmlUrl,
+                    envelope?.PullRequest?.Merged,
+                    GetPullRequestUrl(envelope, eventName)),
+                cancellationToken);
+        }
+
+        if (startedWorkflowIds.Count > 0 || processingResult?.CompletedWorkflowId is not null || processingResult?.RequeuedWorkflowId is not null)
+        {
+            notifier.Signal();
+        }
+
+        return Results.Accepted(value: new
+        {
+            accepted = true,
+            eventName,
+            action,
+            deliveryId,
+            startedWorkflowIds,
+            startedWorkflowCount = startedWorkflowIds.Count,
+            processingResult?.CompletedWorkflowId,
+            processingResult?.RequeuedWorkflowId
+        });
+    }
+
+    private static async Task<IReadOnlyList<Guid>> HandleIssueLabelTriggerAsync(
+        WorkflowTriggerService triggerService,
+        string eventName,
+        string deliveryId,
+        GiteaWebhookEnvelope? envelope,
+        CancellationToken cancellationToken)
+    {
+        var action = envelope?.Action;
+        var repositoryUrl = envelope?.Repository?.HtmlUrl ?? envelope?.Repository?.CloneUrl;
+        var issueUrl = envelope?.Issue?.HtmlUrl;
+        var label = envelope?.Label?.Name;
+        if (!string.Equals(eventName, "issues", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(action, "labeled", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(repositoryUrl)
+            || string.IsNullOrWhiteSpace(issueUrl)
+            || string.IsNullOrWhiteSpace(label))
+        {
+            return [];
+        }
+
+        return await triggerService.HandleIssueLabelEventAsync(new DevOpsIssueLabelTriggerEvent(
+            DevOpsProviderType.Gitea,
+            deliveryId,
+            eventName,
+            action!,
+            repositoryUrl!,
+            issueUrl!,
+            label!,
+            envelope?.Repository?.FullName), cancellationToken);
     }
 
     public static bool VerifySignature(byte[] body, string signatureHeader, string secret)
@@ -123,6 +178,8 @@ public sealed class GiteaWebhookHandler(
     private sealed record GiteaWebhookEnvelope(
         string? Action,
         GiteaWebhookIssue? Issue,
+        GiteaWebhookRepository? Repository,
+        GiteaWebhookLabel? Label,
         [property: JsonPropertyName("pull_request")] GiteaWebhookPullRequest? PullRequest);
 
     private sealed record GiteaWebhookIssue(
@@ -132,4 +189,11 @@ public sealed class GiteaWebhookHandler(
     private sealed record GiteaWebhookPullRequest(
         [property: JsonPropertyName("html_url")] string? HtmlUrl,
         [property: JsonPropertyName("merged")] bool? Merged);
+
+    private sealed record GiteaWebhookRepository(
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("clone_url")] string? CloneUrl,
+        [property: JsonPropertyName("full_name")] string? FullName);
+
+    private sealed record GiteaWebhookLabel(string? Name);
 }

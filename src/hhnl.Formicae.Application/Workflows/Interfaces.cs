@@ -96,6 +96,9 @@ public interface IWorkflowStore
     Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task AddTriggerEventAsync(WorkflowTriggerEvent evt, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowTriggerEvent>> ListTriggerEventsAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task<WorkflowTriggerEvent?> GetTriggerEventByDeliveryAsync(string deliveryId, string triggerId, CancellationToken cancellationToken);
     Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowDefinition>> ListWorkflowDefinitionsAsync(CancellationToken cancellationToken);

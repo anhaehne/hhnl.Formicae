@@ -113,6 +113,36 @@ public sealed class GiteaWebhookHandlerTests
         Assert.Equal(WorkflowStep.AddressComments, requeued.CurrentStep);
     }
 
+    [Fact]
+    public async Task HandleAsync_issues_labeled_delegates_after_signature_validation()
+    {
+        var store = new InMemoryWorkflowStore();
+        var integrations = await CreateIntegrationStoreAsync();
+        var triggerService = await CreateTriggerServiceAsync(store, integrations, "https://gitea.example/acme/widgets");
+        var body = Encoding.UTF8.GetBytes("""
+            {
+              "action": "labeled",
+              "repository": {
+                "html_url": "https://gitea.example/acme/widgets",
+                "full_name": "acme/widgets"
+              },
+              "issue": {
+                "html_url": "https://gitea.example/acme/widgets/issues/13"
+              },
+              "label": {
+                "name": "formicae"
+              }
+            }
+            """);
+        var context = CreateRequest("issues", body, "webhook-secret");
+
+        await new GiteaWebhookHandler(new WorkflowTickNotifier(), integrations, store, NullLogger<GiteaWebhookHandler>.Instance, triggerService)
+            .HandleAsync(context.Request, CancellationToken.None);
+
+        var workflow = await store.GetWorkflowByIssueUrlAsync("https://gitea.example/acme/widgets/issues/13", CancellationToken.None);
+        Assert.NotNull(workflow);
+    }
+
     private static DefaultHttpContext CreateRequest(string eventName, byte[] body, string secret)
     {
         var context = new DefaultHttpContext();
@@ -138,5 +168,34 @@ public sealed class GiteaWebhookHandlerTests
             UpdatedAt = DateTimeOffset.UtcNow
         }, CancellationToken.None);
         return integrations;
+    }
+
+    private static async Task<WorkflowTriggerService> CreateTriggerServiceAsync(
+        InMemoryWorkflowStore store,
+        InMemoryDevOpsIntegrationStore integrations,
+        string repositoryUrl)
+    {
+        var integration = (await integrations.ListAsync(CancellationToken.None)).Single();
+        var repository = await integrations.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "widgets",
+            RepositoryUrl = repositoryUrl,
+            DefaultBranch = "main"
+        }, CancellationToken.None);
+        var validator = new WorkflowDefinitionValidator();
+        var definitions = new WorkflowDefinitionService(store, validator, integrations);
+        var definition = await definitions.CreateAsync(new CreateWorkflowDefinitionRequest("Triggered workflow"), CancellationToken.None);
+        await definitions.CreateVersionAsync(
+            definition.Id,
+            new CreateWorkflowDefinitionVersionRequest(null, true, false, new WorkflowDefinitionDocument(
+                DefaultWorkflowDefinitions.V1Alpha1Schema,
+                "plan",
+                [new WorkflowDefinitionStep("plan", "builtins.plan")],
+                [new WorkflowDefinitionTrigger("triage", WorkflowTriggerType.DevOpsIssueLabel, true, [repository.Id], "formicae")])),
+            CancellationToken.None);
+        var workflows = new WorkflowService(store, workflowDefinitions: definitions);
+        return new WorkflowTriggerService(store, integrations, workflows);
     }
 }

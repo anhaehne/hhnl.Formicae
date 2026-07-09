@@ -23,6 +23,19 @@ export type WorkflowDefinitionDocument = {
   schema: string;
   startStepId: string;
   steps: WorkflowDefinitionStep[];
+  triggers?: WorkflowDefinitionTrigger[] | null;
+};
+
+export type WorkflowTriggerType = "Manual" | "DevOpsIssueLabel";
+
+export type WorkflowDefinitionTrigger = {
+  id: string;
+  type: WorkflowTriggerType;
+  enabled: boolean;
+  repositoryIds: string[];
+  label?: string | null;
+  baseBranch?: string | null;
+  model?: string | null;
 };
 
 export type WorkflowDefinitionStep = {

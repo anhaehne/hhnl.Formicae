@@ -1,8 +1,11 @@
+using hhnl.Formicae.Application.Integrations;
+
 namespace hhnl.Formicae.Application.Workflows;
 
 public sealed class WorkflowDefinitionService(
     IWorkflowStore store,
     WorkflowDefinitionValidator validator,
+    IDevOpsIntegrationStore? integrationStore = null,
     IClock? clock = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
@@ -88,6 +91,8 @@ public sealed class WorkflowDefinitionService(
             {
                 throw new WorkflowDefinitionValidationException(validation.Errors);
             }
+
+            await ValidateTriggerRepositoriesAsync(request.Definition, cancellationToken);
         }
 
         var latest = await store.GetLatestWorkflowDefinitionVersionAsync(definitionId, cancellationToken);
@@ -160,6 +165,39 @@ public sealed class WorkflowDefinitionService(
         }
 
         return version;
+    }
+
+    private async Task ValidateTriggerRepositoriesAsync(
+        WorkflowDefinitionDocument definition,
+        CancellationToken cancellationToken)
+    {
+        var repositoryIds = definition.Triggers?
+            .Where(trigger => trigger.Enabled && trigger.Type == WorkflowTriggerType.DevOpsIssueLabel)
+            .SelectMany(trigger => trigger.RepositoryIds)
+            .Distinct()
+            .ToArray() ?? [];
+        if (repositoryIds.Length == 0 || integrationStore is null)
+        {
+            return;
+        }
+
+        var knownRepositoryIds = (await integrationStore.ListAllRepositoriesAsync(cancellationToken))
+            .Select(repository => repository.Id)
+            .ToHashSet();
+        var unknown = repositoryIds
+            .Where(repositoryId => !knownRepositoryIds.Contains(repositoryId))
+            .ToArray();
+        if (unknown.Length == 0)
+        {
+            return;
+        }
+
+        throw new WorkflowDefinitionValidationException(unknown
+            .Select(repositoryId => new WorkflowDefinitionValidationError(
+                "definition.trigger.repository.unknown",
+                $"Trigger references unknown repository '{repositoryId}'.",
+                "triggers[].repositoryIds"))
+            .ToArray());
     }
 }
 

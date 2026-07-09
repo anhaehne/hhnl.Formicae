@@ -1,3 +1,5 @@
+using System.Text.Json;
+using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Fakes;
 
@@ -91,6 +93,87 @@ public sealed class WorkflowDefinitionTests
     }
 
     [Fact]
+    public void Old_definition_without_triggers_deserializes_and_validates()
+    {
+        const string json = """
+            {
+              "schema": "formicae.workflow/v1alpha1",
+              "startStepId": "plan",
+              "steps": [
+                { "id": "plan", "uses": "builtins.plan" }
+              ]
+            }
+            """;
+
+        var document = WorkflowDefinitionJson.Deserialize(json);
+        var result = validator.Validate(document);
+
+        Assert.NotNull(document);
+        Assert.Null(document.Triggers);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validator_accepts_valid_devops_issue_label_trigger()
+    {
+        var result = validator.Validate(DocumentWithTrigger(new WorkflowDefinitionTrigger(
+            "triage",
+            WorkflowTriggerType.DevOpsIssueLabel,
+            true,
+            [Guid.NewGuid()],
+            "formicae")));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validator_rejects_enabled_devops_issue_label_without_label()
+    {
+        var result = validator.Validate(DocumentWithTrigger(new WorkflowDefinitionTrigger(
+            "triage",
+            WorkflowTriggerType.DevOpsIssueLabel,
+            true,
+            [Guid.NewGuid()],
+            "")));
+
+        Assert.Contains(result.Errors, error => error.Code == "definition.trigger.label.required");
+    }
+
+    [Fact]
+    public void Validator_rejects_enabled_devops_issue_label_without_repositories()
+    {
+        var result = validator.Validate(DocumentWithTrigger(new WorkflowDefinitionTrigger(
+            "triage",
+            WorkflowTriggerType.DevOpsIssueLabel,
+            true,
+            [],
+            "formicae")));
+
+        Assert.Contains(result.Errors, error => error.Code == "definition.trigger.repositories.required");
+    }
+
+    [Fact]
+    public async Task Saving_enabled_definition_rejects_unknown_trigger_repository()
+    {
+        var store = new InMemoryWorkflowStore();
+        var integrations = new InMemoryDevOpsIntegrationStore();
+        var definitionService = new WorkflowDefinitionService(store, validator, integrations);
+        var definition = await definitionService.CreateAsync(new CreateWorkflowDefinitionRequest("Triggered workflow"), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<WorkflowDefinitionValidationException>(() => definitionService.CreateVersionAsync(
+            definition.Id,
+            new CreateWorkflowDefinitionVersionRequest(null, true, false, DocumentWithTrigger(new WorkflowDefinitionTrigger(
+                "triage",
+                WorkflowTriggerType.DevOpsIssueLabel,
+                true,
+                [Guid.NewGuid()],
+                "formicae"))),
+            CancellationToken.None));
+
+        Assert.Contains(exception.Errors, error => error.Code == "definition.trigger.repository.unknown");
+    }
+
+    [Fact]
     public async Task Starting_workflow_without_definition_fields_uses_default_mvp_version()
     {
         var store = new InMemoryWorkflowStore();
@@ -162,4 +245,11 @@ public sealed class WorkflowDefinitionTests
                 Guid.Parse("33333333-3333-3333-3333-333333333333")),
             CancellationToken.None));
     }
+
+    private static WorkflowDefinitionDocument DocumentWithTrigger(WorkflowDefinitionTrigger trigger)
+        => new(
+            DefaultWorkflowDefinitions.V1Alpha1Schema,
+            "plan",
+            [new WorkflowDefinitionStep("plan", "builtins.plan")],
+            [trigger]);
 }
