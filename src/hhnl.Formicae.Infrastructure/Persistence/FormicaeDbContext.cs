@@ -11,6 +11,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
+    public DbSet<WorkflowTriggerEvent> WorkflowTriggerEvents => Set<WorkflowTriggerEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
     public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
     public DbSet<WorkflowDefinitionVersion> WorkflowDefinitionVersions => Set<WorkflowDefinitionVersion>();
@@ -77,6 +78,34 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(evt => evt.Message).IsRequired();
             entity.HasIndex(evt => evt.WorkflowId);
             entity.HasIndex(evt => new { evt.WorkflowId, evt.CreatedAt });
+        });
+
+        modelBuilder.Entity<WorkflowTriggerEvent>(entity =>
+        {
+            entity.ToTable("workflow_trigger_events");
+            entity.HasKey(evt => evt.Id);
+            entity.Property(evt => evt.TriggerId).IsRequired();
+            entity.Property(evt => evt.TriggerType).HasConversion<string>();
+            entity.Property(evt => evt.Provider).IsRequired();
+            entity.Property(evt => evt.ExternalDeliveryId).IsRequired();
+            entity.Property(evt => evt.EventName).IsRequired();
+            entity.Property(evt => evt.Action).IsRequired();
+            entity.HasIndex(evt => evt.WorkflowId);
+            entity.HasIndex(evt => evt.CreatedAt);
+            entity.HasIndex(evt => evt.ExternalDeliveryId);
+            entity.HasIndex(evt => new { evt.ExternalDeliveryId, evt.TriggerId }).IsUnique();
+            entity.HasOne<Workflow>()
+                .WithMany()
+                .HasForeignKey(evt => evt.WorkflowId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkflowDefinition>()
+                .WithMany()
+                .HasForeignKey(evt => evt.WorkflowDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkflowDefinitionVersion>()
+                .WithMany()
+                .HasForeignKey(evt => evt.WorkflowDefinitionVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WorkflowLog>(entity =>

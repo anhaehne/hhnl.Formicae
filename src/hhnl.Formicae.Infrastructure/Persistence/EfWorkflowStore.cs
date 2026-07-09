@@ -87,6 +87,25 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
             .ThenByDescending(evt => evt.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task AddTriggerEventAsync(WorkflowTriggerEvent evt, CancellationToken cancellationToken)
+    {
+        dbContext.WorkflowTriggerEvents.Add(evt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkflowTriggerEvent>> ListTriggerEventsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => await dbContext.WorkflowTriggerEvents
+            .AsNoTracking()
+            .Where(evt => evt.WorkflowId == workflowId)
+            .OrderByDescending(evt => evt.CreatedAt)
+            .ThenByDescending(evt => evt.Id)
+            .ToListAsync(cancellationToken);
+
+    public Task<WorkflowTriggerEvent?> GetTriggerEventByDeliveryAsync(string deliveryId, string triggerId, CancellationToken cancellationToken)
+        => dbContext.WorkflowTriggerEvents
+            .AsNoTracking()
+            .SingleOrDefaultAsync(evt => evt.ExternalDeliveryId == deliveryId && evt.TriggerId == triggerId, cancellationToken);
+
     public async Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken)
     {
         dbContext.WorkflowLogs.Add(log);

@@ -734,6 +734,40 @@ tbody tr:hover {
   margin-top: 3px;
 }
 
+.trigger-list {
+  display: grid;
+  gap: 12px;
+}
+
+.trigger-row {
+  border: 1px solid #d7dbd2;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.trigger-repository-select {
+  display: grid;
+  gap: 8px;
+}
+
+.trigger-repository-select fieldset {
+  border: 1px solid #e1e4dd;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+}
+
+.trigger-repository-select legend {
+  color: #596057;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0 4px;
+}
+
 .repository-toolbar {
   align-items: end;
   display: grid;

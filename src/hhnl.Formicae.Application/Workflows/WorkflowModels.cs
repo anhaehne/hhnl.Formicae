@@ -40,6 +40,13 @@ public enum TaskRunStatus
     Failed
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum WorkflowTriggerType
+{
+    Manual,
+    DevOpsIssueLabel
+}
+
 public sealed class Workflow
 {
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -83,7 +90,17 @@ public sealed class WorkflowDefinitionVersion
 public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("schema")] string Schema,
     [property: JsonPropertyName("startStepId")] string StartStepId,
-    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps);
+    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps,
+    [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null);
+
+public sealed record WorkflowDefinitionTrigger(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] WorkflowTriggerType Type,
+    [property: JsonPropertyName("enabled")] bool Enabled,
+    [property: JsonPropertyName("repositoryIds")] IReadOnlyList<Guid> RepositoryIds,
+    [property: JsonPropertyName("label")] string? Label,
+    [property: JsonPropertyName("baseBranch")] string? BaseBranch = null,
+    [property: JsonPropertyName("model")] string? Model = null);
 
 public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("id")] string Id,
@@ -115,6 +132,22 @@ public sealed class WorkflowEvent
     public string Level { get; init; } = "Information";
     public required string Message { get; init; }
     public string? DetailsJson { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class WorkflowTriggerEvent
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid WorkflowId { get; init; }
+    public Guid WorkflowDefinitionId { get; init; }
+    public Guid WorkflowDefinitionVersionId { get; init; }
+    public required string TriggerId { get; init; }
+    public WorkflowTriggerType TriggerType { get; init; }
+    public required string Provider { get; init; }
+    public required string ExternalDeliveryId { get; init; }
+    public required string EventName { get; init; }
+    public required string Action { get; init; }
+    public string? PayloadSummaryJson { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -160,6 +193,16 @@ public sealed record StartGitHubIssueWorkflowRequest(
     string? Model,
     Guid? WorkflowDefinitionId = null,
     Guid? WorkflowDefinitionVersionId = null);
+
+public sealed record DevOpsIssueLabelTriggerEvent(
+    hhnl.Formicae.Application.Integrations.DevOpsProviderType ProviderType,
+    string DeliveryId,
+    string EventName,
+    string Action,
+    string RepositoryUrl,
+    string IssueUrl,
+    string Label,
+    string? RepositoryFullName = null);
 
 public sealed record CreateWorkflowDefinitionRequest(string Name);
 

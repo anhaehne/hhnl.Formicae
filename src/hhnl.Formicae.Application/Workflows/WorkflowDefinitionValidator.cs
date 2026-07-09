@@ -45,6 +45,8 @@ public sealed class WorkflowDefinitionValidator
             return new WorkflowDefinitionValidationResult(errors);
         }
 
+        ValidateTriggers(document.Triggers, errors);
+
         var stepsById = new Dictionary<string, WorkflowDefinitionStep>(StringComparer.Ordinal);
         var duplicateIds = document.Steps
             .GroupBy(step => step.Id, StringComparer.Ordinal)
@@ -135,6 +137,61 @@ public sealed class WorkflowDefinitionValidator
         }
 
         return new WorkflowDefinitionValidationResult(errors);
+    }
+
+    private static void ValidateTriggers(
+        IReadOnlyList<WorkflowDefinitionTrigger>? triggers,
+        List<WorkflowDefinitionValidationError> errors)
+    {
+        if (triggers is null || triggers.Count == 0)
+        {
+            return;
+        }
+
+        var duplicateIds = triggers
+            .GroupBy(trigger => trigger.Id, StringComparer.Ordinal)
+            .Where(group => string.IsNullOrWhiteSpace(group.Key) || group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        foreach (var duplicateId in duplicateIds)
+        {
+            errors.Add(new WorkflowDefinitionValidationError(
+                "definition.trigger.id.duplicate",
+                string.IsNullOrWhiteSpace(duplicateId) ? "Trigger id is required." : $"Trigger id '{duplicateId}' must be unique.",
+                "triggers[].id"));
+        }
+
+        foreach (var trigger in triggers)
+        {
+            if (!Enum.IsDefined(trigger.Type))
+            {
+                errors.Add(new WorkflowDefinitionValidationError(
+                    "definition.trigger.type.unsupported",
+                    $"Trigger '{trigger.Id}' uses unsupported type '{trigger.Type}'.",
+                    "triggers[].type"));
+            }
+
+            if (!trigger.Enabled || trigger.Type != WorkflowTriggerType.DevOpsIssueLabel)
+            {
+                continue;
+            }
+
+            if (trigger.RepositoryIds.Count == 0)
+            {
+                errors.Add(new WorkflowDefinitionValidationError(
+                    "definition.trigger.repositories.required",
+                    $"Trigger '{trigger.Id}' requires at least one repository.",
+                    "triggers[].repositoryIds"));
+            }
+
+            if (string.IsNullOrWhiteSpace(trigger.Label))
+            {
+                errors.Add(new WorkflowDefinitionValidationError(
+                    "definition.trigger.label.required",
+                    $"Trigger '{trigger.Id}' requires a label.",
+                    "triggers[].label"));
+            }
+        }
     }
 
     public static bool TryMapUsesToTaskKind(string uses, out TaskRunKind kind)

@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionTrigger, WorkflowDefinitionVersionResponse } from "./api";
 
 export type WorkflowStepNodeData = {
   stepId: string;
@@ -60,7 +60,8 @@ export function graphToDefinition(
   nodes: WorkflowStepNode[],
   edges: Edge[],
   schema: string,
-  startStepId: string
+  startStepId: string,
+  triggers?: WorkflowDefinitionTrigger[]
 ): WorkflowDefinitionDocument {
   const outgoingBySource = new Map<string, Edge>();
   for (const edge of edges) {
@@ -72,6 +73,7 @@ export function graphToDefinition(
   return {
     schema,
     startStepId,
+    triggers: triggers && triggers.length > 0 ? triggers : undefined,
     steps: nodes.map(node => ({
       id: node.data.stepId || node.id,
       uses: node.data.uses || "builtins.plan",

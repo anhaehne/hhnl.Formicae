@@ -16,7 +16,8 @@ public sealed class GitHubWebhookHandler(
     WorkflowTickNotifier notifier,
     IWorkflowStore store,
     IOptions<GitHubWebhookOptions> options,
-    ILogger<GitHubWebhookHandler> logger)
+    ILogger<GitHubWebhookHandler> logger,
+    WorkflowTriggerService? triggerService = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -56,31 +57,85 @@ public sealed class GitHubWebhookHandler(
 
         var action = envelope?.Action ?? string.Empty;
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
-        if (!ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest))
+        var startedWorkflowIds = triggerService is null
+            ? []
+            : await HandleIssueLabelTriggerAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+        var shouldTriggerWorkflowTick = ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
+        if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
         {
-            return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId });
+            return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId, startedWorkflowIds, startedWorkflowCount = 0 });
         }
 
-        var processor = new DevOpsWebhookProcessor(store);
-        var processingResult = await processor.ProcessAsync(
-            new DevOpsWebhookEvent(
-                "GitHub",
-                eventName,
-                action,
-                issueCommentIsPullRequest,
-                envelope?.PullRequest?.HtmlUrl,
-                envelope?.PullRequest?.Merged,
-                GetPullRequestUrl(envelope, eventName)),
-            cancellationToken);
-        notifier.Signal();
+        DevOpsWebhookProcessingResult? processingResult = null;
+        if (shouldTriggerWorkflowTick)
+        {
+            var processor = new DevOpsWebhookProcessor(store);
+            processingResult = await processor.ProcessAsync(
+                new DevOpsWebhookEvent(
+                    "GitHub",
+                    eventName,
+                    action,
+                    issueCommentIsPullRequest,
+                    envelope?.PullRequest?.HtmlUrl,
+                    envelope?.PullRequest?.Merged,
+                    GetPullRequestUrl(envelope, eventName)),
+                cancellationToken);
+        }
+
+        if (startedWorkflowIds.Count > 0 || processingResult?.CompletedWorkflowId is not null || processingResult?.RequeuedWorkflowId is not null)
+        {
+            notifier.Signal();
+        }
+
         logger.LogInformation(
             "Accepted GitHub webhook delivery {DeliveryId} for event {EventName}/{Action}; workflow tick signaled. Completed workflow: {CompletedWorkflowId}; requeued workflow: {RequeuedWorkflowId}",
             deliveryId,
             eventName,
             action,
-            processingResult.CompletedWorkflowId,
-            processingResult.RequeuedWorkflowId);
-        return Results.Accepted(value: new { accepted = true, eventName, action, deliveryId, processingResult.CompletedWorkflowId, processingResult.RequeuedWorkflowId });
+            processingResult?.CompletedWorkflowId,
+            processingResult?.RequeuedWorkflowId);
+        return Results.Accepted(value: new
+        {
+            accepted = true,
+            eventName,
+            action,
+            deliveryId,
+            startedWorkflowIds,
+            startedWorkflowCount = startedWorkflowIds.Count,
+            processingResult?.CompletedWorkflowId,
+            processingResult?.RequeuedWorkflowId
+        });
+    }
+
+    private static async Task<IReadOnlyList<Guid>> HandleIssueLabelTriggerAsync(
+        WorkflowTriggerService triggerService,
+        string eventName,
+        string deliveryId,
+        GitHubWebhookEnvelope? envelope,
+        CancellationToken cancellationToken)
+    {
+        var action = envelope?.Action;
+        var repositoryUrl = envelope?.Repository?.HtmlUrl;
+        var issueUrl = envelope?.Issue?.HtmlUrl;
+        var label = envelope?.Label?.Name;
+        if (!string.Equals(eventName, "issues", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(action, "labeled", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(repositoryUrl)
+            || string.IsNullOrWhiteSpace(issueUrl)
+            || string.IsNullOrWhiteSpace(label))
+        {
+            return [];
+        }
+
+        return await triggerService.HandleIssueLabelEventAsync(new DevOpsIssueLabelTriggerEvent(
+            hhnl.Formicae.Application.Integrations.DevOpsProviderType.GitHub,
+            deliveryId,
+            eventName,
+            action!,
+            repositoryUrl!,
+            issueUrl!,
+            label!,
+            envelope?.Repository?.FullName), cancellationToken);
     }
 
     private async Task<Guid?> CompleteMergedPullRequestWorkflowAsync(
@@ -203,6 +258,8 @@ public sealed class GitHubWebhookHandler(
     private sealed record GitHubWebhookEnvelope(
         string? Action,
         GitHubWebhookIssue? Issue,
+        GitHubWebhookRepository? Repository,
+        GitHubWebhookLabel? Label,
         [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
 
     private sealed record GitHubWebhookIssue(
@@ -212,4 +269,10 @@ public sealed class GitHubWebhookHandler(
     private sealed record GitHubWebhookPullRequest(
         [property: JsonPropertyName("html_url")] string? HtmlUrl,
         [property: JsonPropertyName("merged")] bool? Merged);
+
+    private sealed record GitHubWebhookRepository(
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("full_name")] string? FullName);
+
+    private sealed record GitHubWebhookLabel(string? Name);
 }
