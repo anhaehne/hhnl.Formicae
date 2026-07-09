@@ -11,6 +11,7 @@ data:
   WorkItemMode: {{ .Values.config.workItemMode | quote }}
   SourceControlMode: {{ .Values.config.sourceControlMode | quote }}
   AgentMode: {{ .Values.config.agentMode | quote }}
+  JobRuntime: {{ .Values.config.jobRuntime | quote }}
   OpenHands__AuthMethod: {{ .Values.config.openHandsAuthMethod | quote }}
   OpenHands__Provider: {{ .Values.config.openHandsProvider | quote }}
   OpenHands__DefaultModel: {{ .Values.config.openHandsDefaultModel | quote }}

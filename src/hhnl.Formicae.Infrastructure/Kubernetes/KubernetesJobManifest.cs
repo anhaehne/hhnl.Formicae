@@ -1,10 +1,11 @@
 using System.Text;
+using hhnl.Formicae.Infrastructure;
 
 namespace hhnl.Formicae.Infrastructure.Kubernetes;
 
 public static class KubernetesJobManifest
 {
-    public static string Render(KubernetesJobSpec spec)
+    public static string Render(RuntimeJobSpec spec)
     {
         var builder = new StringBuilder();
         builder.AppendLine("apiVersion: batch/v1");

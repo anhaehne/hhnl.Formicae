@@ -20,6 +20,7 @@ Prerequisites:
 - Node.js 22 or newer for the management UI
 - PowerShell 7 or Windows PowerShell
 - PostgreSQL only when running with `UseFakeAdapters=false`
+- Docker or Podman for local non-fake agent execution
 - `kubectl`, `kind`, and either Docker or Podman for Kubernetes E2E tests
 - A container registry login only when pushing deployment images
 - Helm when installing with the chart
@@ -124,8 +125,10 @@ When PostgreSQL persistence is configured, the API applies EF Core migrations au
 Important settings:
 
 - `ConnectionStrings:Formicae` for PostgreSQL.
+- `JobRuntime` selects `Container` or `Kubernetes`; local non-fake execution defaults to `Container`.
+- `ContainerRuntime:Engine`, `ContainerRuntime:Image`, `ContainerRuntime:WorkspaceRoot`, and `ContainerRuntime:WorkerCallbackUrl` configure Docker/Podman worker containers.
 - `OpenHands:DefaultModel` for the default OpenHands model.
-- `KubernetesJobs:Image` for the Formicae worker image used by agent Jobs.
+- `KubernetesJobs:Image` for the Formicae worker image used by Kubernetes agent Jobs.
 - `KubernetesJobs:WorkerCallbackSecret` for optionally requiring worker callbacks to include `X-Formicae-Worker-Callback-Secret` when posting live agent messages.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can wake the workflow loop and requeue completed PR workflows when new feedback arrives.
 - `ManagementAuth:Enabled` controls authorization for mutating management APIs. It defaults to `false` for local development. Set `ManagementAuth:InviteCodeExpiration` to control invite lifetime and `ManagementAuth:BypassForLocalDevelopment=true` only for trusted development environments.
@@ -153,6 +156,8 @@ When enabling a GitHub identity provider, the UI first sends the current browser
 
 - `hhnl.Formicae.Application` owns workflow state, interfaces, and orchestration logic.
 - `hhnl.Formicae.Infrastructure` owns persistence and external adapters.
+
+See [docs/job-runtimes.md](docs/job-runtimes.md) for Docker, Podman, and Kubernetes runtime configuration examples.
 - `hhnl.Formicae.Api` owns HTTP endpoints, the distributed-lock-protected background orchestration loop, and worker message ingestion.
 - `hhnl.Formicae.Worker` owns in-container agent execution and streams live agent output back to the API.
 - `hhnl.Formicae.Tests` covers deterministic local workflow behavior and adapter contracts.

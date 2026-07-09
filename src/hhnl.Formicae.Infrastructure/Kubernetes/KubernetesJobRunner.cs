@@ -1,41 +1,10 @@
 namespace hhnl.Formicae.Infrastructure.Kubernetes;
 
 using System.Text;
+using hhnl.Formicae.Infrastructure;
 using hhnl.Formicae.Application.Workflows;
 using k8s;
 using k8s.Models;
-
-public interface IKubernetesJobRunner
-{
-    Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken);
-
-    Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken);
-
-    Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken);
-}
-
-public sealed record KubernetesJobSpec(
-    string Name,
-    string Image,
-    IReadOnlyDictionary<string, string> Environment,
-    IReadOnlyList<string> Command,
-    string AuthMethod = KubernetesJobAuthMethods.ApiKey,
-    IReadOnlyList<KubernetesJobContextFile>? ContextFiles = null,
-    string ContextFilesMountPath = "/workspace/formicae/context",
-    IReadOnlyList<KubernetesJobSecretFile>? SecretFiles = null,
-    KubernetesJobSecretEnvironment? SecretEnvironment = null);
-public sealed record KubernetesJobContextFile(string FileName, string Content);
-public sealed record KubernetesJobSecretFile(string SecretName, string MountPath, IReadOnlyDictionary<string, string> Data);
-public sealed record KubernetesJobSecretEnvironment(string SecretName, IReadOnlyDictionary<string, string> Data);
-public sealed record KubernetesJobStartResult(string JobName);
-public sealed record KubernetesJobResult(bool Succeeded, string JobName, string Logs, string? FailureReason);
-
-public static class KubernetesJobAuthMethods
-{
-    public const string None = "None";
-    public const string ApiKey = "ApiKey";
-    public const string CodexSubscription = "CodexSubscription";
-}
 
 public sealed class KubernetesJobOptions
 {
@@ -127,13 +96,13 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
 public sealed class KubernetesJobRunner(
     IKubernetesJobApi jobApi,
     Microsoft.Extensions.Options.IOptions<KubernetesJobOptions> options,
-    IEnumerable<IWorkflowTickSignal> tickSignals) : IKubernetesJobRunner
+    IEnumerable<IWorkflowTickSignal> tickSignals) : IJobRuntime
 {
     private const string ContainerName = "worker";
     private const string ManagedByLabel = "app.kubernetes.io/managed-by";
     private const string ManagedByValue = "formicae";
 
-    public async Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
+    public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
         var namespaceName = ResolveNamespace();
         var job = BuildJob(spec);
@@ -164,10 +133,10 @@ public sealed class KubernetesJobRunner(
         }
 
         StartCompletionSignalWatcher(spec.Name, namespaceName);
-        return new KubernetesJobStartResult(spec.Name);
+        return new RuntimeJobStartResult(spec.Name);
     }
 
-    public async Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
+    public async Task<RuntimeJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
     {
         var namespaceName = ResolveNamespace();
         V1Job current;
@@ -177,28 +146,28 @@ public sealed class KubernetesJobRunner(
         }
         catch (Exception exception) when (IsNotFound(exception))
         {
-            return new KubernetesJobResult(false, jobName, string.Empty, $"Kubernetes job '{jobName}' was not found.");
+            return new RuntimeJobResult(false, jobName, string.Empty, $"Kubernetes job '{jobName}' was not found.");
         }
 
         if (IsComplete(current))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
             await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
-            return new KubernetesJobResult(true, jobName, logs, null);
+            return new RuntimeJobResult(true, jobName, logs, null);
         }
 
         if (IsFailed(current, out var failureReason))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
             await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
-            return new KubernetesJobResult(false, jobName, logs, failureReason);
+            return new RuntimeJobResult(false, jobName, logs, failureReason);
         }
 
         if (IsTimedOut(current, out var timeoutReason))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, CancellationToken.None);
             await DeleteIfConfiguredAsync(jobName, namespaceName, CancellationToken.None);
-            return new KubernetesJobResult(false, jobName, logs, timeoutReason);
+            return new RuntimeJobResult(false, jobName, logs, timeoutReason);
         }
 
         return null;
@@ -263,24 +232,24 @@ public sealed class KubernetesJobRunner(
             }
         });
     }
-    private V1Job BuildJob(KubernetesJobSpec spec)
+    private V1Job BuildJob(RuntimeJobSpec spec)
     {
         var labels = new Dictionary<string, string>
         {
             [ManagedByLabel] = ManagedByValue,
             ["app.kubernetes.io/name"] = "formicae-agent-job",
-            ["formicae.hhnl.de/task"] = spec.Name
+            ["formicae-task"] = spec.Name
         };
 
         var envFrom = new List<V1EnvFromSource>();
-        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.ApiKey) && !string.IsNullOrWhiteSpace(options.Value.LlmApiKeySecretName))
+        if (IsAuthMethod(spec.AuthMethod, RuntimeJobAuthMethods.ApiKey) && !string.IsNullOrWhiteSpace(options.Value.LlmApiKeySecretName))
         {
             envFrom.Add(new V1EnvFromSource { SecretRef = new V1SecretEnvSource { Name = options.Value.LlmApiKeySecretName, Optional = true } });
         }
 
         var volumes = new List<V1Volume>();
         var volumeMounts = new List<V1VolumeMount>();
-        if (IsAuthMethod(spec.AuthMethod, KubernetesJobAuthMethods.CodexSubscription)
+        if (IsAuthMethod(spec.AuthMethod, RuntimeJobAuthMethods.CodexSubscription)
             && (spec.SecretFiles is null || spec.SecretFiles.Count == 0)
             && !string.IsNullOrWhiteSpace(options.Value.CodexAuthSecretName))
         {
@@ -376,7 +345,7 @@ public sealed class KubernetesJobRunner(
         };
     }
 
-    private static List<V1EnvVar> BuildEnvironmentVariables(KubernetesJobSpec spec)
+    private static List<V1EnvVar> BuildEnvironmentVariables(RuntimeJobSpec spec)
     {
         var env = spec.Environment
             .OrderBy(pair => pair.Key)
@@ -398,7 +367,7 @@ public sealed class KubernetesJobRunner(
         return env;
     }
 
-    private async Task CreateSecretsAsync(KubernetesJobSpec spec, string namespaceName, CancellationToken cancellationToken)
+    private async Task CreateSecretsAsync(RuntimeJobSpec spec, string namespaceName, CancellationToken cancellationToken)
     {
         var secrets = new List<(string Name, IReadOnlyDictionary<string, string> Data)>();
         if (spec.SecretEnvironment is not null)
@@ -424,7 +393,7 @@ public sealed class KubernetesJobRunner(
                     {
                         [ManagedByLabel] = ManagedByValue,
                         ["app.kubernetes.io/name"] = "formicae-agent-secret",
-                        ["formicae.hhnl.de/task"] = spec.Name
+                        ["formicae-task"] = spec.Name
                     }
                 },
                 Type = "Opaque",
@@ -458,7 +427,7 @@ public sealed class KubernetesJobRunner(
 
     public static string ApiKeySecretName(string jobName)
         => $"{jobName}-api-auth";
-    private static V1ConfigMap? BuildContextConfigMap(KubernetesJobSpec spec, V1Job job)
+    private static V1ConfigMap? BuildContextConfigMap(RuntimeJobSpec spec, V1Job job)
     {
         if (spec.ContextFiles is not { Count: > 0 })
         {
@@ -476,7 +445,7 @@ public sealed class KubernetesJobRunner(
                 {
                     [ManagedByLabel] = ManagedByValue,
                     ["app.kubernetes.io/name"] = "formicae-agent-context",
-                    ["formicae.hhnl.de/task"] = spec.Name
+                    ["formicae-task"] = spec.Name
                 },
                 OwnerReferences = BuildOwnerReferences(job)
             },
