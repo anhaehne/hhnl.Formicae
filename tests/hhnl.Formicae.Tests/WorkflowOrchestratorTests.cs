@@ -104,6 +104,57 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task DiscoverReadyToPlanWorkflows_continues_when_repository_scan_fails()
+    {
+        var store = new InMemoryWorkflowStore();
+        var integrationStore = new InMemoryDevOpsIntegrationStore();
+        var integration = await integrationStore.CreateAsync(new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.GitHub,
+            DisplayName = "GitHub",
+            GitHubAppClientId = "client-id",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "broken",
+            RepositoryUrl = "https://github.com/acme/broken",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "tools",
+            RepositoryUrl = "https://github.com/acme/tools",
+            DefaultBranch = "develop",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels("https://github.com/acme/tools/issues/7", "Tools", "Tools body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        devOps.ListIssuesWithLabelExceptions["https://github.com/acme/broken"] = new InvalidOperationException("Repository unavailable.");
+        var discovery = new WorkflowDiscoveryService(store, devOps, Options.Create(new WorkflowDiscoveryOptions
+        {
+            Enabled = true
+        }), integrationStore: integrationStore);
+
+        var discovered = await discovery.DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflow = Assert.Single(await store.ListRunnableWorkflowsAsync(CancellationToken.None));
+        Assert.Equal(1, discovered);
+        Assert.Equal("https://github.com/acme/tools", workflow.RepositoryUrl);
+        Assert.Equal("develop", workflow.BaseBranch);
+        Assert.Contains(devOps.ListIssuesWithLabelCalls, call => call.RepositoryUrl == "https://github.com/acme/broken");
+        Assert.Contains(devOps.ListIssuesWithLabelCalls, call => call.RepositoryUrl == "https://github.com/acme/tools");
+    }
+
+    [Fact]
     public async Task DiscoverReadyToPlanWorkflows_uses_saved_ai_settings_model()
     {
         var store = new InMemoryWorkflowStore();
@@ -2386,6 +2437,63 @@ public sealed class AdapterContractTests
             .BuildServiceProvider();
 
         Assert.IsType<FakeAgentRunner>(provider.GetRequiredService<IAgentRunner>());
+    }
+
+    [Fact]
+    public async Task Infrastructure_discovery_registration_scans_connected_repositories()
+    {
+        await using var provider = new ServiceCollection()
+            .AddFormicaeInfrastructure(BuildInfrastructureConfiguration(new Dictionary<string, string?>
+            {
+                ["UseFakeAdapters"] = "false",
+                ["PersistenceMode"] = "InMemory",
+                ["WorkItemMode"] = "Fake",
+                ["SourceControlMode"] = "Fake",
+                ["AgentMode"] = "Fake",
+                ["WorkflowDiscovery:Enabled"] = "true"
+            }))
+            .BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var integrationStore = scope.ServiceProvider.GetRequiredService<IDevOpsIntegrationStore>();
+        var integration = await integrationStore.CreateAsync(new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.GitHub,
+            DisplayName = "GitHub",
+            GitHubAppClientId = "client-id",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "widgets",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            DefaultBranch = "develop",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+        await integrationStore.AddRepositoryAsync(new ConnectedRepository
+        {
+            DevOpsIntegrationId = integration.Id,
+            Owner = "acme",
+            Name = "tools",
+            RepositoryUrl = "https://github.com/acme/tools",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-06-26T12:00:00Z")
+        }, CancellationToken.None);
+
+        var discovered = await scope.ServiceProvider
+            .GetRequiredService<WorkflowDiscoveryService>()
+            .DiscoverReadyToPlanWorkflowsAsync(CancellationToken.None);
+
+        var workflows = await scope.ServiceProvider
+            .GetRequiredService<IWorkflowStore>()
+            .ListRunnableWorkflowsAsync(CancellationToken.None);
+        Assert.Equal(2, discovered);
+        Assert.Contains(workflows, workflow => workflow.RepositoryUrl == "https://github.com/acme/widgets" && workflow.BaseBranch == "develop");
+        Assert.Contains(workflows, workflow => workflow.RepositoryUrl == "https://github.com/acme/tools" && workflow.BaseBranch == "main");
     }
 
     [Fact]
