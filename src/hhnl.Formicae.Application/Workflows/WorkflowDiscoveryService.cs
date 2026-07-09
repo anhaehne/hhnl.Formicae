@@ -1,4 +1,5 @@
 using hhnl.Formicae.Application.Integrations;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Application.Workflows;
@@ -9,7 +10,8 @@ public sealed class WorkflowDiscoveryService(
     IOptions<WorkflowDiscoveryOptions> options,
     AiSettingsService? aiSettingsService = null,
     IDevOpsIntegrationStore? integrationStore = null,
-    WorkflowDefinitionService? workflowDefinitions = null)
+    WorkflowDefinitionService? workflowDefinitions = null,
+    ILogger<WorkflowDiscoveryService>? logger = null)
 {
     public async Task<int> DiscoverReadyToPlanWorkflowsAsync(CancellationToken cancellationToken)
     {
@@ -30,38 +32,48 @@ public sealed class WorkflowDiscoveryService(
 
         foreach (var repository in repositories)
         {
-            var issues = await workItems.ListIssuesWithLabelAsync(
-                repository.RepositoryUrl,
-                WorkItemWorkflowLabels.ReadyToPlan,
-                cancellationToken);
-
-            foreach (var issue in issues)
+            try
             {
-                if (await store.GetWorkflowByIssueUrlAsync(issue.Url, cancellationToken) is not null)
+                var issues = await workItems.ListIssuesWithLabelAsync(
+                    repository.RepositoryUrl,
+                    WorkItemWorkflowLabels.ReadyToPlan,
+                    cancellationToken);
+
+                foreach (var issue in issues)
                 {
-                    continue;
+                    if (await store.GetWorkflowByIssueUrlAsync(issue.Url, cancellationToken) is not null)
+                    {
+                        continue;
+                    }
+
+                    var workflow = new Workflow
+                    {
+                        IssueUrl = issue.Url,
+                        RepositoryUrl = repository.RepositoryUrl,
+                        BaseBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "main" : repository.DefaultBranch,
+                        Model = model,
+                        Status = WorkflowStatus.Queued,
+                        CurrentStep = WorkflowStep.None,
+                        WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
+                        WorkflowDefinitionVersionId = definitionVersion.Id,
+                        DslSchemaVersion = definitionVersion.DslSchemaVersion
+                    };
+
+                    await store.CreateWorkflowAsync(workflow, cancellationToken);
+                    await store.AddLogAsync(new WorkflowLog
+                    {
+                        WorkflowId = workflow.Id,
+                        Message = $"Workflow queued from GitHub issue label '{WorkItemWorkflowLabels.ReadyToPlan}'."
+                    }, cancellationToken);
+                    created++;
                 }
-
-                var workflow = new Workflow
-                {
-                    IssueUrl = issue.Url,
-                    RepositoryUrl = repository.RepositoryUrl,
-                    BaseBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "main" : repository.DefaultBranch,
-                    Model = model,
-                    Status = WorkflowStatus.Queued,
-                    CurrentStep = WorkflowStep.None,
-                    WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
-                    WorkflowDefinitionVersionId = definitionVersion.Id,
-                    DslSchemaVersion = definitionVersion.DslSchemaVersion
-                };
-
-                await store.CreateWorkflowAsync(workflow, cancellationToken);
-                await store.AddLogAsync(new WorkflowLog
-                {
-                    WorkflowId = workflow.Id,
-                    Message = $"Workflow queued from GitHub issue label '{WorkItemWorkflowLabels.ReadyToPlan}'."
-                }, cancellationToken);
-                created++;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger?.LogWarning(
+                    exception,
+                    "Failed to discover workflows for repository {RepositoryUrl}.",
+                    repository.RepositoryUrl);
             }
         }
 

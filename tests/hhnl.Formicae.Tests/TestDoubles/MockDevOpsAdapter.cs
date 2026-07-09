@@ -28,6 +28,7 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Exception? ReactToIssueCommentException { get; set; }
     public Exception? ReactToPullRequestCommentException { get; set; }
     public Exception? CreateBranchException { get; set; }
+    public Dictionary<string, Exception> ListIssuesWithLabelExceptions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public MockDevOpsAdapter AddIssue(string issueUrl, string title, string body, params string[] comments)
         => AddIssueWithLabels(issueUrl, title, body, [WorkItemWorkflowLabels.ReadyToPlan, WorkItemWorkflowLabels.ReadyToImplement], comments);
@@ -103,6 +104,11 @@ public sealed class MockDevOpsAdapter : IWorkItemProvider, ISourceControlProvide
     public Task<IReadOnlyList<WorkItem>> ListIssuesWithLabelAsync(string repositoryUrl, string label, CancellationToken cancellationToken)
     {
         ListIssuesWithLabelCalls.Add(new ListIssuesWithLabelCall(repositoryUrl, label));
+        if (ListIssuesWithLabelExceptions.TryGetValue(repositoryUrl, out var exception))
+        {
+            throw exception;
+        }
+
         return Task.FromResult<IReadOnlyList<WorkItem>>(workItems.Values
             .Where(workItem => workItem.Url.StartsWith(repositoryUrl.TrimEnd('/') + "/issues/", StringComparison.OrdinalIgnoreCase)
                 && workItem.HasLabel(label))
