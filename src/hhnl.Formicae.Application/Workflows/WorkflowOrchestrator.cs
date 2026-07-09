@@ -152,7 +152,7 @@ public sealed class WorkflowOrchestrator(
 
         var isRevision = IsPlanRevision(workflow.PlanArtifact);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Plan, workflow, issue, cancellationToken);
-        var branch = workflow.BranchName ?? $"formicae/{workflow.Id:N}";
+        var branch = workflow.BaseBranch;
 
         run.FailureReason = null;
         await StartTaskRunAsync(workflow, run, cancellationToken);
