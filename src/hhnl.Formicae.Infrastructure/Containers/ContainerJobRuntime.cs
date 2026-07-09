@@ -61,9 +61,9 @@ public sealed class ContainerJobRuntime(
     IOptions<ContainerRuntimeOptions> options,
     IEnumerable<IWorkflowTickSignal> tickSignals) : IJobRuntime
 {
-    private const string ManagedByLabel = "formicae.hhnl.de/managed-by";
+    private const string ManagedByLabel = "formicae.managed-by";
     private const string ManagedByValue = "formicae";
-    private const string JobLabel = "formicae.hhnl.de/job";
+    private const string JobLabel = "formicae.job";
 
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {

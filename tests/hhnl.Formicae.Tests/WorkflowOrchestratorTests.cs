@@ -2414,8 +2414,8 @@ public sealed class AdapterContractTests
         var run = Assert.Single(cli.Calls, call => call.Arguments.FirstOrDefault() == "run");
         Assert.Equal("podman", run.Executable);
         Assert.Contains("--detach", run.Arguments);
-        Assert.Contains("formicae.hhnl.de/managed-by=formicae", run.Arguments);
-        Assert.Contains("formicae.hhnl.de/job=formicae-plan-test", run.Arguments);
+        Assert.Contains("formicae.managed-by=formicae", run.Arguments);
+        Assert.Contains("formicae.job=formicae-plan-test", run.Arguments);
         Assert.Contains("FORMICAE_TASK_KIND=Plan", run.Arguments);
         Assert.Contains("LLM_API_KEY=secret", run.Arguments);
         Assert.Contains("formicae-net", run.Arguments);

@@ -238,7 +238,7 @@ public sealed class KubernetesJobRunner(
         {
             [ManagedByLabel] = ManagedByValue,
             ["app.kubernetes.io/name"] = "formicae-agent-job",
-            ["formicae.hhnl.de/task"] = spec.Name
+            ["formicae-task"] = spec.Name
         };
 
         var envFrom = new List<V1EnvFromSource>();
@@ -393,7 +393,7 @@ public sealed class KubernetesJobRunner(
                     {
                         [ManagedByLabel] = ManagedByValue,
                         ["app.kubernetes.io/name"] = "formicae-agent-secret",
-                        ["formicae.hhnl.de/task"] = spec.Name
+                        ["formicae-task"] = spec.Name
                     }
                 },
                 Type = "Opaque",
@@ -445,7 +445,7 @@ public sealed class KubernetesJobRunner(
                 {
                     [ManagedByLabel] = ManagedByValue,
                     ["app.kubernetes.io/name"] = "formicae-agent-context",
-                    ["formicae.hhnl.de/task"] = spec.Name
+                    ["formicae-task"] = spec.Name
                 },
                 OwnerReferences = BuildOwnerReferences(job)
             },
