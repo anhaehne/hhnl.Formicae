@@ -1,5 +1,6 @@
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
+using hhnl.Formicae.Infrastructure.Containers;
 using hhnl.Formicae.Infrastructure.DevOps;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
@@ -39,6 +40,28 @@ public static class DependencyInjection
         services.Configure<WorkflowDiscoveryOptions>(configuration.GetSection("WorkflowDiscovery"));
         services.Configure<OpenHandsOptions>(configuration.GetSection("OpenHands"));
         services.Configure<KubernetesJobOptions>(configuration.GetSection("KubernetesJobs"));
+        services.Configure<ContainerRuntimeOptions>(configuration.GetSection("ContainerRuntime"));
+        services.Configure<RuntimeJobOptions>(configuration.GetSection("RuntimeJobs"));
+        services.PostConfigure<RuntimeJobOptions>(options =>
+        {
+            if (IsMode(configuration, "JobRuntime", "Kubernetes") || IsMode(configuration, "JobRuntimeMode", "Kubernetes"))
+            {
+                var kubernetesOptions = new KubernetesJobOptions();
+                configuration.GetSection("KubernetesJobs").Bind(kubernetesOptions);
+                options.Image = kubernetesOptions.Image;
+                options.WorkerCallbackUrl = kubernetesOptions.WorkerCallbackUrl;
+                options.WorkerCallbackSecret = kubernetesOptions.WorkerCallbackSecret;
+                options.CodexAuthSecretKey = kubernetesOptions.CodexAuthSecretKey;
+                options.CodexAuthMountPath = kubernetesOptions.CodexAuthMountPath;
+                return;
+            }
+
+            var containerOptions = new ContainerRuntimeOptions();
+            configuration.GetSection("ContainerRuntime").Bind(containerOptions);
+            options.Image = containerOptions.Image;
+            options.WorkerCallbackUrl = containerOptions.WorkerCallbackUrl;
+            options.WorkerCallbackSecret = containerOptions.WorkerCallbackSecret;
+        });
         services.AddSingleton<IPromptRenderer, FilePromptRenderer>();
         services.AddScoped<IGitHubAppClient, GitHubAppClient>();
         services.AddScoped<IGitHubClientFactory, GitHubClientFactory>();
@@ -100,12 +123,21 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
-            services.AddSingleton<IKubernetesJobRunner, KubernetesJobRunner>();
+            if (IsMode(configuration, "JobRuntime", "Kubernetes") || IsMode(configuration, "JobRuntimeMode", "Kubernetes"))
+            {
+                services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
+                services.AddSingleton<IJobRuntime, KubernetesJobRunner>();
+            }
+            else
+            {
+                services.AddSingleton<IContainerCli, ProcessContainerCli>();
+                services.AddSingleton<IJobRuntime, ContainerJobRuntime>();
+            }
+
             services.AddScoped<CodexAuthSetupService>();
             services.AddScoped<IAgentRunner>(serviceProvider => new OpenHandsAgentRunner(
-                serviceProvider.GetRequiredService<IKubernetesJobRunner>(),
-                serviceProvider.GetRequiredService<IOptions<KubernetesJobOptions>>(),
+                serviceProvider.GetRequiredService<IJobRuntime>(),
+                serviceProvider.GetRequiredService<IOptions<RuntimeJobOptions>>(),
                 serviceProvider.GetRequiredService<IOptions<OpenHandsOptions>>(),
                 serviceProvider.GetService<AiSettingsService>(),
                 serviceProvider.GetRequiredService<IDevOpsIntegrationStore>(),

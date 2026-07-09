@@ -18,6 +18,7 @@ public sealed class KustomizeOverlayTests
         Assert.Contains("kind: Role", manifest);
         Assert.Contains("PersistenceMode: Postgres", manifest);
         Assert.Contains("AgentMode: Fake", manifest);
+        Assert.Contains("JobRuntime: Kubernetes", manifest);
         Assert.Contains("image: localhost/hhnl-formicae-api:e2e", manifest);
     }
 

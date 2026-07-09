@@ -1,11 +1,15 @@
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
+using hhnl.Formicae.Infrastructure;
+using hhnl.Formicae.Infrastructure.Containers;
 using hhnl.Formicae.Infrastructure.Fakes;
 using hhnl.Formicae.Infrastructure.GitHub;
 using hhnl.Formicae.Infrastructure.Kubernetes;
 using hhnl.Formicae.Infrastructure.OpenHands;
 using hhnl.Formicae.Infrastructure.Prompts;
 using hhnl.Formicae.Tests.TestDoubles;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Octokit;
 using Workflow = hhnl.Formicae.Application.Workflows.Workflow;
@@ -1685,7 +1689,7 @@ public sealed class AdapterContractTests
     [Fact]
     public void Kubernetes_manifest_contains_container_environment_and_command()
     {
-        var manifest = KubernetesJobManifest.Render(new KubernetesJobSpec(
+        var manifest = KubernetesJobManifest.Render(new RuntimeJobSpec(
             "formicae-plan-test",
             "worker:test",
             new Dictionary<string, string> { ["FORMICAE_TASK_KIND"] = "Plan" },
@@ -1704,7 +1708,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
         var start = await runner.StartAsync(new AgentTask(
@@ -1720,7 +1724,7 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("worker:test", jobRunner.LastSpec.Image);
-        Assert.Equal(KubernetesJobAuthMethods.ApiKey, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(RuntimeJobAuthMethods.ApiKey, jobRunner.LastSpec.AuthMethod);
         Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
         Assert.Equal("test-model", jobRunner.LastSpec.Environment["LLM_MODEL"]);
         Assert.Equal("Plan this", jobRunner.LastSpec.Environment["FORMICAE_TASK_PROMPT"]);
@@ -1744,7 +1748,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "option-model" }),
             settingsService);
 
@@ -1763,6 +1767,38 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_passes_api_key_secret_environment_to_runtime_spec()
+    {
+        var settingsStore = new InMemoryAiSettingsStore();
+        var settingsService = new AiSettingsService(settingsStore, Options.Create(new OpenHandsOptions()), new SystemClock());
+        await settingsService.UpdateAsync(new UpdateAiSettingsRequest(
+            AuthMethod: OpenHandsAuthMethods.ApiKey,
+            LlmApiKey: "secret-key",
+            ApiKeyEnvironmentVariable: "CUSTOM_API_KEY",
+            Id: "api-ai",
+            Name: "API AI"), CancellationToken.None);
+        var jobRunner = new CapturingJobRunner();
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions()),
+            settingsService);
+
+        await runner.StartAsync(new AgentTask(
+            Guid.Parse("12121212-1212-1212-1212-121212121212"),
+            TaskRunKind.Plan,
+            "Plan this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+
+        Assert.NotNull(jobRunner.LastSpec);
+        Assert.NotNull(jobRunner.LastSpec.SecretEnvironment);
+        Assert.Equal("secret-key", jobRunner.LastSpec.SecretEnvironment.Data["CUSTOM_API_KEY"]);
+        Assert.False(jobRunner.LastSpec.Environment.ContainsKey("CUSTOM_API_KEY"));
+    }
+
+    [Fact]
     public async Task OpenHands_runner_uses_prompt_hash_and_unique_nonce_in_job_name()
     {
         var workflowId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -1771,7 +1807,7 @@ public sealed class AdapterContractTests
         var repeatedJobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             firstJobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
         await runner.StartAsync(new AgentTask(
@@ -1783,7 +1819,7 @@ public sealed class AdapterContractTests
             null), CancellationToken.None);
         runner = new OpenHandsAgentRunner(
             secondJobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
         await runner.StartAsync(new AgentTask(
             workflowId,
@@ -1794,7 +1830,7 @@ public sealed class AdapterContractTests
             null), CancellationToken.None);
         runner = new OpenHandsAgentRunner(
             repeatedJobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
         await runner.StartAsync(new AgentTask(
             workflowId,
@@ -1819,7 +1855,7 @@ public sealed class AdapterContractTests
     {
         var jobRunner = new CapturingJobRunner
         {
-            Result = new KubernetesJobResult(true, "formicae-plan-test", """
+            Result = new RuntimeJobResult(true, "formicae-plan-test", """
                 apiVersion: batch/v1
                 kind: Job
                 --- pod/formicae-plan-test-pod logs ---
@@ -1831,7 +1867,7 @@ public sealed class AdapterContractTests
         };
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
 
         var start = await runner.StartAsync(new AgentTask(
@@ -1857,7 +1893,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions
             {
                 AuthMethod = OpenHandsAuthMethods.CodexSubscription,
@@ -1880,7 +1916,7 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("worker:test", jobRunner.LastSpec.Image);
-        Assert.Equal(KubernetesJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(RuntimeJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
         Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
         Assert.Equal(OpenHandsAuthMethods.CodexSubscription, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
         Assert.Equal("gpt-5.2-codex", jobRunner.LastSpec.Environment["FORMICAE_MODEL"]);
@@ -1906,7 +1942,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions()),
             settingsService);
 
@@ -1930,7 +1966,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions
             {
                 AuthMethod = OpenHandsAuthMethods.CodexSubscription,
@@ -1951,7 +1987,7 @@ public sealed class AdapterContractTests
         Assert.True(result.Succeeded);
         Assert.NotNull(jobRunner.LastSpec);
         Assert.Equal("worker:test", jobRunner.LastSpec.Image);
-        Assert.Equal(KubernetesJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(RuntimeJobAuthMethods.CodexSubscription, jobRunner.LastSpec.AuthMethod);
         Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
         Assert.Equal("AddressComments", jobRunner.LastSpec.Environment["FORMICAE_TASK_KIND"]);
         Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
@@ -1983,7 +2019,7 @@ public sealed class AdapterContractTests
         var gitHubAppClient = new RecordingOpenHandsGitHubAppClient("installation-token");
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { AuthMethod = OpenHandsAuthMethods.CodexSubscription }),
             null,
             integrationStore,
@@ -2008,7 +2044,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var runner = new OpenHandsAgentRunner(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions
             {
                 AuthMethod = OpenHandsAuthMethods.CodexSubscription,
@@ -2039,7 +2075,7 @@ public sealed class AdapterContractTests
     {
         var runner = new OpenHandsAgentRunner(
             new CapturingJobRunner(),
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions { AuthMethod = "Unknown" }));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.StartAsync(new AgentTask(
@@ -2086,12 +2122,12 @@ public sealed class AdapterContractTests
             CodexAuthSecretName = "formicae-codex-auth"
         }), []);
 
-        var start = await runner.StartJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new RuntimeJobSpec(
             "formicae-plan-test",
             "worker:test",
             new Dictionary<string, string> { ["FORMICAE_TASK_KIND"] = "Plan" },
             ["dotnet", "hhnl.Formicae.Worker.dll"]), CancellationToken.None);
-        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.ExternalId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.True(result.Succeeded);
@@ -2140,13 +2176,13 @@ public sealed class AdapterContractTests
             CodexAuthSecretName = "formicae-codex-auth"
         }), []);
 
-        var start = await runner.StartJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new RuntimeJobSpec(
             "formicae-plan-test",
             "node:22-bookworm-slim",
             new Dictionary<string, string> { ["CODEX_HOME"] = "/tmp/codex-home" },
             ["/bin/sh", "-lc", "run codex"],
-            KubernetesJobAuthMethods.CodexSubscription), CancellationToken.None);
-        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
+            RuntimeJobAuthMethods.CodexSubscription), CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.ExternalId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.True(result.Succeeded);
@@ -2224,16 +2260,16 @@ public sealed class AdapterContractTests
             DeleteFinishedJobs = true
         }), []);
 
-        var start = await runner.StartJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new RuntimeJobSpec(
             "formicae-address-comments",
             "formicae-agent:test",
             new Dictionary<string, string>(),
             ["/bin/sh", "-lc", "run agent"],
             ContextFiles:
             [
-                new KubernetesJobContextFile("pull-request-conversation.md", "# Conversation")
+                new RuntimeJobContextFile("pull-request-conversation.md", "# Conversation")
             ]), CancellationToken.None);
-        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.ExternalId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.True(result.Succeeded);
@@ -2291,17 +2327,166 @@ public sealed class AdapterContractTests
             TimeoutSeconds = 5
         }), []);
 
-        var start = await runner.StartJobAsync(new KubernetesJobSpec(
+        var start = await runner.StartJobAsync(new RuntimeJobSpec(
             "formicae-plan-test",
             "worker:test",
             new Dictionary<string, string>(),
             ["dotnet", "hhnl.Formicae.Worker.dll"]), CancellationToken.None);
-        var result = await runner.TryGetJobResultAsync(start.JobName, CancellationToken.None);
+        var result = await runner.TryGetJobResultAsync(start.ExternalId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.False(result.Succeeded);
         Assert.Equal("The agent container failed.", result.FailureReason);
         Assert.Contains("agent error", result.Logs);
+    }
+
+    [Fact]
+    public void Infrastructure_registers_container_runtime_when_job_runtime_is_unset()
+    {
+        var services = new ServiceCollection();
+        services.AddFormicaeInfrastructure(BuildInfrastructureConfiguration(new Dictionary<string, string?>
+        {
+            ["UseFakeAdapters"] = "false",
+            ["PersistenceMode"] = "InMemory",
+            ["WorkItemMode"] = "Fake",
+            ["SourceControlMode"] = "Fake",
+            ["AgentMode"] = "OpenHands"
+        }));
+
+        var descriptor = Assert.Single(services, service => service.ServiceType == typeof(IJobRuntime));
+        Assert.Equal(typeof(ContainerJobRuntime), descriptor.ImplementationType);
+    }
+
+    [Fact]
+    public void Infrastructure_registers_kubernetes_runtime_when_selected()
+    {
+        var services = new ServiceCollection();
+        services.AddFormicaeInfrastructure(BuildInfrastructureConfiguration(new Dictionary<string, string?>
+        {
+            ["UseFakeAdapters"] = "false",
+            ["PersistenceMode"] = "InMemory",
+            ["WorkItemMode"] = "Fake",
+            ["SourceControlMode"] = "Fake",
+            ["AgentMode"] = "OpenHands",
+            ["JobRuntime"] = "Kubernetes"
+        }));
+
+        var descriptor = Assert.Single(services, service => service.ServiceType == typeof(IJobRuntime));
+        Assert.Equal(typeof(KubernetesJobRunner), descriptor.ImplementationType);
+    }
+
+    [Fact]
+    public void Infrastructure_fake_adapters_register_fake_agent_runner()
+    {
+        var provider = new ServiceCollection()
+            .AddFormicaeInfrastructure(BuildInfrastructureConfiguration(new Dictionary<string, string?>
+            {
+                ["UseFakeAdapters"] = "true"
+            }))
+            .BuildServiceProvider();
+
+        Assert.IsType<FakeAgentRunner>(provider.GetRequiredService<IAgentRunner>());
+    }
+
+    [Fact]
+    public async Task Container_runtime_starts_container_with_env_command_mounts_and_labels()
+    {
+        using var workspace = new TemporaryDirectory();
+        var cli = new CapturingContainerCli();
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions
+        {
+            Image = "worker:test",
+            WorkspaceRoot = workspace.Path,
+            Network = "formicae-net",
+            Executable = "podman"
+        }), []);
+
+        var start = await runtime.StartJobAsync(new RuntimeJobSpec(
+            "formicae-plan-test",
+            "worker:test",
+            new Dictionary<string, string> { ["FORMICAE_TASK_KIND"] = "Plan" },
+            ["dotnet", "hhnl.Formicae.Worker.dll"],
+            ContextFiles: [new RuntimeJobContextFile("pull-request-conversation.md", "# Conversation")],
+            SecretFiles: [new RuntimeJobSecretFile("codex-auth", "/root/.codex", new Dictionary<string, string> { ["auth.json"] = "{}" })],
+            SecretEnvironment: new RuntimeJobSecretEnvironment("api-auth", new Dictionary<string, string> { ["LLM_API_KEY"] = "secret" })), CancellationToken.None);
+
+        Assert.Equal("formicae-plan-test", start.ExternalId);
+        var run = Assert.Single(cli.Calls, call => call.Arguments.FirstOrDefault() == "run");
+        Assert.Equal("podman", run.Executable);
+        Assert.Contains("--detach", run.Arguments);
+        Assert.Contains("formicae.hhnl.de/managed-by=formicae", run.Arguments);
+        Assert.Contains("formicae.hhnl.de/job=formicae-plan-test", run.Arguments);
+        Assert.Contains("FORMICAE_TASK_KIND=Plan", run.Arguments);
+        Assert.Contains("LLM_API_KEY=secret", run.Arguments);
+        Assert.Contains("formicae-net", run.Arguments);
+        Assert.Contains("worker:test", run.Arguments);
+        Assert.Contains("dotnet", run.Arguments);
+        Assert.True(File.Exists(System.IO.Path.Combine(workspace.Path, "formicae-plan-test", "context", "pull-request-conversation.md")));
+        Assert.True(File.Exists(System.IO.Path.Combine(workspace.Path, "formicae-plan-test", "secrets", "codex-auth", "auth.json")));
+    }
+
+    [Fact]
+    public async Task Container_runtime_returns_null_while_container_is_running()
+    {
+        var cli = new CapturingContainerCli();
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: true, exitCode: 0, DateTimeOffset.UtcNow));
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions()), []);
+
+        var result = await runtime.TryGetJobResultAsync("formicae-plan-test", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task Container_runtime_returns_success_and_failure_from_exit_code_with_logs()
+    {
+        var cli = new CapturingContainerCli { Logs = "agent output" };
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: false, exitCode: 0, DateTimeOffset.UtcNow));
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: false, exitCode: 2, DateTimeOffset.UtcNow));
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions { DeleteFinishedContainers = false }), []);
+
+        var success = await runtime.TryGetJobResultAsync("formicae-plan-success", CancellationToken.None);
+        var failure = await runtime.TryGetJobResultAsync("formicae-plan-failure", CancellationToken.None);
+
+        Assert.NotNull(success);
+        Assert.True(success.Succeeded);
+        Assert.Equal("agent output", success.Logs);
+        Assert.NotNull(failure);
+        Assert.False(failure.Succeeded);
+        Assert.Equal("Container 'formicae-plan-failure' exited with code 2.", failure.FailureReason);
+        Assert.Equal(2, cli.Calls.Count(call => call.Arguments.FirstOrDefault() == "logs"));
+    }
+
+    [Fact]
+    public async Task Container_runtime_handles_timeout()
+    {
+        var cli = new CapturingContainerCli { Logs = "running output" };
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: true, exitCode: 0, DateTimeOffset.UtcNow.AddSeconds(-60)));
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions
+        {
+            TimeoutSeconds = 1,
+            DeleteFinishedContainers = true
+        }), []);
+
+        var result = await runtime.TryGetJobResultAsync("formicae-plan-timeout", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.False(result.Succeeded);
+        Assert.Equal("running output", result.Logs);
+        Assert.Contains("timed out after 1 seconds", result.FailureReason);
+        Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "--force", "formicae-plan-timeout"]));
+    }
+
+    [Fact]
+    public async Task Container_runtime_removes_finished_containers_when_configured()
+    {
+        var cli = new CapturingContainerCli();
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: false, exitCode: 0, DateTimeOffset.UtcNow));
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions { DeleteFinishedContainers = true }), []);
+
+        await runtime.TryGetJobResultAsync("formicae-plan-test", CancellationToken.None);
+
+        Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "formicae-plan-test"]));
     }
 
     private sealed class RecordingOpenHandsGitHubAppClient(string token) : IGitHubAppClient
@@ -2329,7 +2514,7 @@ public sealed class AdapterContractTests
         var settingsService = new AiSettingsService(new InMemoryAiSettingsStore(), Options.Create(new OpenHandsOptions()), new SystemClock());
         var jobRunner = new CapturingJobRunner
         {
-            Result = new KubernetesJobResult(
+            Result = new RuntimeJobResult(
                 true,
                 "formicae-codex-login",
                 "Follow these steps\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n   \u001b[94mE4UQ-ZWLG0\u001b[0m\n",
@@ -2337,7 +2522,7 @@ public sealed class AdapterContractTests
         };
         var service = new CodexAuthSetupService(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions()),
             settingsService);
 
@@ -2361,7 +2546,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var service = new CodexAuthSetupService(
             jobRunner,
-            Options.Create(new KubernetesJobOptions { Image = "worker:test" }),
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
             Options.Create(new OpenHandsOptions()),
             settingsService);
 
@@ -2384,7 +2569,7 @@ public sealed class AdapterContractTests
         var jobRunner = new CapturingJobRunner();
         var service = new CodexAuthSetupService(
             jobRunner,
-            Options.Create(new KubernetesJobOptions
+            Options.Create(new RuntimeJobOptions
             {
                 Image = "worker:test",
                 WorkerCallbackUrl = "http://formicae-api/api/worker/agent-messages",
@@ -2400,7 +2585,7 @@ public sealed class AdapterContractTests
         Assert.NotNull(jobRunner.LastSpec);
         Assert.StartsWith("formicae-codex-login-", jobRunner.LastSpec.Name);
         Assert.Equal("worker:test", jobRunner.LastSpec.Image);
-        Assert.Equal(KubernetesJobAuthMethods.None, jobRunner.LastSpec.AuthMethod);
+        Assert.Equal(RuntimeJobAuthMethods.None, jobRunner.LastSpec.AuthMethod);
         Assert.Equal(["dotnet", "hhnl.Formicae.Worker.dll"], jobRunner.LastSpec.Command);
         Assert.Equal("CodexAuthSetup", jobRunner.LastSpec.Environment["FORMICAE_TASK_KIND"]);
         Assert.Equal("CodexSubscriptionSetup", jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
@@ -2412,22 +2597,74 @@ public sealed class AdapterContractTests
         Assert.Equal("callback-secret", jobRunner.LastSpec.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
     }
 
-    private sealed class CapturingJobRunner : IKubernetesJobRunner
+    private sealed class CapturingJobRunner : IJobRuntime
     {
-        public KubernetesJobSpec? LastSpec { get; private set; }
-        public KubernetesJobResult? Result { get; init; }
+        public RuntimeJobSpec? LastSpec { get; private set; }
+        public RuntimeJobResult? Result { get; init; }
 
-        public Task<KubernetesJobStartResult> StartJobAsync(KubernetesJobSpec spec, CancellationToken cancellationToken)
+        public Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
         {
             LastSpec = spec;
-            return Task.FromResult(new KubernetesJobStartResult(spec.Name));
+            return Task.FromResult(new RuntimeJobStartResult(spec.Name));
         }
 
-        public Task<KubernetesJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
-            => Task.FromResult<KubernetesJobResult?>(Result ?? new KubernetesJobResult(true, jobName, "ok", null));
+        public Task<RuntimeJobResult?> TryGetJobResultAsync(string jobName, CancellationToken cancellationToken)
+            => Task.FromResult<RuntimeJobResult?>(Result ?? new RuntimeJobResult(true, jobName, "ok", null));
 
         public Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
             => Task.FromResult(Result?.Logs ?? "running logs");
+    }
+
+    private static IConfiguration BuildInfrastructureConfiguration(IReadOnlyDictionary<string, string?> values)
+        => new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+
+    private static string ContainerInspectJson(bool running, int exitCode, DateTimeOffset startedAt)
+        => $$"""
+            [
+              {
+                "State": {
+                  "Running": {{running.ToString().ToLowerInvariant()}},
+                  "ExitCode": {{exitCode}},
+                  "StartedAt": "{{startedAt:O}}"
+                }
+              }
+            ]
+            """;
+
+    private sealed class CapturingContainerCli : IContainerCli
+    {
+        public List<ContainerCliCall> Calls { get; } = [];
+        public Queue<string> InspectResults { get; } = new();
+        public string Logs { get; init; } = string.Empty;
+
+        public Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+        {
+            Calls.Add(new ContainerCliCall(executable, arguments.ToArray()));
+            return arguments.FirstOrDefault() switch
+            {
+                "inspect" => Task.FromResult(new ContainerCliResult(0, InspectResults.Dequeue(), string.Empty)),
+                "logs" => Task.FromResult(new ContainerCliResult(0, Logs, string.Empty)),
+                _ => Task.FromResult(new ContainerCliResult(0, "ok", string.Empty))
+            };
+        }
+    }
+
+    private sealed record ContainerCliCall(string Executable, IReadOnlyList<string> Arguments);
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"formicae-tests-{Guid.NewGuid():N}");
+
+        public TemporaryDirectory()
+            => Directory.CreateDirectory(Path);
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 
     private sealed class CapturingKubernetesJobApi : IKubernetesJobApi

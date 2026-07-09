@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
-using hhnl.Formicae.Infrastructure.Kubernetes;
 using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Infrastructure.OpenHands;
@@ -11,21 +10,21 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 {
     private static readonly IReadOnlyList<string> WorkerCommand = ["dotnet", "hhnl.Formicae.Worker.dll"];
 
-    private readonly IKubernetesJobRunner jobRunner;
-    private readonly IOptions<KubernetesJobOptions> jobOptions;
+    private readonly IJobRuntime jobRuntime;
+    private readonly IOptions<RuntimeJobOptions> jobOptions;
     private readonly IOptions<OpenHandsOptions> openHandsOptions;
     private readonly AiSettingsService? aiSettingsService;
     private readonly IDevOpsIntegrationStore? integrationStore;
     private readonly IGitHubAppClient? gitHubAppClient;
 
-    public OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOptions<KubernetesJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions)
-        : this(jobRunner, jobOptions, openHandsOptions, null)
+    public OpenHandsAgentRunner(IJobRuntime jobRuntime, IOptions<RuntimeJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions)
+        : this(jobRuntime, jobOptions, openHandsOptions, null)
     {
     }
 
-    public OpenHandsAgentRunner(IKubernetesJobRunner jobRunner, IOptions<KubernetesJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions, AiSettingsService? aiSettingsService, IDevOpsIntegrationStore? integrationStore = null, IGitHubAppClient? gitHubAppClient = null)
+    public OpenHandsAgentRunner(IJobRuntime jobRuntime, IOptions<RuntimeJobOptions> jobOptions, IOptions<OpenHandsOptions> openHandsOptions, AiSettingsService? aiSettingsService, IDevOpsIntegrationStore? integrationStore = null, IGitHubAppClient? gitHubAppClient = null)
     {
-        this.jobRunner = jobRunner;
+        this.jobRuntime = jobRuntime;
         this.jobOptions = jobOptions;
         this.openHandsOptions = openHandsOptions;
         this.aiSettingsService = aiSettingsService;
@@ -38,26 +37,27 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var settings = aiSettingsService is null ? ResolveSettingsFromOptions(openHandsOptions.Value) : await aiSettingsService.ResolveAsync(cancellationToken);
         var gitAccessToken = await CreateGitAccessTokenAsync(task, cancellationToken);
         var spec = BuildSpec(task, settings, gitAccessToken);
-        var start = await jobRunner.StartJobAsync(spec, cancellationToken);
-        return new AgentRunStartResult(start.JobName);
+        var start = await jobRuntime.StartJobAsync(spec, cancellationToken);
+        return new AgentRunStartResult(start.ExternalId);
     }
 
     public async Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
     {
-        var result = await jobRunner.TryGetJobResultAsync(externalId, cancellationToken);
+        var result = await jobRuntime.TryGetJobResultAsync(externalId, cancellationToken);
         if (result is null) return null;
         var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
-        return new AgentRunResult(result.Succeeded, result.JobName, output, result.FailureReason);
+        return new AgentRunResult(result.Succeeded, result.ExternalId, output, result.FailureReason);
     }
 
-    private KubernetesJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
+    private RuntimeJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
     {
         var authMethod = ResolveAuthMethod(settings.AuthMethod);
         var model = ResolveModel(task, settings, authMethod);
         var jobName = BuildJobName(task);
         var environment = BuildEnvironment(task, jobName, model, settings, authMethod, jobOptions.Value, gitAccessToken);
         var secretFiles = BuildSecretFiles(jobName, settings, authMethod, jobOptions.Value);
-        return new KubernetesJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, ToKubernetesAuthMethod(authMethod), task.ContextFiles?.Select(file => new KubernetesJobContextFile(file.FileName, file.Content)).ToArray(), SecretFiles: secretFiles);
+        var secretEnvironment = BuildSecretEnvironment(jobName, settings, authMethod);
+        return new RuntimeJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, ToRuntimeAuthMethod(authMethod), task.ContextFiles?.Select(file => new RuntimeJobContextFile(file.FileName, file.Content)).ToArray(), SecretFiles: secretFiles, SecretEnvironment: secretEnvironment);
     }
 
     private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
@@ -144,7 +144,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         return IsApiKeyAuth(authMethod) ? "openhands/claude-sonnet-4" : string.Empty;
     }
 
-    private static Dictionary<string, string> BuildEnvironment(AgentTask task, string jobName, string model, ResolvedAiSettings settings, string authMethod, KubernetesJobOptions options, string? gitAccessToken)
+    private static Dictionary<string, string> BuildEnvironment(AgentTask task, string jobName, string model, ResolvedAiSettings settings, string authMethod, RuntimeJobOptions options, string? gitAccessToken)
     {
         var environment = new Dictionary<string, string>
         {
@@ -168,7 +168,6 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         {
             environment["LLM_MODEL"] = model;
             if (!string.IsNullOrWhiteSpace(settings.EndpointUrl)) environment["LLM_BASE_URL"] = settings.EndpointUrl;
-            if (!string.IsNullOrWhiteSpace(settings.LlmApiKey) && !string.IsNullOrWhiteSpace(settings.ApiKeyEnvironmentVariable)) environment[settings.ApiKeyEnvironmentVariable] = settings.LlmApiKey;
         }
         else if (IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription))
         {
@@ -188,24 +187,24 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         return environment;
     }
 
-    private static IReadOnlyList<KubernetesJobSecretFile>? BuildSecretFiles(string jobName, ResolvedAiSettings settings, string authMethod, KubernetesJobOptions options)
+    private static IReadOnlyList<RuntimeJobSecretFile>? BuildSecretFiles(string jobName, ResolvedAiSettings settings, string authMethod, RuntimeJobOptions options)
     {
         var credentialJson = settings.CodexAuthJson ?? settings.SubscriptionCredentialJson;
         if (!IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription) || string.IsNullOrWhiteSpace(credentialJson)) return null;
         var fileName = settings.SubscriptionCredentialFileName ?? options.CodexAuthSecretKey;
         var mountPath = settings.SubscriptionCredentialMountPath ?? options.CodexAuthMountPath;
-        return [new KubernetesJobSecretFile(KubernetesJobRunner.CodexAuthSecretName(jobName), mountPath, new Dictionary<string, string> { [fileName] = credentialJson })];
+        return [new RuntimeJobSecretFile($"{jobName}-codex-auth", mountPath, new Dictionary<string, string> { [fileName] = credentialJson })];
     }
 
-    private static KubernetesJobSecretEnvironment? BuildSecretEnvironment(string jobName, ResolvedAiSettings settings, string authMethod)
+    private static RuntimeJobSecretEnvironment? BuildSecretEnvironment(string jobName, ResolvedAiSettings settings, string authMethod)
     {
         if (!IsApiKeyAuth(authMethod) || string.IsNullOrWhiteSpace(settings.LlmApiKey) || string.IsNullOrWhiteSpace(settings.ApiKeyEnvironmentVariable))
         {
             return null;
         }
 
-        return new KubernetesJobSecretEnvironment(
-            KubernetesJobRunner.ApiKeySecretName(jobName),
+        return new RuntimeJobSecretEnvironment(
+            $"{jobName}-api-auth",
             new Dictionary<string, string> { [settings.ApiKeyEnvironmentVariable] = settings.LlmApiKey });
     }
     private static string ResolveAuthMethod(string authMethod)
@@ -216,8 +215,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         throw new InvalidOperationException($"Unsupported OpenHands auth method '{authMethod}'. Supported values are '{OpenHandsAuthMethods.ApiKey}', '{OpenHandsAuthMethods.OpenHandsCloud}' and '{OpenHandsAuthMethods.CodexSubscription}'.");
     }
 
-    private static string ToKubernetesAuthMethod(string authMethod)
-        => IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription) ? KubernetesJobAuthMethods.CodexSubscription : KubernetesJobAuthMethods.ApiKey;
+    private static string ToRuntimeAuthMethod(string authMethod)
+        => IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription) ? RuntimeJobAuthMethods.CodexSubscription : RuntimeJobAuthMethods.ApiKey;
 
     private static bool IsApiKeyAuth(string authMethod)
         => IsAuthMethod(authMethod, OpenHandsAuthMethods.ApiKey) || IsAuthMethod(authMethod, OpenHandsAuthMethods.OpenHandsCloud);

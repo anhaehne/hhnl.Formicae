@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using hhnl.Formicae.Application.Workflows;
-using hhnl.Formicae.Infrastructure.Kubernetes;
 using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Infrastructure.OpenHands;
@@ -11,8 +10,8 @@ public sealed record CodexAuthSetupStartResponse(string AiSettingsId, string Job
 public sealed record CodexAuthSetupStatusResponse(string AiSettingsId, string JobName, string Status, string Output, string? FailureReason, string? DeviceLoginUrl, string? DeviceLoginCode);
 
 public sealed class CodexAuthSetupService(
-    IKubernetesJobRunner jobRunner,
-    IOptions<KubernetesJobOptions> jobOptions,
+    IJobRuntime jobRuntime,
+    IOptions<RuntimeJobOptions> jobOptions,
     IOptions<OpenHandsOptions> openHandsOptions,
     AiSettingsService aiSettingsService)
 {
@@ -50,17 +49,17 @@ public sealed class CodexAuthSetupService(
         if (!string.IsNullOrWhiteSpace(jobOptions.Value.WorkerCallbackUrl)) environment["FORMICAE_WORKER_CALLBACK_URL"] = jobOptions.Value.WorkerCallbackUrl;
         if (!string.IsNullOrWhiteSpace(jobOptions.Value.WorkerCallbackSecret)) environment["FORMICAE_WORKER_CALLBACK_SECRET"] = jobOptions.Value.WorkerCallbackSecret;
 
-        var spec = new KubernetesJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, KubernetesJobAuthMethods.None);
-        var start = await jobRunner.StartJobAsync(spec, cancellationToken);
-        return new CodexAuthSetupStartResponse(settings.Id, start.JobName, "Running", string.Empty, null, null, null);
+        var spec = new RuntimeJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, RuntimeJobAuthMethods.None);
+        var start = await jobRuntime.StartJobAsync(spec, cancellationToken);
+        return new CodexAuthSetupStartResponse(settings.Id, start.ExternalId, "Running", string.Empty, null, null, null);
     }
 
     public async Task<CodexAuthSetupStatusResponse> GetStatusAsync(string aiSettingsId, string jobName, CancellationToken cancellationToken)
     {
-        var result = await jobRunner.TryGetJobResultAsync(jobName, cancellationToken);
+        var result = await jobRuntime.TryGetJobResultAsync(jobName, cancellationToken);
         if (result is null)
         {
-            var logs = await jobRunner.ReadJobLogsAsync(jobName, cancellationToken);
+            var logs = await jobRuntime.ReadJobLogsAsync(jobName, cancellationToken);
             var output = CleanOutput(logs);
             return new CodexAuthSetupStatusResponse(aiSettingsId, jobName, "Running", output, null, ExtractDeviceLoginUrl(output), ExtractDeviceLoginCode(output));
         }

@@ -39,6 +39,7 @@ config:
   workItemMode: "GitHub"
   sourceControlMode: "GitHub"
   agentMode: "OpenHands"
+  jobRuntime: "Kubernetes"
   openHandsAuthMethod: "ApiKey"
   openHandsProvider: ""
   openHandsDefaultModel: ""
