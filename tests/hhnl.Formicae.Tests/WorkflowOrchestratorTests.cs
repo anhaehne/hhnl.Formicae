@@ -933,6 +933,41 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
+    public async Task AdvanceRunnableWorkflows_Marks_address_comments_run_failed_when_agent_start_fails()
+    {
+        var store = new InMemoryWorkflowStore();
+        var devOps = new MockDevOpsAdapter()
+            .AddPullRequestComment("review", "reviewer", "Please address this.", PullRequestCommentKind.ReviewComment);
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/101",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            BranchName = "formicae/address-comments-start-failure",
+            PullRequestUrl = devOps.DefaultPullRequestUrl,
+            Status = WorkflowStatus.Reviewing,
+            CurrentStep = WorkflowStep.AddressComments
+        }, CancellationToken.None);
+        var orchestrator = new WorkflowOrchestrator(
+            store,
+            devOps,
+            devOps,
+            new ThrowingAgentRunner("docker not found"),
+            new FilePromptRenderer());
+
+        var advanced = await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, CancellationToken.None);
+        Assert.Equal(1, advanced);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Failed, updated.Status);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Failed, run.Status);
+        Assert.Null(run.ExternalId);
+        Assert.Contains("docker not found", run.FailureReason);
+    }
+
+    [Fact]
     public async Task AdvanceRunnableWorkflows_Completes_reviewing_workflow_when_pull_request_is_merged()
     {
         var store = new InMemoryWorkflowStore();
@@ -1616,6 +1651,15 @@ public sealed class WorkflowOrchestratorTests
 
         public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
             => Task.FromResult(Results.TryGetValue(externalId, out var result) ? result : null);
+    }
+
+    private sealed class ThrowingAgentRunner(string message) : IAgentRunner
+    {
+        public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
+            => throw new InvalidOperationException(message);
+
+        public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+            => Task.FromResult<AgentRunResult?>(null);
     }
 }
 

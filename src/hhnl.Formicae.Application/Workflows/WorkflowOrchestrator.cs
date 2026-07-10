@@ -162,7 +162,7 @@ public sealed class WorkflowOrchestrator(
             await TryReactToIssueCommentAsync(workflow, run, comment, cancellationToken);
         }
 
-        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
+        var start = await StartAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, branch, workflow.Model), cancellationToken);
         await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
@@ -288,7 +288,7 @@ public sealed class WorkflowOrchestrator(
         var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
         await StartTaskRunAsync(workflow, run, cancellationToken);
 
-        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
+        var start = await StartAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
         await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
@@ -399,7 +399,7 @@ public sealed class WorkflowOrchestrator(
             await TryReactToPullRequestCommentAsync(workflow, run, comment, cancellationToken);
         }
 
-        var start = await agentRunner.StartAsync(new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
+        var start = await StartAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.AddressComments, prompt, workflow.RepositoryUrl, branch, workflow.Model, contextFiles), cancellationToken);
         await AssignExternalJobAsync(workflow, run, start.ExternalId, cancellationToken);
 
         if (start.CompletedResult is null)
@@ -539,6 +539,19 @@ public sealed class WorkflowOrchestrator(
             taskKind = run.Kind.ToString(),
             externalId
         }, cancellationToken);
+    }
+
+    private async Task<AgentRunStartResult> StartAgentTaskAsync(Workflow workflow, TaskRun run, AgentTask task, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await agentRunner.StartAsync(task, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await CompleteTaskRunAsync(workflow, run, string.Empty, false, exception.Message, cancellationToken);
+            throw;
+        }
     }
 
     private Task CompleteTaskRunAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)

@@ -117,6 +117,7 @@ jobs:
             --create-namespace \
             --reuse-values \
             --set "image.tag=${version}" \
+            --set "config.jobRuntime=Kubernetes" \
             --set "config.kubernetesJobsImage=${worker_image}"
 
       - name: Wait for API rollout

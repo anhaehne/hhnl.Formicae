@@ -97,7 +97,7 @@ helm upgrade --install formicae formicae/formicae `
 
 ## Automatic Cluster Deployment
 
-The `Deploy Formicae` GitHub Actions workflow upgrades the live Helm release after the `Build container images` workflow completes successfully on `main`. It also supports manual `workflow_dispatch` runs. The workflow uses the chart from the same commit, reuses existing Helm values, and only updates `image.tag` plus `config.kubernetesJobsImage`, so runtime secrets and installation-specific settings stay in the cluster.
+The `Deploy Formicae` GitHub Actions workflow upgrades the live Helm release after the `Build container images` workflow completes successfully on `main`. It also supports manual `workflow_dispatch` runs. The workflow uses the chart from the same commit, reuses existing Helm values, and updates `image.tag`, `config.jobRuntime=Kubernetes`, and `config.kubernetesJobsImage`, so runtime secrets and installation-specific settings stay in the cluster.
 
 Run the deployment job on the already installed in-cluster GitHub Actions runner by setting the optional repository variable `FORMICAE_DEPLOY_RUNNER` to the runner label or runner scale-set name. If unset, the workflow targets `self-hosted`. Optional repository variables `FORMICAE_HELM_RELEASE` and `FORMICAE_HELM_NAMESPACE` default to `formicae`.
 
