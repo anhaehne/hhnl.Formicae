@@ -35,6 +35,7 @@ agentJobs:
       memory: 4Gi
   dind:
     enabled: true
+    configureNamespacePodSecurity: true
     image: docker:29.7.2-dind
     storageSizeLimit: 20Gi
     resources:

@@ -11,6 +11,31 @@ permissions:
   contents: read
 
 jobs:
+  helm-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate Helm chart runtime settings
+        run: |
+          set -euo pipefail
+          helm lint deploy/helm/formicae
+
+          rendered="$(helm template formicae deploy/helm/formicae --namespace formicae)"
+          for expected in \
+            'KubernetesJobs__EnableNestedContainerRuntime: "true"' \
+            'KubernetesJobs__Namespace: "formicae"'; do
+            grep -Fq "$expected" <<<"$rendered"
+          done
+
+          dind_disabled="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set agentJobs.dind.enabled=false)"
+          grep -Fq 'KubernetesJobs__EnableNestedContainerRuntime: "false"' <<<"$dind_disabled"
+
   unit-and-browser:
     runs-on: ubuntu-latest
     steps:

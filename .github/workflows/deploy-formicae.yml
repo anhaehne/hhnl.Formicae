@@ -112,6 +112,34 @@ jobs:
           version="${{ steps.version.outputs.value }}"
           worker_image="${REGISTRY}/${DOCKERHUB_NAMESPACE}/hhnl-formicae-worker:${version}"
 
+          release_values='{}'
+          if helm status "${RELEASE_NAME}" --namespace "${RELEASE_NAMESPACE}" >/dev/null 2>&1; then
+            release_values="$(helm get values "${RELEASE_NAME}" --namespace "${RELEASE_NAMESPACE}" --output json)"
+          fi
+
+          jobs_namespace="$(jq -r --arg fallback "${RELEASE_NAMESPACE}" \
+            '.config.kubernetesJobsNamespace // "" | if length == 0 then $fallback else . end' \
+            <<<"${release_values}")"
+          dind_enabled="$(jq -r \
+            'if .agentJobs.dind.enabled == null then true else .agentJobs.dind.enabled end' \
+            <<<"${release_values}")"
+          configure_pod_security="$(jq -r \
+            'if .agentJobs.dind.configureNamespacePodSecurity == null then true else .agentJobs.dind.configureNamespacePodSecurity end' \
+            <<<"${release_values}")"
+
+          if [ "${dind_enabled}" = "true" ] && [ "${configure_pod_security}" = "true" ]; then
+            if ! kubectl get namespace "${jobs_namespace}" >/dev/null 2>&1; then
+              kubectl create namespace "${jobs_namespace}"
+            fi
+            kubectl label namespace "${jobs_namespace}" --overwrite \
+              pod-security.kubernetes.io/enforce=privileged \
+              pod-security.kubernetes.io/enforce-version=latest \
+              pod-security.kubernetes.io/audit=baseline \
+              pod-security.kubernetes.io/audit-version=latest \
+              pod-security.kubernetes.io/warn=baseline \
+              pod-security.kubernetes.io/warn-version=latest
+          fi
+
           helm upgrade "${RELEASE_NAME}" "${CHART_DIR}" \
             --namespace "${RELEASE_NAMESPACE}" \
             --create-namespace \
