@@ -48,6 +48,23 @@ wait_for_url() {
   local marker="$4"
   local log_file="$5"
 
+  # The background process can be observed before exec has applied its marker,
+  # especially on busy CI hosts. Give that short transition a chance to finish
+  # while still failing immediately if the process itself exits.
+  local pid
+  pid="$(read_pid "$pid_file")"
+  for _ in $(seq 1 25); do
+    if is_running "$pid_file" "$marker"; then
+      break
+    fi
+    if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+      echo "$name exited before becoming ready. Recent log output:" >&2
+      tail -n 50 "$log_file" >&2 || true
+      return 1
+    fi
+    sleep 0.2
+  done
+
   for _ in $(seq 1 90); do
     if ! is_running "$pid_file" "$marker"; then
       echo "$name exited before becoming ready. Recent log output:" >&2
