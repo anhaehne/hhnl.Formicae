@@ -97,7 +97,7 @@ helm upgrade --install formicae formicae/formicae `
 
 ## Automatic Cluster Deployment
 
-The `Deploy Formicae` GitHub Actions workflow upgrades the live Helm release after the `Build container images` workflow completes successfully on `main`. It also supports manual `workflow_dispatch` runs. The workflow uses the chart from the same commit, reuses existing Helm values, and updates `image.tag`, `config.jobRuntime=Kubernetes`, and `config.kubernetesJobsImage`, so runtime secrets and installation-specific settings stay in the cluster.
+The release chain on `main` is `Test` → `Build container images` → `Deploy Formicae`. Images are published and the live Helm release is upgraded only after the complete test workflow succeeds. Build and deployment workflows also support explicit manual runs. The deployment uses the chart from the same commit, reuses existing Helm values, and updates `image.tag`, `config.jobRuntime=Kubernetes`, and `config.kubernetesJobsImage`, so runtime secrets and installation-specific settings stay in the cluster.
 
 Run the deployment job on the already installed in-cluster GitHub Actions runner by setting the optional repository variable `FORMICAE_DEPLOY_RUNNER` to the runner label or runner scale-set name. If unset, the workflow targets `self-hosted`. Optional repository variables `FORMICAE_HELM_RELEASE` and `FORMICAE_HELM_NAMESPACE` default to `formicae`.
 
@@ -227,7 +227,11 @@ The management UI includes a Gitea provider option on the Integrations page. Unl
 
 Gitea reactions are currently treated as no-ops so workflows continue when the orchestration layer attempts to add reaction feedback.
 
-By default, Kubernetes deployments run agent Jobs with the Formicae worker image published as `hhnl-formicae-worker:<version>`. The Helm chart sets `JobRuntime=Kubernetes` automatically. The API creates one worker Job for each agent task and passes workflow metadata, prompt text, model settings, context mount path, auth mode, and `FORMICAE_WORKER_CALLBACK_URL` through environment variables. Set `secrets.workerCallbackSecret` to require worker callbacks to include `X-Formicae-Worker-Callback-Secret`; the API rejects callback posts when the configured secret is missing or mismatched. The worker runs OpenHands or Codex inside the worker container, streams supported JSON agent messages back to `/api/worker/agent-messages`, and still writes stdout/stderr to Kubernetes pod logs as the durable fallback. The worker image includes the .NET SDK, Git, Node.js 22, Python tooling, `uv`, and OpenHands so agent Jobs do not install those requirements at runtime. API-key OpenHands mode requires `LLM_API_KEY` and `LLM_MODEL`.
+By default, Kubernetes deployments run agent Jobs with the Formicae worker image published as `hhnl-formicae-worker:<version>`. The Helm chart sets `JobRuntime=Kubernetes` automatically. The API creates one worker Job for each agent task and passes workflow metadata, prompt text, model settings, context mount path, auth mode, and `FORMICAE_WORKER_CALLBACK_URL` through environment variables. Set `secrets.workerCallbackSecret` to require worker callbacks to include `X-Formicae-Worker-Callback-Secret`; the API rejects callback posts when the configured secret is missing or mismatched. The worker runs OpenHands or Codex inside the worker container, streams supported JSON agent messages back to `/api/worker/agent-messages`, and still writes stdout/stderr to Kubernetes pod logs as the durable fallback. The worker image includes the .NET SDK, Git, Node.js 22, Python tooling, `uv`, OpenHands, Chromium, Playwright MCP, Docker CLI, kubectl, and kind so agent Jobs do not install those requirements at runtime. API-key OpenHands mode requires `LLM_API_KEY` and `LLM_MODEL`.
+
+Implementation and pull-request comment jobs request the development toolset. Their Kubernetes pods include a privileged Docker-in-Docker sidecar so the agent can run an isolated nested kind cluster. Docker uses only a pod-local Unix socket and `emptyDir` storage; Formicae does not mount the node's container socket, host network, host paths, or a Kubernetes service-account token into the worker pod. This is still privileged code on the Kubernetes node and must be used only where all connected repositories and agent prompts are trusted. Resource requests/limits, DinD image, and temporary storage size are configured under `agentJobs.resources` and `agentJobs.dind`.
+
+DinD uses Kubernetes native sidecar semantics (`initContainers` with container-level `restartPolicy: Always`) so dockerd starts before the worker and does not block Job completion. This requires Kubernetes 1.29 or newer; Kubernetes 1.33 or newer is recommended because native sidecars are stable there.
 
 For Docker, Podman, and Kubernetes runtime configuration examples, see [job-runtimes.md](job-runtimes.md).
 
@@ -320,6 +324,14 @@ scripts/run-k8s-e2e.ps1 -ContainerCli podman
 The test harness verifies `kind`, `kubectl`, and the selected container CLI before starting. It creates or uses a local kind cluster named `formicae-e2e`, writes kubeconfig to a temp file, and passes that file to every `kubectl --kubeconfig ...` command. It does not call `kubectl config use-context` and does not write to the default kubeconfig.
 
 Set `FORMICAE_E2E_KEEP_CLUSTER=true` or pass `-KeepCluster` to preserve the cluster for debugging.
+
+Linux workers can use the equivalent entry point:
+
+```bash
+./scripts/run-k8s-e2e.sh
+```
+
+When a cluster is preserved inside an agent job, inspect it with `kubectl --kubeconfig /tmp/formicae-e2e/kubeconfig`, port-forward the API for Playwright MCP, and delete the cluster before the job finishes.
 ## Notes
 
 The Kubernetes runner creates namespace-scoped `batch/v1` Jobs, waits for `Complete` or `Failed` status, and stores the rendered manifest plus pod logs in the task output. Finished Jobs are kept by default for diagnostics; set `config.kubernetesJobsDeleteFinishedJobs=true` to remove them after completion. To use a prebuilt CLI image, set `config.kubernetesJobsImage`, clear `config.openHandsBootstrapCommand`, and set `config.openHandsCommand` to the command your image exposes.

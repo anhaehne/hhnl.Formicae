@@ -38,6 +38,17 @@ data:
   KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
   KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
   KubernetesJobs__WorkerCallbackUrl: {{ default (printf "http://%s-api.%s.svc.cluster.local/api/worker/agent-messages" (include "formicae.fullname" .) .Release.Namespace) .Values.config.kubernetesJobsWorkerCallbackUrl | quote }}
+  KubernetesJobs__EnableNestedContainerRuntime: {{ .Values.agentJobs.dind.enabled | quote }}
+  KubernetesJobs__DinDImage: {{ .Values.agentJobs.dind.image | quote }}
+  KubernetesJobs__WorkerCpuRequest: {{ .Values.agentJobs.resources.requests.cpu | quote }}
+  KubernetesJobs__WorkerCpuLimit: {{ .Values.agentJobs.resources.limits.cpu | quote }}
+  KubernetesJobs__WorkerMemoryRequest: {{ .Values.agentJobs.resources.requests.memory | quote }}
+  KubernetesJobs__WorkerMemoryLimit: {{ .Values.agentJobs.resources.limits.memory | quote }}
+  KubernetesJobs__DinDCpuRequest: {{ .Values.agentJobs.dind.resources.requests.cpu | quote }}
+  KubernetesJobs__DinDCpuLimit: {{ .Values.agentJobs.dind.resources.limits.cpu | quote }}
+  KubernetesJobs__DinDMemoryRequest: {{ .Values.agentJobs.dind.resources.requests.memory | quote }}
+  KubernetesJobs__DinDMemoryLimit: {{ .Values.agentJobs.dind.resources.limits.memory | quote }}
+  KubernetesJobs__DinDStorageSizeLimit: {{ .Values.agentJobs.dind.storageSizeLimit | quote }}
   KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
   KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.agentJobs.codexAuth.secretName "" .Values.agentJobs.codexAuth.enabled | quote }}
   KubernetesJobs__CodexAuthSecretKey: {{ .Values.agentJobs.codexAuth.secretKey | quote }}

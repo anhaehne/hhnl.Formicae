@@ -20,6 +20,17 @@ public sealed class KubernetesJobOptions
     public string CodexAuthMountPath { get; set; } = "/root/.codex";
     public string WorkerCallbackUrl { get; set; } = string.Empty;
     public string WorkerCallbackSecret { get; set; } = string.Empty;
+    public bool EnableNestedContainerRuntime { get; set; } = true;
+    public string DinDImage { get; set; } = "docker:29.7.2-dind";
+    public string WorkerCpuRequest { get; set; } = "250m";
+    public string WorkerCpuLimit { get; set; } = "2";
+    public string WorkerMemoryRequest { get; set; } = "512Mi";
+    public string WorkerMemoryLimit { get; set; } = "4Gi";
+    public string DinDCpuRequest { get; set; } = "100m";
+    public string DinDCpuLimit { get; set; } = "2";
+    public string DinDMemoryRequest { get; set; } = "256Mi";
+    public string DinDMemoryLimit { get; set; } = "2Gi";
+    public string DinDStorageSizeLimit { get; set; } = "20Gi";
 }
 
 public interface IKubernetesJobApi
@@ -99,6 +110,11 @@ public sealed class KubernetesJobRunner(
     IEnumerable<IWorkflowTickSignal> tickSignals) : IJobRuntime
 {
     private const string ContainerName = "worker";
+    private const string DinDContainerName = "docker-daemon";
+    private const string DockerSocketVolumeName = "docker-socket";
+    private const string DockerStorageVolumeName = "docker-storage";
+    private const string DockerSocketDirectory = "/run/formicae-docker";
+    private const string DockerHost = "unix:///run/formicae-docker/docker.sock";
     private const string ManagedByLabel = "app.kubernetes.io/managed-by";
     private const string ManagedByValue = "formicae";
 
@@ -311,6 +327,86 @@ public sealed class KubernetesJobRunner(
             });
         }
 
+        var requirements = spec.ExecutionRequirements ?? new RuntimeJobExecutionRequirements();
+        var enableNestedContainers = requirements.RequiresNestedContainers && options.Value.EnableNestedContainerRuntime;
+        if (enableNestedContainers)
+        {
+            volumes.Add(new V1Volume
+            {
+                Name = DockerSocketVolumeName,
+                EmptyDir = new V1EmptyDirVolumeSource()
+            });
+            volumes.Add(new V1Volume
+            {
+                Name = DockerStorageVolumeName,
+                EmptyDir = new V1EmptyDirVolumeSource
+                {
+                    SizeLimit = ParseQuantity(options.Value.DinDStorageSizeLimit)
+                }
+            });
+            volumeMounts.Add(new V1VolumeMount
+            {
+                Name = DockerSocketVolumeName,
+                MountPath = DockerSocketDirectory
+            });
+        }
+
+        var containers = new List<V1Container>
+        {
+            new()
+            {
+                Name = ContainerName,
+                Image = spec.Image,
+                ImagePullPolicy = "IfNotPresent",
+                Env = BuildEnvironmentVariables(spec, enableNestedContainers),
+                EnvFrom = envFrom.Count == 0 ? null : envFrom,
+                Command = spec.Command.ToList(),
+                VolumeMounts = volumeMounts.Count == 0 ? null : volumeMounts,
+                Resources = BuildResources(
+                    options.Value.WorkerCpuRequest,
+                    options.Value.WorkerMemoryRequest,
+                    options.Value.WorkerCpuLimit,
+                    options.Value.WorkerMemoryLimit)
+            }
+        };
+
+        List<V1Container>? initContainers = null;
+        if (enableNestedContainers)
+        {
+            // Kubernetes native sidecars are restartable init containers. The startup probe
+            // gates the worker until dockerd is ready, while restartPolicy=Always keeps it
+            // alive without preventing Job completion (Kubernetes 1.29+, stable in 1.33).
+            initContainers =
+            [
+                new V1Container
+            {
+                Name = DinDContainerName,
+                Image = options.Value.DinDImage,
+                ImagePullPolicy = "IfNotPresent",
+                RestartPolicy = "Always",
+                Args = [$"--host={DockerHost}"],
+                Env = [new V1EnvVar { Name = "DOCKER_TLS_CERTDIR", Value = string.Empty }],
+                SecurityContext = new V1SecurityContext { Privileged = true },
+                VolumeMounts =
+                [
+                    new V1VolumeMount { Name = DockerSocketVolumeName, MountPath = DockerSocketDirectory },
+                    new V1VolumeMount { Name = DockerStorageVolumeName, MountPath = "/var/lib/docker" }
+                ],
+                Resources = BuildResources(
+                    options.Value.DinDCpuRequest,
+                    options.Value.DinDMemoryRequest,
+                    options.Value.DinDCpuLimit,
+                    options.Value.DinDMemoryLimit),
+                StartupProbe = new V1Probe
+                {
+                    Exec = new V1ExecAction { Command = ["docker", $"--host={DockerHost}", "info"] },
+                    PeriodSeconds = 2,
+                    FailureThreshold = 30
+                }
+            }
+            ];
+        }
+
         return new V1Job
         {
             ApiVersion = "batch/v1",
@@ -319,38 +415,42 @@ public sealed class KubernetesJobRunner(
             Spec = new V1JobSpec
             {
                 BackoffLimit = 0,
+                ActiveDeadlineSeconds = Math.Max(1, options.Value.TimeoutSeconds),
                 Template = new V1PodTemplateSpec
                 {
                     Metadata = new V1ObjectMeta { Labels = labels },
                     Spec = new V1PodSpec
                     {
                         RestartPolicy = "Never",
+                        AutomountServiceAccountToken = false,
+                        HostNetwork = false,
                         Volumes = volumes.Count == 0 ? null : volumes,
-                        Containers =
-                        [
-                            new V1Container
-                            {
-                                Name = ContainerName,
-                                Image = spec.Image,
-                                ImagePullPolicy = "IfNotPresent",
-                                Env = BuildEnvironmentVariables(spec),
-                                EnvFrom = envFrom.Count == 0 ? null : envFrom,
-                                Command = spec.Command.ToList(),
-                                VolumeMounts = volumeMounts.Count == 0 ? null : volumeMounts
-                            }
-                        ]
+                        InitContainers = initContainers,
+                        Containers = containers
                     }
                 }
             }
         };
     }
 
-    private static List<V1EnvVar> BuildEnvironmentVariables(RuntimeJobSpec spec)
+    private static List<V1EnvVar> BuildEnvironmentVariables(RuntimeJobSpec spec, bool enableNestedContainers)
     {
         var env = spec.Environment
             .OrderBy(pair => pair.Key)
             .Select(pair => new V1EnvVar { Name = pair.Key, Value = pair.Value })
             .ToList();
+
+        var requirements = spec.ExecutionRequirements ?? new RuntimeJobExecutionRequirements();
+        if (requirements.RequiresBrowser)
+        {
+            env.Add(new V1EnvVar { Name = "FORMICAE_REQUIRES_BROWSER", Value = "true" });
+        }
+
+        if (enableNestedContainers)
+        {
+            env.Add(new V1EnvVar { Name = "FORMICAE_REQUIRES_NESTED_CONTAINERS", Value = "true" });
+            env.Add(new V1EnvVar { Name = "DOCKER_HOST", Value = DockerHost });
+        }
 
         if (spec.SecretEnvironment is not null)
         {
@@ -366,6 +466,24 @@ public sealed class KubernetesJobRunner(
 
         return env;
     }
+
+    private static V1ResourceRequirements BuildResources(string cpuRequest, string memoryRequest, string cpuLimit, string memoryLimit)
+        => new()
+        {
+            Requests = new Dictionary<string, ResourceQuantity>
+            {
+                ["cpu"] = ParseQuantity(cpuRequest),
+                ["memory"] = ParseQuantity(memoryRequest)
+            },
+            Limits = new Dictionary<string, ResourceQuantity>
+            {
+                ["cpu"] = ParseQuantity(cpuLimit),
+                ["memory"] = ParseQuantity(memoryLimit)
+            }
+        };
+
+    private static ResourceQuantity ParseQuantity(string value)
+        => new(string.IsNullOrWhiteSpace(value) ? "0" : value);
 
     private async Task CreateSecretsAsync(RuntimeJobSpec spec, string namespaceName, CancellationToken cancellationToken)
     {

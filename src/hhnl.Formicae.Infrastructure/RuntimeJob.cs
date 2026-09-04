@@ -18,7 +18,12 @@ public sealed record RuntimeJobSpec(
     IReadOnlyList<RuntimeJobContextFile>? ContextFiles = null,
     string ContextFilesMountPath = "/workspace/formicae/context",
     IReadOnlyList<RuntimeJobSecretFile>? SecretFiles = null,
-    RuntimeJobSecretEnvironment? SecretEnvironment = null);
+    RuntimeJobSecretEnvironment? SecretEnvironment = null,
+    RuntimeJobExecutionRequirements? ExecutionRequirements = null);
+
+public sealed record RuntimeJobExecutionRequirements(
+    bool RequiresBrowser = false,
+    bool RequiresNestedContainers = false);
 
 public sealed record RuntimeJobContextFile(string FileName, string Content);
 

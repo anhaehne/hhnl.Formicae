@@ -68,3 +68,33 @@ Podman commonly exposes the host as `host.containers.internal`, but exact behavi
 ```
 
 The Helm chart and raw Kubernetes base manifest set `JobRuntime: Kubernetes` automatically and keep the existing `KubernetesJobs__*` settings. Helm also defaults the worker callback URL to the in-cluster API service.
+
+## Agent development and browser tooling
+
+`Implement` and `AddressComments` job specifications request browser automation and nested-container execution. Other task kinds stay lightweight. The worker image includes pinned Chromium, Playwright MCP, Docker CLI, kubectl, and kind versions. Before Codex starts, the worker creates its local `config.toml` without replacing subscription `auth.json`; Codex then starts Playwright MCP over STDIO in headless Chromium mode. Browser requests are limited to loopback origins and artifacts are written below the checked-out repository's ignored `test-results/` directory.
+
+Use the fast application loop from the repository root:
+
+```bash
+./scripts/formicae-dev.sh prepare
+./scripts/formicae-dev.sh start
+./scripts/formicae-dev.sh status
+./scripts/formicae-dev.sh logs
+./scripts/formicae-dev.sh stop
+```
+
+The development application uses fake adapters and in-memory persistence. It does not receive production integration or database credentials.
+
+## Nested kind
+
+For Kubernetes jobs whose execution requirements include nested containers, the runtime adds a privileged Docker-in-Docker sidecar. The Docker Unix socket and graph storage use pod-local `emptyDir` volumes; the node container socket, host network, and host filesystem are never mounted. The worker pod does not mount a Kubernetes service-account token. The configured job timeout becomes `activeDeadlineSeconds`, and both worker and DinD containers receive explicit resource requests and limits.
+
+The privileged sidecar is a transitional global capability for all implementation repositories. It increases node-level risk even though Docker state is pod-local. Issues #16 through #22 will replace the global worker image, tools, MCP configuration, and privilege selection with per-step capabilities and reusable environment definitions.
+
+Run the nested integration tier with:
+
+```bash
+./scripts/run-k8s-e2e.sh
+```
+
+Set `FORMICAE_E2E_KEEP_CLUSTER=true` while diagnosing a failure. The E2E harness keeps using `/tmp/formicae-e2e/kubeconfig`, so it cannot change the worker's outer Kubernetes context. Delete the preserved cluster when troubleshooting is complete.

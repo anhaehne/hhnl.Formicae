@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\hhnl.Formicae.Api\hhnl.Formicae.Api.csproj" />
     <ProjectReference Include="..\..\src\hhnl.Formicae.Application\hhnl.Formicae.Application.csproj" />
     <ProjectReference Include="..\..\src\hhnl.Formicae.Infrastructure\hhnl.Formicae.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\hhnl.Formicae.Worker\hhnl.Formicae.Worker.csproj" Aliases="worker" />
   </ItemGroup>
 
 </Project>

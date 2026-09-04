@@ -34,7 +34,9 @@ internal sealed record WorkerEnvironment(
     string? AiSettingsId,
     string? CodexLoginCommand,
     string ContextPath,
-    string? GitAccessToken)
+    string? GitAccessToken,
+    bool RequiresBrowser,
+    bool RequiresNestedContainers)
 {
     public static WorkerEnvironment Load()
     {
@@ -53,7 +55,9 @@ internal sealed record WorkerEnvironment(
             Optional("FORMICAE_AI_SETTINGS_ID"),
             Optional("FORMICAE_CODEX_LOGIN_COMMAND"),
             Optional("FORMICAE_CONTEXT_PATH") ?? "/workspace/formicae/context",
-            Optional("FORMICAE_GIT_ACCESS_TOKEN"));
+            Optional("FORMICAE_GIT_ACCESS_TOKEN"),
+            IsTrue("FORMICAE_REQUIRES_BROWSER"),
+            IsTrue("FORMICAE_REQUIRES_NESTED_CONTAINERS"));
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
@@ -69,6 +73,9 @@ internal sealed record WorkerEnvironment(
         var value = Environment.GetEnvironmentVariable(name);
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
+
+    private static bool IsTrue(string name)
+        => bool.TryParse(Optional(name), out var value) && value;
 }
 
 internal static class WorkerCommand
@@ -82,6 +89,11 @@ internal static class WorkerCommand
         if (environment.IsCodexAuthSetup)
         {
             return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);
+        }
+
+        if (environment.RequiresNestedContainers && !await WaitForDockerAsync(reporter, cancellationToken))
+        {
+            return 1;
         }
 
         var workingDirectory = WorkspaceDirectory;
@@ -130,8 +142,7 @@ internal static class WorkerCommand
     }
     private static async Task<int> RunCodexAsync(WorkerEnvironment environment, string workingDirectory, WorkerReporter reporter, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home");
-        CopyCodexAuthIfMounted();
+        CodexWorkspace.Prepare(environment.RequiresBrowser);
 
         var args = new List<string> { "-y", "@openai/codex", "exec" };
         if (!string.IsNullOrWhiteSpace(environment.Model))
@@ -230,23 +241,32 @@ internal static class WorkerCommand
         return builder.Uri.ToString();
     }
 
-    private static void CopyCodexAuthIfMounted()
+    private static async Task<bool> WaitForDockerAsync(WorkerReporter reporter, CancellationToken cancellationToken)
     {
-        var targetHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
-        var sourceDirectory = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_MOUNT_PATH") ?? "/root/.codex";
-        var sourceFileName = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_FILE_NAME") ?? "auth.json";
-        var source = Path.Combine(sourceDirectory, sourceFileName);
-        if (!File.Exists(source))
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+        await reporter.ReportAsync("worker", "Waiting for the pod-local Docker daemon.", cancellationToken);
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            return;
+            var startInfo = new ProcessStartInfo("docker")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add("info");
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start Docker CLI.");
+            await process.WaitForExitAsync(cancellationToken);
+            if (process.ExitCode == 0)
+            {
+                await reporter.ReportAsync("worker", "Pod-local Docker daemon is ready.", cancellationToken);
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
 
-        Directory.CreateDirectory(targetHome);
-        var target = Path.Combine(targetHome, "auth.json");
-        if (!string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.Ordinal))
-        {
-            File.Copy(source, target, overwrite: true);
-        }
+        await reporter.ReportAsync("worker-error", "Pod-local Docker daemon did not become ready within 60 seconds.", cancellationToken);
+        return false;
     }
 
     private static string? ReadCodexAuth()
@@ -328,6 +348,49 @@ internal static class WorkerCommand
 
     private static string Redact(string value, string? secret)
         => string.IsNullOrWhiteSpace(secret) ? value : value.Replace(secret, "***", StringComparison.Ordinal);
+}
+
+internal static class CodexWorkspace
+{
+    public static void Prepare(bool requiresBrowser)
+    {
+        var targetHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
+        var sourceDirectory = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_MOUNT_PATH") ?? "/root/.codex";
+        var sourceFileName = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_FILE_NAME") ?? "auth.json";
+        Directory.CreateDirectory(targetHome);
+
+        CopyIfPresent(Path.Combine(sourceDirectory, sourceFileName), Path.Combine(targetHome, "auth.json"));
+        var localConfig = Path.Combine(targetHome, "config.toml");
+        CopyIfPresent(Path.Combine(sourceDirectory, "config.toml"), localConfig);
+
+        if (!requiresBrowser)
+        {
+            return;
+        }
+
+        var existing = File.Exists(localConfig) ? File.ReadAllText(localConfig) : string.Empty;
+        if (existing.Contains("[mcp_servers.playwright]", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var separator = string.IsNullOrWhiteSpace(existing) || existing.EndsWith('\n') ? string.Empty : Environment.NewLine;
+        var lines = new[]
+        {
+            "[mcp_servers.playwright]",
+            "command = \"playwright-mcp\"",
+            "args = [\"--headless\", \"--browser\", \"chromium\", \"--no-sandbox\", \"--output-dir\", \"test-results/agent-browser\", \"--allowed-origins\", \"http://127.0.0.1:*;http://localhost:*\", \"--caps\", \"core,network,devtools\"]"
+        };
+        File.AppendAllText(localConfig, separator + string.Join(Environment.NewLine, lines) + Environment.NewLine);
+    }
+
+    private static void CopyIfPresent(string source, string target)
+    {
+        if (File.Exists(source) && !string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.Ordinal))
+        {
+            File.Copy(source, target, overwrite: true);
+        }
+    }
 }
 
 internal sealed class WorkerReporter(Uri? callbackUrl, string? callbackSecret, Guid workflowId, string taskKind, string externalId) : IDisposable

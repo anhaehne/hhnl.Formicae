@@ -1,0 +1,133 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-and-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/hhnl.Formicae.Api/ClientApp/package-lock.json
+
+      - name: Restore and test .NET
+        run: |
+          dotnet restore hhnl.Formicae.slnx
+          dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-restore --configuration Release
+
+      - name: Install frontend dependencies
+        working-directory: src/hhnl.Formicae.Api/ClientApp
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: src/hhnl.Formicae.Api/ClientApp
+        run: npm run build
+
+      - name: Install Chromium
+        working-directory: src/hhnl.Formicae.Api/ClientApp
+        run: npx playwright install --with-deps chromium
+
+      - name: Exercise development harness
+        run: |
+          set -euo pipefail
+          blocker_pid=""
+          cleanup() {
+            ./scripts/formicae-dev.sh stop >/dev/null 2>&1 || true
+            if [ -n "$blocker_pid" ]; then kill "$blocker_pid" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+          ./scripts/formicae-dev.sh start
+          ./scripts/formicae-dev.sh status
+          ./scripts/formicae-dev.sh start
+          ./scripts/formicae-dev.sh logs >/dev/null
+          ./scripts/formicae-dev.sh stop
+          ./scripts/formicae-dev.sh stop
+
+          python3 -m http.server 5000 --bind 127.0.0.1 >/tmp/formicae-port-blocker.log 2>&1 &
+          blocker_pid=$!
+          if ./scripts/formicae-dev.sh start; then
+            echo "The harness unexpectedly reported readiness after its API process failed." >&2
+            kill "$blocker_pid"
+            exit 1
+          fi
+          kill "$blocker_pid"
+          blocker_pid=""
+
+      - name: Run browser smoke tests
+        working-directory: src/hhnl.Formicae.Api/ClientApp
+        run: npm run test:smoke
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-diagnostics
+          path: test-results/
+          if-no-files-found: ignore
+
+  worker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build worker image
+        run: docker build --file src/hhnl.Formicae.Worker/Dockerfile --tag formicae-worker:self-test .
+
+      - name: Verify worker development tools
+        run: |
+          docker run --rm --entrypoint /bin/sh formicae-worker:self-test -lc '
+            dotnet --version &&
+            node --version &&
+            docker --version | grep "29.7.2" &&
+            kubectl version --client --output=yaml | grep "gitVersion: v1.37.0" &&
+            kind version | grep "kind v0.33.0" &&
+            test "$(playwright --version)" = "Version 1.61.0" &&
+            test "$(playwright-mcp --version)" = "Version 0.0.80" &&
+            test -d "${PLAYWRIGHT_BROWSERS_PATH}/chromium-1228" &&
+            test -d "${PLAYWRIGHT_BROWSERS_PATH}/chromium-1243"'
+
+  kubernetes-e2e:
+    runs-on: ubuntu-latest
+    env:
+      KIND_VERSION: v0.33.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install kind
+        run: |
+          curl --fail --silent --show-error --location --output /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+
+      - name: Run Kubernetes E2E tests
+        run: ./scripts/run-k8s-e2e.sh

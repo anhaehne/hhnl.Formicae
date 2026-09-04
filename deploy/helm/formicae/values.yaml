@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.6.2"
+  tag: "0.7.0"
   pullPolicy: IfNotPresent
 
 api:
@@ -26,6 +26,24 @@ worker:
     repository: hhnl-formicae-worker
 
 agentJobs:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  dind:
+    enabled: true
+    image: docker:29.7.2-dind
+    storageSizeLimit: 20Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
   codexAuth:
     enabled: false
     secretName: formicae-codex-auth

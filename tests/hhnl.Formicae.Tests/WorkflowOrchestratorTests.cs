@@ -1856,6 +1856,9 @@ public sealed class AdapterContractTests
         Assert.Equal(OpenHandsAuthMethods.ApiKey, jobRunner.LastSpec.Environment["FORMICAE_OPENHANDS_AUTH_METHOD"]);
         Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
         Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
+        Assert.NotNull(jobRunner.LastSpec.ExecutionRequirements);
+        Assert.False(jobRunner.LastSpec.ExecutionRequirements.RequiresBrowser);
+        Assert.False(jobRunner.LastSpec.ExecutionRequirements.RequiresNestedContainers);
     }
 
     [Fact]
@@ -2053,6 +2056,9 @@ public sealed class AdapterContractTests
         Assert.Equal("auth.json", jobRunner.LastSpec.Environment["FORMICAE_CODEX_AUTH_FILE_NAME"]);
         Assert.Equal("""{"model":"gpt-5.2-codex"}""", jobRunner.LastSpec.Environment["CODEX_CONFIG"]);
         Assert.False(jobRunner.LastSpec.Environment.ContainsKey("LLM_MODEL"));
+        Assert.NotNull(jobRunner.LastSpec.ExecutionRequirements);
+        Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresBrowser);
+        Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresNestedContainers);
     }
 
     [Fact]
@@ -2119,6 +2125,9 @@ public sealed class AdapterContractTests
         Assert.Equal("AddressComments", jobRunner.LastSpec.Environment["FORMICAE_TASK_KIND"]);
         Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
         Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
+        Assert.NotNull(jobRunner.LastSpec.ExecutionRequirements);
+        Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresBrowser);
+        Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresNestedContainers);
     }
     [Fact]
     public async Task OpenHands_runner_injects_github_installation_token_for_repository_work()
@@ -2275,6 +2284,86 @@ public sealed class AdapterContractTests
         Assert.Contains(container.EnvFrom, source => source.SecretRef.Name == "openhands-llm-api-key");
         Assert.Null(container.VolumeMounts);
         Assert.Null(api.CreatedJob.Spec.Template.Spec.Volumes);
+        Assert.Null(api.CreatedJob.Spec.Template.Spec.InitContainers);
+        Assert.False(api.CreatedJob.Spec.Template.Spec.AutomountServiceAccountToken);
+        Assert.False(api.CreatedJob.Spec.Template.Spec.HostNetwork);
+        Assert.Equal(5, api.CreatedJob.Spec.ActiveDeadlineSeconds);
+        Assert.NotNull(container.Resources);
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_adds_pod_local_dind_sidecar_only_for_nested_container_jobs()
+    {
+        var api = new CapturingKubernetesJobApi();
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            TimeoutSeconds = 900,
+            DinDImage = "docker:29.7.2-dind",
+            DinDStorageSizeLimit = "12Gi"
+        }), []);
+
+        await runner.StartJobAsync(new RuntimeJobSpec(
+            "formicae-implement-test",
+            "worker:test",
+            new Dictionary<string, string>(),
+            ["dotnet", "hhnl.Formicae.Worker.dll"],
+            ExecutionRequirements: new RuntimeJobExecutionRequirements(
+                RequiresBrowser: true,
+                RequiresNestedContainers: true)), CancellationToken.None);
+
+        Assert.NotNull(api.CreatedJob);
+        Assert.Equal(900, api.CreatedJob.Spec.ActiveDeadlineSeconds);
+        Assert.False(api.CreatedJob.Spec.Template.Spec.AutomountServiceAccountToken);
+        Assert.False(api.CreatedJob.Spec.Template.Spec.HostNetwork);
+
+        var worker = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
+        Assert.Null(worker.SecurityContext);
+        Assert.Contains(worker.Env, env => env.Name == "FORMICAE_REQUIRES_BROWSER" && env.Value == "true");
+        Assert.Contains(worker.Env, env => env.Name == "FORMICAE_REQUIRES_NESTED_CONTAINERS" && env.Value == "true");
+        Assert.Contains(worker.Env, env => env.Name == "DOCKER_HOST" && env.Value == "unix:///run/formicae-docker/docker.sock");
+        Assert.Contains(worker.VolumeMounts, mount => mount.Name == "docker-socket" && mount.MountPath == "/run/formicae-docker");
+
+        var dind = Assert.Single(api.CreatedJob.Spec.Template.Spec.InitContainers);
+        Assert.Equal("docker-daemon", dind.Name);
+        Assert.Equal("docker:29.7.2-dind", dind.Image);
+        Assert.Equal("Always", dind.RestartPolicy);
+        Assert.True(dind.SecurityContext.Privileged);
+        Assert.Equal(["--host=unix:///run/formicae-docker/docker.sock"], dind.Args);
+        Assert.Contains(dind.VolumeMounts, mount => mount.Name == "docker-storage" && mount.MountPath == "/var/lib/docker");
+        Assert.NotNull(dind.Resources);
+        Assert.NotNull(dind.StartupProbe);
+
+        Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Name == "docker-socket" && volume.EmptyDir is not null);
+        Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Name == "docker-storage" && volume.EmptyDir is not null);
+        Assert.DoesNotContain(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.HostPath is not null);
+    }
+
+    [Fact]
+    public async Task Kubernetes_runner_keeps_nested_container_job_lightweight_when_dind_is_disabled()
+    {
+        var api = new CapturingKubernetesJobApi();
+        var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
+        {
+            Namespace = "formicae",
+            EnableNestedContainerRuntime = false
+        }), []);
+
+        await runner.StartJobAsync(new RuntimeJobSpec(
+            "formicae-implement-fast-tier",
+            "worker:test",
+            new Dictionary<string, string>(),
+            ["dotnet", "hhnl.Formicae.Worker.dll"],
+            ExecutionRequirements: new RuntimeJobExecutionRequirements(
+                RequiresBrowser: true,
+                RequiresNestedContainers: true)), CancellationToken.None);
+
+        Assert.NotNull(api.CreatedJob);
+        var worker = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
+        Assert.Contains(worker.Env, env => env.Name == "FORMICAE_REQUIRES_BROWSER" && env.Value == "true");
+        Assert.DoesNotContain(worker.Env, env => env.Name is "FORMICAE_REQUIRES_NESTED_CONTAINERS" or "DOCKER_HOST");
+        Assert.Null(api.CreatedJob.Spec.Template.Spec.InitContainers);
+        Assert.DoesNotContain(api.CreatedJob.Spec.Template.Spec.Volumes ?? [], volume => volume.Name is "docker-socket" or "docker-storage");
     }
 
     [Fact]

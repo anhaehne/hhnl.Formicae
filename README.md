@@ -78,6 +78,27 @@ npm run build
 
 The Vite production build writes to `src/hhnl.Formicae.Api/wwwroot`. Run this build before `dotnet publish` or container image builds when UI changes need to be bundled into the API static files.
 
+### Agent self-testing
+
+Linux agent workers can prepare and run both development servers with one repository-owned harness:
+
+```bash
+./scripts/formicae-dev.sh prepare
+./scripts/formicae-dev.sh start
+./scripts/formicae-dev.sh status
+./scripts/formicae-dev.sh logs
+./scripts/formicae-dev.sh stop
+```
+
+The harness binds the API to `127.0.0.1:5000` and Vite to `127.0.0.1:5173`, uses fake adapters and in-memory persistence, and writes disposable diagnostics below `test-results/`. Implementation workers also include headless Chromium and a loopback-restricted Playwright MCP server so Codex can inspect the running UI, browser console, network requests, screenshots, and traces without exposing a public preview.
+
+Run the deterministic browser smoke suite with:
+
+```bash
+cd src/hhnl.Formicae.Api/ClientApp
+npm run test:smoke
+```
+
 Start a workflow manually:
 
 ```powershell
@@ -111,7 +132,15 @@ Run with Podman-backed kind:
 scripts/run-k8s-e2e.ps1 -ContainerCli podman
 ```
 
+On Linux or inside an implementation worker, run:
+
+```bash
+./scripts/run-k8s-e2e.sh
+```
+
 The E2E runner verifies `kind`, `kubectl`, and the selected container CLI before starting. It creates a local kind cluster using a temp kubeconfig, deploys the Kubernetes E2E overlay, and does not change the machine-wide kubectl context.
+
+Set `FORMICAE_E2E_KEEP_CLUSTER=true` only while troubleshooting to preserve the nested cluster for log inspection, port-forwarding, and browser interaction. Delete it with `kind delete cluster --name formicae-e2e --kubeconfig /tmp/formicae-e2e/kubeconfig` when finished.
 
 ## Kubernetes Deployment
 
@@ -131,6 +160,7 @@ Important settings:
 - `ContainerRuntime:Engine`, `ContainerRuntime:Image`, `ContainerRuntime:WorkspaceRoot`, and `ContainerRuntime:WorkerCallbackUrl` configure Docker/Podman worker containers.
 - `OpenHands:DefaultModel` for the default OpenHands model.
 - `KubernetesJobs:Image` for the Formicae worker image used by Kubernetes agent Jobs.
+- `KubernetesJobs:EnableNestedContainerRuntime`, `KubernetesJobs:DinDImage`, and the worker/DinD resource settings configure the pod-local nested container runtime used by implementation and comment-addressing jobs.
 - `KubernetesJobs:WorkerCallbackSecret` for optionally requiring worker callbacks to include `X-Formicae-Worker-Callback-Secret` when posting live agent messages.
 - `GitHubWebhooks:Secret` for validating GitHub webhook deliveries at `/api/webhooks/github`. Configure GitHub to send JSON payloads for issues, issue comments, pull requests, pull request review comments, and pull request reviews so Formicae can start issue-label-triggered workflows, wake the workflow loop, and requeue completed PR workflows when new feedback arrives.
 - `ManagementAuth:Enabled` controls authorization for mutating management APIs. It defaults to `false` for local development. Set `ManagementAuth:InviteCodeExpiration` to control invite lifetime and `ManagementAuth:BypassForLocalDevelopment=true` only for trusted development environments.

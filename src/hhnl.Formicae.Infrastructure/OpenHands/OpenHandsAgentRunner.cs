@@ -57,8 +57,22 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var environment = BuildEnvironment(task, jobName, model, settings, authMethod, jobOptions.Value, gitAccessToken);
         var secretFiles = BuildSecretFiles(jobName, settings, authMethod, jobOptions.Value);
         var secretEnvironment = BuildSecretEnvironment(jobName, settings, authMethod);
-        return new RuntimeJobSpec(jobName, jobOptions.Value.Image, environment, WorkerCommand, ToRuntimeAuthMethod(authMethod), task.ContextFiles?.Select(file => new RuntimeJobContextFile(file.FileName, file.Content)).ToArray(), SecretFiles: secretFiles, SecretEnvironment: secretEnvironment);
+        return new RuntimeJobSpec(
+            jobName,
+            jobOptions.Value.Image,
+            environment,
+            WorkerCommand,
+            ToRuntimeAuthMethod(authMethod),
+            task.ContextFiles?.Select(file => new RuntimeJobContextFile(file.FileName, file.Content)).ToArray(),
+            SecretFiles: secretFiles,
+            SecretEnvironment: secretEnvironment,
+            ExecutionRequirements: BuildExecutionRequirements(task.Kind));
     }
+
+    private static RuntimeJobExecutionRequirements BuildExecutionRequirements(TaskRunKind taskKind)
+        => taskKind is TaskRunKind.Implement or TaskRunKind.AddressComments
+            ? new RuntimeJobExecutionRequirements(RequiresBrowser: true, RequiresNestedContainers: true)
+            : new RuntimeJobExecutionRequirements();
 
     private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
     {

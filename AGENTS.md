@@ -116,6 +116,15 @@ When invoking a skill, follow its `SKILL.md` instructions exactly.
 - Keep `Directory.Build.props`, `deploy/helm/formicae/Chart.yaml`, `deploy/helm/formicae/values.yaml`, and release/deployment docs aligned to the same version.
 - Use a patch bump for bug fixes and documentation-only release changes, a minor bump for backward-compatible features, and a major bump for breaking changes.
 
+## Self-testing Formicae changes
+
+- For implementation and pull-request comment work, run targeted tests and the fast repository verification before finishing.
+- Use `./scripts/formicae-dev.sh prepare` once, then `start`, `status`, `logs`, and `stop` to run and troubleshoot the API and Vite UI inside an agent worker.
+- For runtime or UI behavior changes, reproduce the behavior against the running application and use the configured Playwright MCP browser to inspect the page, console, network activity, screenshots, and traces.
+- Run `npm run test:smoke` from `src/hhnl.Formicae.Api/ClientApp` for the deterministic browser smoke suite.
+- Run `./scripts/run-k8s-e2e.sh` for Dockerfile, Kubernetes manifest, job-runtime, migration/startup, or deployment-sensitive changes. Set `FORMICAE_E2E_KEEP_CLUSTER=true` only while actively troubleshooting and clean up the preserved cluster afterward.
+- Report the exact verification commands and outcomes. In pull request summaries, include the number of tests added, removed, and edited.
+
 ## Implementation Guidance
 
 - Treat GitHub and Azure DevOps as primary integration targets.
