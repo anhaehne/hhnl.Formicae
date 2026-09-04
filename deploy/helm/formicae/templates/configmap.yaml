@@ -1,3 +1,11 @@
+{{- $agentJobResources := dig "agentJobs" "resources" (dict) .Values -}}
+{{- $agentJobRequests := dig "requests" (dict) $agentJobResources -}}
+{{- $agentJobLimits := dig "limits" (dict) $agentJobResources -}}
+{{- $dind := dig "agentJobs" "dind" (dict) .Values -}}
+{{- $dindResources := dig "resources" (dict) $dind -}}
+{{- $dindRequests := dig "requests" (dict) $dindResources -}}
+{{- $dindLimits := dig "limits" (dict) $dindResources -}}
+{{- $codexAuth := dig "agentJobs" "codexAuth" (dict) .Values -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -38,18 +46,18 @@ data:
   KubernetesJobs__PollIntervalSeconds: {{ .Values.config.kubernetesJobsPollIntervalSeconds | quote }}
   KubernetesJobs__DeleteFinishedJobs: {{ .Values.config.kubernetesJobsDeleteFinishedJobs | quote }}
   KubernetesJobs__WorkerCallbackUrl: {{ default (printf "http://%s-api.%s.svc.cluster.local/api/worker/agent-messages" (include "formicae.fullname" .) .Release.Namespace) .Values.config.kubernetesJobsWorkerCallbackUrl | quote }}
-  KubernetesJobs__EnableNestedContainerRuntime: {{ .Values.agentJobs.dind.enabled | quote }}
-  KubernetesJobs__DinDImage: {{ .Values.agentJobs.dind.image | quote }}
-  KubernetesJobs__WorkerCpuRequest: {{ .Values.agentJobs.resources.requests.cpu | quote }}
-  KubernetesJobs__WorkerCpuLimit: {{ .Values.agentJobs.resources.limits.cpu | quote }}
-  KubernetesJobs__WorkerMemoryRequest: {{ .Values.agentJobs.resources.requests.memory | quote }}
-  KubernetesJobs__WorkerMemoryLimit: {{ .Values.agentJobs.resources.limits.memory | quote }}
-  KubernetesJobs__DinDCpuRequest: {{ .Values.agentJobs.dind.resources.requests.cpu | quote }}
-  KubernetesJobs__DinDCpuLimit: {{ .Values.agentJobs.dind.resources.limits.cpu | quote }}
-  KubernetesJobs__DinDMemoryRequest: {{ .Values.agentJobs.dind.resources.requests.memory | quote }}
-  KubernetesJobs__DinDMemoryLimit: {{ .Values.agentJobs.dind.resources.limits.memory | quote }}
-  KubernetesJobs__DinDStorageSizeLimit: {{ .Values.agentJobs.dind.storageSizeLimit | quote }}
+  KubernetesJobs__EnableNestedContainerRuntime: {{ dig "enabled" true $dind | quote }}
+  KubernetesJobs__DinDImage: {{ dig "image" "docker:29.7.2-dind" $dind | quote }}
+  KubernetesJobs__WorkerCpuRequest: {{ dig "cpu" "250m" $agentJobRequests | quote }}
+  KubernetesJobs__WorkerCpuLimit: {{ dig "cpu" "2" $agentJobLimits | quote }}
+  KubernetesJobs__WorkerMemoryRequest: {{ dig "memory" "512Mi" $agentJobRequests | quote }}
+  KubernetesJobs__WorkerMemoryLimit: {{ dig "memory" "4Gi" $agentJobLimits | quote }}
+  KubernetesJobs__DinDCpuRequest: {{ dig "cpu" "100m" $dindRequests | quote }}
+  KubernetesJobs__DinDCpuLimit: {{ dig "cpu" "2" $dindLimits | quote }}
+  KubernetesJobs__DinDMemoryRequest: {{ dig "memory" "256Mi" $dindRequests | quote }}
+  KubernetesJobs__DinDMemoryLimit: {{ dig "memory" "2Gi" $dindLimits | quote }}
+  KubernetesJobs__DinDStorageSizeLimit: {{ dig "storageSizeLimit" "20Gi" $dind | quote }}
   KubernetesJobs__LlmApiKeySecretName: {{ .Values.config.openHandsLlmApiKeySecretName | quote }}
-  KubernetesJobs__CodexAuthSecretName: {{ ternary .Values.agentJobs.codexAuth.secretName "" .Values.agentJobs.codexAuth.enabled | quote }}
-  KubernetesJobs__CodexAuthSecretKey: {{ .Values.agentJobs.codexAuth.secretKey | quote }}
-  KubernetesJobs__CodexAuthMountPath: {{ .Values.agentJobs.codexAuth.mountPath | quote }}
+  KubernetesJobs__CodexAuthSecretName: {{ ternary (dig "secretName" "formicae-codex-auth" $codexAuth) "" (dig "enabled" false $codexAuth) | quote }}
+  KubernetesJobs__CodexAuthSecretKey: {{ dig "secretKey" "auth.json" $codexAuth | quote }}
+  KubernetesJobs__CodexAuthMountPath: {{ dig "mountPath" "/root/.codex" $codexAuth | quote }}
