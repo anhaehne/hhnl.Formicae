@@ -82,6 +82,10 @@ internal static class WorkerCommand
 {
     private const string WorkspaceDirectory = "/workspace";
     private const string RepositoryDirectory = "/workspace/repo";
+    private const string NonInteractivePlanningInstructions =
+        "This is a non-interactive Formicae planning run. Do not ask the user questions, request a mode change, " +
+        "ask for the request to be resent, or invoke interactive shaping skills. Inspect the repository and " +
+        "available product context directly, make conservative assumptions where needed, and return a complete, actionable plan.";
 
     public static async Task<int> RunAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
     {
@@ -144,14 +148,7 @@ internal static class WorkerCommand
     {
         CodexWorkspace.Prepare(environment.RequiresBrowser);
 
-        var args = new List<string> { "-y", "@openai/codex", "exec" };
-        if (!string.IsNullOrWhiteSpace(environment.Model))
-        {
-            args.Add("-m");
-            args.Add(environment.Model);
-        }
-
-        args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
+        var args = BuildCodexArguments(environment, workingDirectory);
         var codexExit = await RunProcessAsync("npx", args, workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
         await reporter.ReportCodexAuthAsync(environment.AiSettingsId, ReadCodexAuth(), cancellationToken);
         if (codexExit != 0 || !environment.CanCommitRepositoryChanges)
@@ -210,6 +207,24 @@ internal static class WorkerCommand
         }
 
         return await RunProcessAsync("git", ["push", "origin", environment.Branch], workingDirectory, reporter, cancellationToken, environment.GitAccessToken);
+    }
+
+    internal static List<string> BuildCodexArguments(WorkerEnvironment environment, string workingDirectory)
+    {
+        var args = new List<string> { "-y", "@openai/codex", "exec" };
+        if (environment.TaskKind == "Plan")
+        {
+            args.AddRange(["-c", $"developer_instructions={NonInteractivePlanningInstructions}"]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(environment.Model))
+        {
+            args.Add("-m");
+            args.Add(environment.Model);
+        }
+
+        args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
+        return args;
     }
 
     private static async Task<int> CheckoutRepositoryAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)

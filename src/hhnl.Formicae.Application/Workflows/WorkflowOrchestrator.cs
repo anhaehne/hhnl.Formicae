@@ -100,8 +100,21 @@ public sealed class WorkflowOrchestrator(
         var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && !forceRefresh)
         {
-            workflow.PlanArtifact = existing.Output;
-            var existingResult = new AgentRunResult(true, existing.ExternalId ?? $"plan-{workflow.Id:N}", existing.Output ?? string.Empty, null);
+            var existingResult = ValidatePlanningResult(new AgentRunResult(true, existing.ExternalId ?? $"plan-{workflow.Id:N}", existing.Output ?? string.Empty, null));
+            if (!existingResult.Succeeded)
+            {
+                if (string.Equals(workflow.PlanArtifact?.Trim(), existingResult.Output.Trim(), StringComparison.Ordinal))
+                {
+                    workflow.PlanArtifact = null;
+                }
+
+                await CompleteTaskRunAsync(workflow, existing, existingResult, cancellationToken);
+                await AddAgentOutputLogAsync(workflow.Id, existing, existingResult, cancellationToken);
+                await FailWorkflowAsync(workflow, existingResult.FailureReason!, BuildFailureDetails(existing, existingResult), cancellationToken);
+                return true;
+            }
+
+            workflow.PlanArtifact = existingResult.Output;
             await workItems.UpsertIssueCommentAsync(
                 workflow.IssueUrl,
                 PullRequestCommentMarkers.Plan(workflow.Id),
@@ -120,6 +133,7 @@ public sealed class WorkflowOrchestrator(
                 return false;
             }
 
+            result = ValidatePlanningResult(result);
             await CompleteTaskRunAsync(workflow, existing, result, cancellationToken);
             await AddAgentOutputLogAsync(workflow.Id, existing, result, cancellationToken);
 
@@ -170,17 +184,55 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        await CompleteTaskRunAsync(workflow, run, start.CompletedResult, cancellationToken);
-        await AddAgentOutputLogAsync(workflow.Id, run, start.CompletedResult, cancellationToken);
+        var completedResult = ValidatePlanningResult(start.CompletedResult);
+        await CompleteTaskRunAsync(workflow, run, completedResult, cancellationToken);
+        await AddAgentOutputLogAsync(workflow.Id, run, completedResult, cancellationToken);
 
-        if (!start.CompletedResult.Succeeded)
+        if (!completedResult.Succeeded)
         {
-            await FailWorkflowAsync(workflow, start.CompletedResult.FailureReason ?? "Planning agent failed.", BuildFailureDetails(run, start.CompletedResult), cancellationToken);
+            await FailWorkflowAsync(workflow, completedResult.FailureReason ?? "Planning agent failed.", BuildFailureDetails(run, completedResult), cancellationToken);
             return true;
         }
 
-        await CompleteSuccessfulPlanningAsync(workflow, start.CompletedResult, isRevision, cancellationToken);
+        await CompleteSuccessfulPlanningAsync(workflow, completedResult, isRevision, cancellationToken);
         return true;
+    }
+
+    private static AgentRunResult ValidatePlanningResult(AgentRunResult result)
+    {
+        if (!result.Succeeded)
+        {
+            return result;
+        }
+
+        var output = result.Output.Trim();
+        if (output.Length == 0)
+        {
+            return result with
+            {
+                Succeeded = false,
+                FailureReason = "Planning agent completed without returning an implementation plan."
+            };
+        }
+
+        var describesModeBlocker = output.Contains("plan mode", StringComparison.OrdinalIgnoreCase)
+            && (output.Contains("must", StringComparison.OrdinalIgnoreCase)
+                || output.Contains("require", StringComparison.OrdinalIgnoreCase)
+                || output.Contains("only", StringComparison.OrdinalIgnoreCase)
+                || output.Contains("cannot", StringComparison.OrdinalIgnoreCase));
+        var retryMarkers = new[] { "resend", "run", "use", "enter", "retry", "again" };
+        var requestsInteractiveRetry = output.Contains("/plan", StringComparison.OrdinalIgnoreCase)
+            && retryMarkers.Any(marker => output.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        if (output.Length <= 2000 && describesModeBlocker && requestsInteractiveRetry)
+        {
+            return result with
+            {
+                Succeeded = false,
+                FailureReason = "Planning agent requested an interactive Plan-mode retry instead of returning an implementation plan."
+            };
+        }
+
+        return result;
     }
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {

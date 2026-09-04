@@ -1,5 +1,7 @@
 Create a concise implementation plan for this GitHub issue.
 
+This is a non-interactive Formicae planning run. Do not ask the user questions, request a mode change, ask for the request to be resent, or invoke interactive shaping skills such as `$agent-os-shape-spec`. Perform the equivalent repository and product-context inspection directly, make conservative assumptions where needed, and return the finished plan in this response.
+
 Repository: {{repository_url}}
 Base branch: {{base_branch}}
 Issue: {{issue_url}}

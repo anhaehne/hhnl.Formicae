@@ -221,6 +221,161 @@ public sealed class WorkflowOrchestratorTests
         Assert.Contains("1. Add the UI.", body);
         Assert.DoesNotContain("```text", body);
     }
+
+    [Fact]
+    public async Task FilePromptRenderer_marks_planning_as_non_interactive()
+    {
+        var workflow = new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/42",
+            RepositoryUrl = "https://github.com/acme/widgets"
+        };
+
+        var prompt = await new FilePromptRenderer().RenderAsync(TaskRunKind.Plan, workflow, null, CancellationToken.None);
+
+        Assert.Contains("non-interactive Formicae planning run", prompt);
+        Assert.Contains("Do not ask the user questions", prompt);
+        Assert.Contains("do not", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("$agent-os-shape-spec", prompt);
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_rejects_immediate_plan_mode_refusal()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/42";
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var refusal = "Shape-spec can only run in Plan mode. Please enter Plan mode with `/plan`, then resend this request.";
+        var agentRunner = new ImmediateAgentRunner(new AgentRunResult(true, "plan-refusal", refusal, null));
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(started.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        var logs = await store.ListLogsAsync(started.WorkflowId, CancellationToken.None);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
+        Assert.Equal(WorkflowStep.Plan, workflow.CurrentStep);
+        Assert.Null(workflow.PlanArtifact);
+        Assert.Contains("interactive Plan-mode retry", workflow.FailureReason);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Failed, run.Status);
+        Assert.Equal(refusal, run.Output);
+        Assert.Empty(devOps.UpsertIssueCommentCalls);
+        Assert.Contains(logs, log => log.Message.Contains(refusal, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_rejects_deferred_plan_mode_refusal()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/43";
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var agentRunner = new DeferredAgentRunner();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, agentRunner, new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+        var run = await store.GetTaskRunAsync(started.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(run);
+        var refusal = "Shape-spec must be run in Plan mode. Please enter plan mode with `/plan` first, then run it again.";
+        agentRunner.Results[run.ExternalId!] = new AgentRunResult(true, run.ExternalId!, refusal, null);
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        run = await store.GetTaskRunAsync(started.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
+        Assert.Null(workflow.PlanArtifact);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Failed, run.Status);
+        Assert.Contains("interactive Plan-mode retry", run.FailureReason);
+        Assert.Empty(devOps.UpsertIssueCommentCalls);
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_accepts_concise_plain_text_plan()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowService(store);
+        var issueUrl = "https://github.com/acme/widgets/issues/44";
+        var started = await service.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
+            issueUrl,
+            "https://github.com/acme/widgets",
+            null,
+            null), CancellationToken.None);
+        var devOps = new MockDevOpsAdapter()
+            .AddIssueWithLabels(issueUrl, "Scripted issue", "Scripted issue body", [WorkItemWorkflowLabels.ReadyToPlan]);
+        var plan = "Inspect the scheduler, implement bounded retries, and cover the behavior with focused tests.";
+        var orchestrator = new WorkflowOrchestrator(
+            store,
+            devOps,
+            devOps,
+            new ImmediateAgentRunner(new AgentRunResult(true, "plain-plan", plan, null)),
+            new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var workflow = await store.GetWorkflowAsync(started.WorkflowId, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(started.WorkflowId, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(workflow);
+        Assert.Equal(WorkflowStatus.Implementing, workflow.Status);
+        Assert.Equal(plan, workflow.PlanArtifact);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Succeeded, run.Status);
+        Assert.Single(devOps.UpsertIssueCommentCalls);
+    }
+
+    [Fact]
+    public async Task AdvanceRunnableWorkflows_rejects_reused_refusal_and_clears_matching_artifact()
+    {
+        var store = new InMemoryWorkflowStore();
+        var refusal = "Plan mode is required. Please use `/plan` and try again.";
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://github.com/acme/widgets/issues/45",
+            RepositoryUrl = "https://github.com/acme/widgets",
+            Status = WorkflowStatus.Planning,
+            CurrentStep = WorkflowStep.Plan,
+            PlanArtifact = refusal
+        }, CancellationToken.None);
+        await store.UpsertTaskRunAsync(new TaskRun
+        {
+            WorkflowId = workflow.Id,
+            Kind = TaskRunKind.Plan,
+            Status = TaskRunStatus.Succeeded,
+            ExternalId = "persisted-refusal",
+            Output = refusal
+        }, CancellationToken.None);
+        var devOps = new MockDevOpsAdapter();
+        var orchestrator = new WorkflowOrchestrator(store, devOps, devOps, new FakeAgentRunner(), new FilePromptRenderer());
+
+        await orchestrator.AdvanceRunnableWorkflowsAsync(CancellationToken.None);
+
+        var updated = await store.GetWorkflowAsync(workflow.Id, CancellationToken.None);
+        var run = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, CancellationToken.None);
+        Assert.NotNull(updated);
+        Assert.Equal(WorkflowStatus.Failed, updated.Status);
+        Assert.Null(updated.PlanArtifact);
+        Assert.NotNull(run);
+        Assert.Equal(TaskRunStatus.Failed, run.Status);
+        Assert.Empty(devOps.UpsertIssueCommentCalls);
+    }
     [Fact]
     public async Task AdvanceRunnableWorkflows_Completes_fake_vertical_slice()
     {
@@ -1630,6 +1785,15 @@ public sealed class WorkflowOrchestratorTests
             var result = new AgentRunResult(true, $"captured-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Captured {task.Kind} output", null);
             return Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
         }
+
+        public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
+            => Task.FromResult<AgentRunResult?>(null);
+    }
+
+    private sealed class ImmediateAgentRunner(AgentRunResult result) : IAgentRunner
+    {
+        public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
+            => Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
 
         public Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
             => Task.FromResult<AgentRunResult?>(null);

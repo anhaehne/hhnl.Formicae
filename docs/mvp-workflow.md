@@ -70,7 +70,7 @@ stateDiagram-v2
 
 Each agent or integration step is stored as a task run:
 
-- `Plan`: fetches GitHub issue context and asks OpenHands to produce an implementation plan.
+- `Plan`: fetches GitHub issue context and asks the configured agent to produce a complete implementation plan in one non-interactive run. Repository skills that require an interactive mode or follow-up questions are not invoked by this step.
 - `Implement`: creates or reuses a branch and asks OpenHands to apply the plan.
 - `CreatePullRequest`: opens a pull request for the branch.
 - `AddressComments`: for an open pull request with comments, asks the agent to address issue comments and review comments from the PR. For Codex subscription jobs, Formicae checks out the workflow branch first and performs the authenticated commit/push after the agent finishes. On success, Formicae posts a new marked top-level PR summary comment.

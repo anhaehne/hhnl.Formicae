@@ -61,7 +61,7 @@ public sealed class FilePromptRenderer : IPromptRenderer
     private static string DefaultTemplate(TaskRunKind kind)
         => kind switch
         {
-            TaskRunKind.Plan => "Create an implementation plan for {{issue_url}} in {{repository_url}}.",
+            TaskRunKind.Plan => "Create an implementation plan for {{issue_url}} in {{repository_url}}. This is a non-interactive Formicae planning run: do not ask questions, request a mode change, ask for the request to be resent, or invoke interactive shaping skills. Inspect the repository directly and return the finished plan.",
             TaskRunKind.Implement => "Implement this plan on {{branch_name}}:\n{{plan_artifact}}",
             TaskRunKind.CreatePullRequest => "Create a pull request for {{branch_name}}.",
             TaskRunKind.AddressComments => "Address these pull request comments on {{branch_name}}:\n{{pull_request_comments}}\n\nFull pull request conversation is mounted at /workspace/formicae/context/pull-request-conversation.md.",
