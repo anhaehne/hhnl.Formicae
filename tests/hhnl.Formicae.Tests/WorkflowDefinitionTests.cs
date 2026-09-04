@@ -68,6 +68,52 @@ public sealed class WorkflowDefinitionTests
     }
 
     [Fact]
+    public void Validator_accepts_single_step_loop()
+    {
+        var result = validator.Validate(new WorkflowDefinitionDocument(
+            DefaultWorkflowDefinitions.V1Alpha2Schema, "plan",
+            [new("plan", "builtins.plan", "plan"), new("exit", "builtins.implement")],
+            Loops: [new("retry-plan", ["plan"], 2, 3, "exit", 60)]));
+
+        Assert.True(result.IsValid, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+    }
+
+    [Fact]
+    public void Validator_accepts_grouped_loop()
+    {
+        var result = validator.Validate(new WorkflowDefinitionDocument(
+            DefaultWorkflowDefinitions.V1Alpha2Schema, "plan",
+            [new("plan", "builtins.plan", "implement"), new("implement", "builtins.implement", "plan"), new("exit", "builtins.create-pull-request")],
+            Loops: [new("delivery", ["plan", "implement"], 2, 2, "exit")]));
+
+        Assert.True(result.IsValid, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+    }
+
+    [Fact]
+    public void Validator_rejects_invalid_loop_bounds()
+    {
+        var result = validator.Validate(new WorkflowDefinitionDocument(
+            DefaultWorkflowDefinitions.V1Alpha2Schema, "plan",
+            [new("plan", "builtins.plan", "plan"), new("exit", "builtins.implement")],
+            Loops: [new("retry-plan", ["plan"], 3, 2, "exit", 0)]));
+
+        Assert.Contains(result.Errors, error => error.Code == "definition.loop.bounds.invalid");
+        Assert.Contains(result.Errors, error => error.Code == "definition.loop.timeout.invalid");
+    }
+
+    [Fact]
+    public void Validator_rejects_unknown_loop_references()
+    {
+        var result = validator.Validate(new WorkflowDefinitionDocument(
+            DefaultWorkflowDefinitions.V1Alpha2Schema, "plan",
+            [new("plan", "builtins.plan", "plan"), new("exit", "builtins.implement")],
+            Loops: [new("retry-plan", ["missing"], 1, 1, "unknown")]));
+
+        Assert.Contains(result.Errors, error => error.Code == "definition.loop.body.unknown");
+        Assert.Contains(result.Errors, error => error.Code == "definition.loop.exit.invalid");
+    }
+
+    [Fact]
     public void Validator_rejects_disconnected_steps()
     {
         var result = validator.Validate(new WorkflowDefinitionDocument(

@@ -55,7 +55,8 @@ public sealed class WorkflowService
             CurrentStep = WorkflowStep.None,
             WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
             WorkflowDefinitionVersionId = definitionVersion.Id,
-            DslSchemaVersion = definitionVersion.DslSchemaVersion
+            DslSchemaVersion = definitionVersion.DslSchemaVersion,
+            CurrentDefinitionStepId = WorkflowDefinitionJson.Deserialize(definitionVersion.DefinitionJson)?.StartStepId
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
@@ -86,6 +87,11 @@ public sealed class WorkflowService
     public async Task<TaskRunResponse[]> ListRunsAsync(Guid workflowId, CancellationToken cancellationToken)
         => (await store.ListTaskRunsAsync(workflowId, cancellationToken))
             .Select(run => run.ToResponse())
+            .ToArray();
+
+    public async Task<WorkflowLoopIterationResponse[]> ListLoopIterationsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => (await store.ListLoopIterationsAsync(workflowId, cancellationToken))
+            .Select(iteration => iteration.ToResponse())
             .ToArray();
 
     public async Task<WorkflowSummaryResponse?> RetryTaskRunAsync(Guid workflowId, Guid taskRunId, CancellationToken cancellationToken)
