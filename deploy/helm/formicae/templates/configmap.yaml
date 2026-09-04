@@ -70,3 +70,5 @@ data:
   KubernetesJobs__CodexAuthSecretName: {{ ternary (default "formicae-codex-auth" (index $codexAuth "secretName")) "" $codexAuthEnabled | quote }}
   KubernetesJobs__CodexAuthSecretKey: {{ default "auth.json" (index $codexAuth "secretKey") | quote }}
   KubernetesJobs__CodexAuthMountPath: {{ default "/root/.codex" (index $codexAuth "mountPath") | quote }}
+  RuntimeJobs__ImplementationTimeoutSeconds: {{ default "3600" .Values.config.runtimeJobsImplementationTimeoutSeconds | quote }}
+  RuntimeJobs__ImplementationCheckpointGraceSeconds: {{ default "600" .Values.config.runtimeJobsImplementationCheckpointGraceSeconds | quote }}

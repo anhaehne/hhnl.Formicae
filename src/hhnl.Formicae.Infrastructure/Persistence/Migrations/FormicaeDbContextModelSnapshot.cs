@@ -374,12 +374,6 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DefinitionStepId")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("");
-
                     b.Property<string>("ExternalId")
                         .HasColumnType("text");
 
@@ -389,9 +383,6 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<int?>("LoopIteration")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Output")
                         .HasColumnType("text");
@@ -411,12 +402,8 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("WorkflowId", "DefinitionStepId", "LoopIteration")
+                    b.HasIndex("WorkflowId", "Kind")
                         .IsUnique();
-
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("WorkflowId", "DefinitionStepId", "LoopIteration"), false);
-
-                    b.HasIndex("WorkflowId", "Kind", "CreatedAt");
 
                     b.ToTable("task_runs", (string)null);
                 });
@@ -436,9 +423,6 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CurrentDefinitionStepId")
-                        .HasColumnType("text");
 
                     b.Property<string>("CurrentStep")
                         .IsRequired()
@@ -619,43 +603,6 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.HasIndex("WorkflowId");
 
                     b.ToTable("workflow_logs", (string)null);
-                });
-
-            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowLoopIteration", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FailureReason")
-                        .HasColumnType("text");
-
-                    b.Property<int>("IterationNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("LoopId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("WorkflowId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkflowId", "LoopId", "IterationNumber")
-                        .IsUnique();
-
-                    b.ToTable("workflow_loop_iterations", (string)null);
                 });
 
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowTriggerEvent", b =>
@@ -864,15 +811,6 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.HasOne("hhnl.Formicae.Application.Workflows.WorkflowDefinition", null)
                         .WithMany()
                         .HasForeignKey("WorkflowDefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowLoopIteration", b =>
-                {
-                    b.HasOne("hhnl.Formicae.Application.Workflows.Workflow", null)
-                        .WithMany()
-                        .HasForeignKey("WorkflowId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

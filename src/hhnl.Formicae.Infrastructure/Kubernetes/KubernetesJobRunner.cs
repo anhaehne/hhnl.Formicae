@@ -117,6 +117,7 @@ public sealed class KubernetesJobRunner(
     private const string DockerHost = "unix:///run/formicae-docker/docker.sock";
     private const string ManagedByLabel = "app.kubernetes.io/managed-by";
     private const string ManagedByValue = "formicae";
+    private const int CheckpointTerminationGraceSeconds = 120;
 
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
@@ -203,14 +204,15 @@ public sealed class KubernetesJobRunner(
             return false;
         }
 
-        var timeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds));
+        var timeoutSeconds = Math.Max(1, job.Spec?.ActiveDeadlineSeconds ?? options.Value.TimeoutSeconds);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         if (DateTimeOffset.UtcNow - startedAt.Value.ToUniversalTime() <= timeout)
         {
             reason = string.Empty;
             return false;
         }
 
-        reason = $"Kubernetes job '{job.Metadata?.Name}' timed out after {options.Value.TimeoutSeconds} seconds.";
+        reason = $"Kubernetes job '{job.Metadata?.Name}' timed out after {timeoutSeconds} seconds.";
         return true;
     }
 
@@ -250,6 +252,7 @@ public sealed class KubernetesJobRunner(
     }
     private V1Job BuildJob(RuntimeJobSpec spec)
     {
+        var executionPolicy = ResolveExecutionPolicy(spec);
         var labels = new Dictionary<string, string>
         {
             [ManagedByLabel] = ManagedByValue,
@@ -358,7 +361,7 @@ public sealed class KubernetesJobRunner(
                 Name = ContainerName,
                 Image = spec.Image,
                 ImagePullPolicy = "IfNotPresent",
-                Env = BuildEnvironmentVariables(spec, enableNestedContainers),
+                Env = BuildEnvironmentVariables(spec, enableNestedContainers, spec.ExecutionPolicy is null ? null : executionPolicy),
                 EnvFrom = envFrom.Count == 0 ? null : envFrom,
                 Command = spec.Command.ToList(),
                 VolumeMounts = volumeMounts.Count == 0 ? null : volumeMounts,
@@ -415,7 +418,7 @@ public sealed class KubernetesJobRunner(
             Spec = new V1JobSpec
             {
                 BackoffLimit = 0,
-                ActiveDeadlineSeconds = Math.Max(1, options.Value.TimeoutSeconds),
+                ActiveDeadlineSeconds = executionPolicy.TimeoutSeconds,
                 Template = new V1PodTemplateSpec
                 {
                     Metadata = new V1ObjectMeta { Labels = labels },
@@ -424,6 +427,9 @@ public sealed class KubernetesJobRunner(
                         RestartPolicy = "Never",
                         AutomountServiceAccountToken = false,
                         HostNetwork = false,
+                        TerminationGracePeriodSeconds = executionPolicy.CheckpointGraceSeconds > 0
+                            ? CheckpointTerminationGraceSeconds
+                            : null,
                         Volumes = volumes.Count == 0 ? null : volumes,
                         InitContainers = initContainers,
                         Containers = containers
@@ -433,7 +439,10 @@ public sealed class KubernetesJobRunner(
         };
     }
 
-    private static List<V1EnvVar> BuildEnvironmentVariables(RuntimeJobSpec spec, bool enableNestedContainers)
+    private static List<V1EnvVar> BuildEnvironmentVariables(
+        RuntimeJobSpec spec,
+        bool enableNestedContainers,
+        RuntimeJobExecutionPolicy? executionPolicy)
     {
         var env = spec.Environment
             .OrderBy(pair => pair.Key)
@@ -441,6 +450,11 @@ public sealed class KubernetesJobRunner(
             .ToList();
 
         var requirements = spec.ExecutionRequirements ?? new RuntimeJobExecutionRequirements();
+        if (executionPolicy is not null)
+        {
+            env.Add(new V1EnvVar { Name = "FORMICAE_JOB_TIMEOUT_SECONDS", Value = Math.Max(1, executionPolicy.TimeoutSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture) });
+            env.Add(new V1EnvVar { Name = "FORMICAE_CHECKPOINT_GRACE_SECONDS", Value = Math.Clamp(executionPolicy.CheckpointGraceSeconds, 0, Math.Max(0, executionPolicy.TimeoutSeconds - 1)).ToString(System.Globalization.CultureInfo.InvariantCulture) });
+        }
         if (requirements.RequiresBrowser)
         {
             env.Add(new V1EnvVar { Name = "FORMICAE_REQUIRES_BROWSER", Value = "true" });
@@ -465,6 +479,15 @@ public sealed class KubernetesJobRunner(
         }
 
         return env;
+    }
+
+    private RuntimeJobExecutionPolicy ResolveExecutionPolicy(RuntimeJobSpec spec)
+    {
+        var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(options.Value.TimeoutSeconds);
+        var timeoutSeconds = Math.Max(1, requested.TimeoutSeconds);
+        return new RuntimeJobExecutionPolicy(
+            timeoutSeconds,
+            Math.Clamp(requested.CheckpointGraceSeconds, 0, Math.Max(0, timeoutSeconds - 1)));
     }
 
     private static V1ResourceRequirements BuildResources(string cpuRequest, string memoryRequest, string cpuLimit, string memoryLimit)

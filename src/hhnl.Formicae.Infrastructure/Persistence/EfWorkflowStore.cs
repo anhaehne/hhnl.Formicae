@@ -69,29 +69,10 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
     }
 
     public Task<TaskRun?> GetTaskRunAsync(Guid workflowId, TaskRunKind kind, CancellationToken cancellationToken)
-        => dbContext.TaskRuns.Where(run => run.WorkflowId == workflowId && run.Kind == kind)
-            .OrderByDescending(run => run.CreatedAt).FirstOrDefaultAsync(cancellationToken);
-
-    public Task<TaskRun?> GetTaskRunExecutionAsync(Guid workflowId, string definitionStepId, int? loopIteration, CancellationToken cancellationToken)
-        => dbContext.TaskRuns.SingleOrDefaultAsync(run => run.WorkflowId == workflowId
-            && run.DefinitionStepId == definitionStepId && run.LoopIteration == loopIteration, cancellationToken);
+        => dbContext.TaskRuns.SingleOrDefaultAsync(run => run.WorkflowId == workflowId && run.Kind == kind, cancellationToken);
 
     public async Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken)
         => await dbContext.TaskRuns.Where(run => run.WorkflowId == workflowId).OrderBy(run => run.CreatedAt).ToListAsync(cancellationToken);
-
-    public async Task<WorkflowLoopIteration> UpsertLoopIterationAsync(WorkflowLoopIteration iteration, CancellationToken cancellationToken)
-    {
-        if (await dbContext.WorkflowLoopIterations.AnyAsync(item => item.Id == iteration.Id, cancellationToken))
-            dbContext.WorkflowLoopIterations.Update(iteration);
-        else
-            dbContext.WorkflowLoopIterations.Add(iteration);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return iteration;
-    }
-
-    public async Task<IReadOnlyList<WorkflowLoopIteration>> ListLoopIterationsAsync(Guid workflowId, CancellationToken cancellationToken)
-        => await dbContext.WorkflowLoopIterations.Where(item => item.WorkflowId == workflowId)
-            .OrderBy(item => item.StartedAt).ThenBy(item => item.IterationNumber).ToListAsync(cancellationToken);
 
     public async Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)
     {

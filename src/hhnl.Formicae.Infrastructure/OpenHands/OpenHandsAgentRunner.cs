@@ -46,7 +46,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var result = await jobRuntime.TryGetJobResultAsync(externalId, cancellationToken);
         if (result is null) return null;
         var output = result.Succeeded ? ExtractAgentOutput(result.Logs) : result.Logs;
-        return new AgentRunResult(result.Succeeded, result.ExternalId, output, result.FailureReason);
+        var failureReason = result.Succeeded ? null : ExtractCheckpointFailure(result.Logs) ?? result.FailureReason;
+        return new AgentRunResult(result.Succeeded, result.ExternalId, output, failureReason);
     }
 
     private RuntimeJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
@@ -66,13 +67,21 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             task.ContextFiles?.Select(file => new RuntimeJobContextFile(file.FileName, file.Content)).ToArray(),
             SecretFiles: secretFiles,
             SecretEnvironment: secretEnvironment,
-            ExecutionRequirements: BuildExecutionRequirements(task.Kind));
+            ExecutionRequirements: BuildExecutionRequirements(task.Kind),
+            ExecutionPolicy: BuildExecutionPolicy(task.Kind, jobOptions.Value));
     }
 
     private static RuntimeJobExecutionRequirements BuildExecutionRequirements(TaskRunKind taskKind)
         => taskKind is TaskRunKind.Implement or TaskRunKind.AddressComments
             ? new RuntimeJobExecutionRequirements(RequiresBrowser: true, RequiresNestedContainers: true)
             : new RuntimeJobExecutionRequirements();
+
+    private static RuntimeJobExecutionPolicy? BuildExecutionPolicy(TaskRunKind taskKind, RuntimeJobOptions options)
+        => taskKind is TaskRunKind.Implement or TaskRunKind.AddressComments
+            ? new RuntimeJobExecutionPolicy(
+                Math.Max(1, options.ImplementationTimeoutSeconds),
+                Math.Clamp(options.ImplementationCheckpointGraceSeconds, 0, Math.Max(0, options.ImplementationTimeoutSeconds - 1)))
+            : null;
 
     private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
     {
@@ -120,6 +129,36 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
         var lastMessage = messages.LastOrDefault(message => !string.IsNullOrWhiteSpace(message));
         return string.IsNullOrWhiteSpace(lastMessage) ? logs : lastMessage;
+    }
+
+    private static string? ExtractCheckpointFailure(string logs)
+    {
+        foreach (var line in logs.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse())
+        {
+            if (!line.StartsWith('{')) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (!TryGetString(root, "type", out var type)
+                    || !string.Equals(type, "formicae.checkpoint", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var branch = TryGetString(root, "branch", out var parsedBranch) ? parsedBranch : "the workflow branch";
+                var commit = TryGetString(root, "commitSha", out var parsedCommit) ? parsedCommit : null;
+                var pushed = root.TryGetProperty("pushed", out var pushedProperty) && pushedProperty.ValueKind == JsonValueKind.True;
+                return pushed && !string.IsNullOrWhiteSpace(commit)
+                    ? $"Worker checkpointed commit {commit} on '{branch}' before the deadline. Retry the task to continue."
+                    : $"Worker attempted a deadline checkpoint on '{branch}', but no checkpoint commit was pushed. Inspect the worker logs before retrying.";
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return null;
     }
 
     private static bool TryGetString(JsonElement element, string propertyName, out string value)

@@ -3,18 +3,57 @@ extern alias worker;
 public sealed class CodexWorkspaceTests
 {
     [Fact]
-    public void BuildCodexArguments_adds_non_interactive_developer_instructions_only_for_planning()
+    public void BuildCodexArguments_adds_task_specific_developer_instructions()
     {
         var planArguments = worker::WorkerCommand.BuildCodexArguments(EnvironmentFor("Plan"), "/workspace/repo");
-        var implementationArguments = worker::WorkerCommand.BuildCodexArguments(EnvironmentFor("Implement"), "/workspace/repo");
+        var implementationArguments = worker::WorkerCommand.BuildCodexArguments(EnvironmentFor("Implement", 3600, 600), "/workspace/repo");
 
         var configIndex = planArguments.IndexOf("-c");
         Assert.True(configIndex >= 0);
         Assert.Contains("developer_instructions=", planArguments[configIndex + 1]);
         Assert.Contains("non-interactive Formicae planning run", planArguments[configIndex + 1]);
         Assert.Contains("do not ask the user questions", planArguments[configIndex + 1], StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("-c", implementationArguments);
+        var implementationConfigIndex = implementationArguments.IndexOf("-c");
+        Assert.True(implementationConfigIndex >= 0);
+        Assert.Contains("hard execution deadline of 3600 seconds", implementationArguments[implementationConfigIndex + 1]);
+        Assert.Contains("At 3000 seconds", implementationArguments[implementationConfigIndex + 1]);
+        Assert.Contains("Formicae owns the final commit and push", implementationArguments[implementationConfigIndex + 1]);
     }
+
+    [Fact]
+    public void WorkerDeadlinePolicy_uses_soft_deadline_without_waiting()
+    {
+        var policy = worker::WorkerDeadlinePolicy.From(EnvironmentFor("Implement", 3600, 600));
+
+        Assert.NotNull(policy);
+        Assert.Equal(TimeSpan.FromMinutes(60), policy.HardTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(50), policy.SoftTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(5), policy.FinalizationTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(5), policy.CheckpointTimeout);
+        Assert.Null(worker::WorkerDeadlinePolicy.From(EnvironmentFor("Plan", 3600, 600)));
+    }
+
+    [Fact]
+    public void BuildCodexResumeArguments_targets_captured_session_with_checkpoint_prompt()
+    {
+        var arguments = worker::WorkerCommand.BuildCodexResumeArguments(
+            EnvironmentFor("Implement", 3600, 600),
+            "/workspace/repo",
+            "11111111-2222-3333-4444-555555555555");
+
+        var resumeIndex = arguments.IndexOf("resume");
+        Assert.True(resumeIndex > 0);
+        Assert.Equal("11111111-2222-3333-4444-555555555555", arguments[resumeIndex + 1]);
+        Assert.Contains("Stop starting new work", arguments[^1]);
+        Assert.Contains("worker will checkpoint", arguments[^1]);
+    }
+
+    [Theory]
+    [InlineData("{\"type\":\"thread.started\",\"thread_id\":\"thread-123\"}", "thread-123")]
+    [InlineData("{\"type\":\"item.completed\"}", null)]
+    [InlineData("not-json", null)]
+    public void TryReadCodexThreadId_handles_jsonl_events(string line, string? expected)
+        => Assert.Equal(expected, worker::WorkerCommand.TryReadCodexThreadId(line));
 
     [Fact]
     public void Prepare_preserves_auth_and_existing_config_while_adding_browser_mcp()
@@ -53,7 +92,7 @@ public sealed class CodexWorkspaceTests
         }
     }
 
-    private static worker::WorkerEnvironment EnvironmentFor(string taskKind)
+    private static worker::WorkerEnvironment EnvironmentFor(string taskKind, int? timeoutSeconds = null, int checkpointGraceSeconds = 0)
         => new(
             Guid.Parse("11111111-1111-1111-1111-111111111111"),
             taskKind,
@@ -70,5 +109,7 @@ public sealed class CodexWorkspaceTests
             "/workspace/formicae/context",
             null,
             false,
-            false);
+            false,
+            timeoutSeconds,
+            checkpointGraceSeconds);
 }

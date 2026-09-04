@@ -17,7 +17,6 @@ export type WorkflowSummary = {
   updatedAt: string;
   pullRequestUrl?: string | null;
   failureReason?: string | null;
-  currentDefinitionStepId?: string | null;
 };
 
 export type WorkflowDefinitionDocument = {
@@ -25,16 +24,6 @@ export type WorkflowDefinitionDocument = {
   startStepId: string;
   steps: WorkflowDefinitionStep[];
   triggers?: WorkflowDefinitionTrigger[] | null;
-  loops?: WorkflowDefinitionLoop[] | null;
-};
-
-export type WorkflowDefinitionLoop = {
-  id: string;
-  bodyStepIds: string[];
-  repeatCount: number;
-  maxIterations: number;
-  timeoutSeconds?: number | null;
-  exitStepId: string;
 };
 
 export type WorkflowTriggerType = "Manual" | "DevOpsIssueLabel";
@@ -117,19 +106,6 @@ export type TaskRun = {
   createdAt: string;
   updatedAt: string;
   agentMessages: AgentMessage[];
-  definitionStepId: string;
-  loopIteration?: number | null;
-};
-
-export type WorkflowLoopIteration = {
-  id: string;
-  workflowId: string;
-  loopId: string;
-  iterationNumber: number;
-  startedAt: string;
-  completedAt?: string | null;
-  outcome: string | number;
-  failureReason?: string | null;
 };
 
 export type AgentMessage = {
@@ -509,10 +485,6 @@ export async function getWorkflow(workflowId: string): Promise<WorkflowSummary> 
 
 export async function listRuns(workflowId: string): Promise<TaskRun[]> {
   return send<TaskRun[]>(`/api/workflows/${encodeURIComponent(workflowId)}/runs`);
-}
-
-export async function listLoopIterations(workflowId: string): Promise<WorkflowLoopIteration[]> {
-  return send<WorkflowLoopIteration[]>(`/api/workflows/${encodeURIComponent(workflowId)}/loop-iterations`);
 }
 
 export async function retryTaskRun(workflowId: string, taskRunId: string): Promise<WorkflowSummary> {

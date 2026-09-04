@@ -10,7 +10,6 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
 {
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
-    public DbSet<WorkflowLoopIteration> WorkflowLoopIterations => Set<WorkflowLoopIteration>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowTriggerEvent> WorkflowTriggerEvents => Set<WorkflowTriggerEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
@@ -36,7 +35,6 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(workflow => workflow.Status).HasConversion<string>();
             entity.Property(workflow => workflow.CurrentStep).HasConversion<string>();
             entity.Property(workflow => workflow.DslSchemaVersion);
-            entity.Property(workflow => workflow.CurrentDefinitionStepId);
             entity.HasIndex(workflow => workflow.WorkflowDefinitionId);
             entity.HasIndex(workflow => workflow.WorkflowDefinitionVersionId);
         });
@@ -68,19 +66,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasKey(run => run.Id);
             entity.Property(run => run.Kind).HasConversion<string>();
             entity.Property(run => run.Status).HasConversion<string>();
-            entity.Property(run => run.DefinitionStepId).IsRequired().HasDefaultValue("");
-            entity.HasIndex(run => new { run.WorkflowId, run.DefinitionStepId, run.LoopIteration }).IsUnique().AreNullsDistinct(false);
-            entity.HasIndex(run => new { run.WorkflowId, run.Kind, run.CreatedAt });
-        });
-
-        modelBuilder.Entity<WorkflowLoopIteration>(entity =>
-        {
-            entity.ToTable("workflow_loop_iterations");
-            entity.HasKey(iteration => iteration.Id);
-            entity.Property(iteration => iteration.LoopId).IsRequired();
-            entity.Property(iteration => iteration.Outcome).HasConversion<string>();
-            entity.HasIndex(iteration => new { iteration.WorkflowId, iteration.LoopId, iteration.IterationNumber }).IsUnique();
-            entity.HasOne<Workflow>().WithMany().HasForeignKey(iteration => iteration.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(run => new { run.WorkflowId, run.Kind }).IsUnique();
         });
 
         modelBuilder.Entity<WorkflowEvent>(entity =>

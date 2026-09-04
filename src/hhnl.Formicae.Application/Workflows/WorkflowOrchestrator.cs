@@ -38,23 +38,17 @@ public sealed class WorkflowOrchestrator(
 
         try
         {
-            var context = await ResolveExecutionContextAsync(workflow, cancellationToken);
-            if (context is null)
+            switch (workflow.Status)
             {
-                return true;
-            }
-
-            switch (context.Kind)
-            {
-                case TaskRunKind.Plan:
-                    return workflow.Status == WorkflowStatus.Queued
-                        ? await StartPlanningIfReadyAsync(workflow, cancellationToken)
-                        : await RunPlanningAsync(workflow, null, cancellationToken);
-                case TaskRunKind.Implement:
+                case WorkflowStatus.Queued:
+                    return await StartPlanningIfReadyAsync(workflow, cancellationToken);
+                case WorkflowStatus.Planning:
+                    return await RunPlanningAsync(workflow, null, cancellationToken);
+                case WorkflowStatus.Implementing:
                     return await RunImplementationIfReadyAsync(workflow, cancellationToken);
-                case TaskRunKind.CreatePullRequest:
+                case WorkflowStatus.CreatingPullRequest:
                     return await CreatePullRequestAsync(workflow, cancellationToken);
-                case TaskRunKind.AddressComments:
+                case WorkflowStatus.Reviewing:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
             }
         }
@@ -103,7 +97,7 @@ public sealed class WorkflowOrchestrator(
         bool forceRefresh = false,
         IReadOnlyList<WorkItemComment>? feedbackComments = null)
     {
-        var existing = await GetCurrentTaskRunAsync(workflow, cancellationToken);
+        var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && !forceRefresh)
         {
             var existingResult = ValidatePlanningResult(new AgentRunResult(true, existing.ExternalId ?? $"plan-{workflow.Id:N}", existing.Output ?? string.Empty, null));
@@ -126,7 +120,7 @@ public sealed class WorkflowOrchestrator(
                 PullRequestCommentMarkers.Plan(workflow.Id),
                 PullRequestCommentMarkers.BuildPlanBody(workflow, existingResult),
                 cancellationToken);
-            await AdvanceDefinitionCursorAsync(workflow, "Existing planning result reused.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Implementing, WorkflowStep.Implement, "Existing planning result reused.", cancellationToken);
             return true;
         }
 
@@ -156,7 +150,7 @@ public sealed class WorkflowOrchestrator(
         await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning started.", cancellationToken);
 
         var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
-        var run = existing ?? await CreateCurrentTaskRunAsync(workflow, TaskRunKind.Plan, cancellationToken);
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan };
         var previousOutput = forceRefresh ? run.Output : null;
         var shouldPersistPreviousPlan = string.IsNullOrWhiteSpace(workflow.PlanArtifact)
             && !string.IsNullOrWhiteSpace(previousOutput);
@@ -246,8 +240,6 @@ public sealed class WorkflowOrchestrator(
         var feedbackComments = await GetNewIssueFeedbackForPlanAsync(workflow, issue, cancellationToken);
         if (feedbackComments.Count > 0)
         {
-            var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-            workflow.CurrentDefinitionStepId = document.Steps.First(step => step.Uses == WorkflowDefinitionValidator.UsesFor(TaskRunKind.Plan)).Id;
             return await RunPlanningAsync(workflow, issue, cancellationToken, forceRefresh: true, feedbackComments: feedbackComments);
         }
 
@@ -295,17 +287,17 @@ public sealed class WorkflowOrchestrator(
                 cancellationToken);
         }
 
-        await AdvanceDefinitionCursorAsync(workflow, isRevision ? "Planning revision completed." : "Planning completed.", cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Implementing, WorkflowStep.Implement, isRevision ? "Planning revision completed." : "Planning completed.", cancellationToken);
     }
 
     private static bool IsPlanRevision(string? previousOutput)
         => !string.IsNullOrWhiteSpace(previousOutput);
     private async Task<bool> RunImplementationAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        var existing = await GetCurrentTaskRunAsync(workflow, cancellationToken);
+        var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Implement, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded)
         {
-            await AdvanceDefinitionCursorAsync(workflow, "Existing implementation result reused.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Existing implementation result reused.", cancellationToken);
             return true;
         }
 
@@ -326,7 +318,7 @@ public sealed class WorkflowOrchestrator(
                 return true;
             }
 
-            await AdvanceDefinitionCursorAsync(workflow, "Implementation completed.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Implementation completed.", cancellationToken);
             return true;
         }
 
@@ -345,7 +337,7 @@ public sealed class WorkflowOrchestrator(
         await store.UpdateWorkflowAsync(workflow, cancellationToken);
         var prompt = await promptRenderer.RenderAsync(TaskRunKind.Implement, workflow, null, cancellationToken);
 
-        var run = existing ?? await CreateCurrentTaskRunAsync(workflow, TaskRunKind.Implement, cancellationToken);
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Implement };
         await StartTaskRunAsync(workflow, run, cancellationToken);
 
         var start = await StartAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.Implement, prompt, workflow.RepositoryUrl, workflow.BranchName, workflow.Model), cancellationToken);
@@ -365,19 +357,19 @@ public sealed class WorkflowOrchestrator(
             return true;
         }
 
-        await AdvanceDefinitionCursorAsync(workflow, "Implementation completed.", cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest, "Implementation completed.", cancellationToken);
         return true;
     }
     private async Task<bool> CreatePullRequestAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        var existing = await GetCurrentTaskRunAsync(workflow, cancellationToken);
+        var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.CreatePullRequest, cancellationToken);
         if (existing?.Status == TaskRunStatus.Succeeded && workflow.PullRequestUrl is not null)
         {
-            await AdvanceDefinitionCursorAsync(workflow, "Existing pull request reused.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Reviewing, WorkflowStep.AddressComments, "Existing pull request reused.", cancellationToken);
             return true;
         }
 
-        var run = existing ?? await CreateCurrentTaskRunAsync(workflow, TaskRunKind.CreatePullRequest, cancellationToken);
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.CreatePullRequest };
         await StartTaskRunAsync(workflow, run, cancellationToken);
 
         var taskRuns = await store.ListTaskRunsAsync(workflow.Id, cancellationToken);
@@ -386,13 +378,13 @@ public sealed class WorkflowOrchestrator(
 
         workflow.PullRequestUrl = pullRequest.Url;
         await AddEventAsync(workflow.Id, run.Id, WorkflowEventTypes.PullRequestCreated, "Information", "Pull request created.", new { pullRequest.Url }, cancellationToken);
-        await AdvanceDefinitionCursorAsync(workflow, "Pull request created.", cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Reviewing, WorkflowStep.AddressComments, "Pull request created.", cancellationToken);
         return true;
     }
 
     private async Task<bool> AddressPullRequestCommentsAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        var existing = await GetCurrentTaskRunAsync(workflow, cancellationToken);
+        var existing = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.AddressComments, cancellationToken);
         if (existing?.Status == TaskRunStatus.Running)
         {
             var result = await TryGetRunningAgentResultAsync(existing, cancellationToken);
@@ -413,7 +405,7 @@ public sealed class WorkflowOrchestrator(
             var runningResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result);
             await sourceControl.UpsertPullRequestCommentAsync(workflow, runningResponseBody, cancellationToken);
 
-            await AdvanceDefinitionCursorAsync(workflow, "Workflow completed after pull request comments were addressed.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
             return true;
         }
 
@@ -421,7 +413,7 @@ public sealed class WorkflowOrchestrator(
         var pullRequestStatus = await sourceControl.GetPullRequestStatusAsync(workflow, cancellationToken);
         if (pullRequestStatus.IsMerged)
         {
-            await AdvanceDefinitionCursorAsync(workflow, "Workflow completed because the pull request was merged.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed because the pull request was merged.", cancellationToken);
             return true;
         }
 
@@ -442,7 +434,7 @@ public sealed class WorkflowOrchestrator(
             : comments.Where(comment => comment.UpdatedAt > previousAddressedAt.Value).ToArray();
         if (commentsToAddress.Count == 0)
         {
-            await AdvanceDefinitionCursorAsync(workflow, "Workflow completed with no new pull request comments.", cancellationToken);
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed with no new pull request comments.", cancellationToken);
             return true;
         }
 
@@ -452,7 +444,7 @@ public sealed class WorkflowOrchestrator(
             new AgentTaskContextFile("pull-request-conversation.md", FormatPullRequestConversation(workflow, comments))
         };
         var branch = workflow.BranchName ?? throw new InvalidOperationException("Workflow branch is required before addressing pull request comments.");
-        var run = existing ?? await CreateCurrentTaskRunAsync(workflow, TaskRunKind.AddressComments, cancellationToken);
+        var run = existing ?? new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.AddressComments };
         await StartTaskRunAsync(workflow, run, cancellationToken);
         foreach (var comment in commentsToAddress)
         {
@@ -479,7 +471,7 @@ public sealed class WorkflowOrchestrator(
         var completedResponseBody = PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, start.CompletedResult);
         await sourceControl.UpsertPullRequestCommentAsync(workflow, completedResponseBody, cancellationToken);
 
-        await AdvanceDefinitionCursorAsync(workflow, "Workflow completed after pull request comments were addressed.", cancellationToken);
+        await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "Workflow completed after pull request comments were addressed.", cancellationToken);
         return true;
     }
     private async Task TryReactToIssueAsync(Workflow workflow, Guid? taskRunId, string reaction, CancellationToken cancellationToken)
@@ -737,163 +729,6 @@ public sealed class WorkflowOrchestrator(
             Message = result.Output
         }, cancellationToken);
 
-    private sealed record ExecutionContext(WorkflowDefinitionDocument Document, WorkflowDefinitionStep Step, TaskRunKind Kind, WorkflowDefinitionLoop? Loop, int? Iteration);
-
-    private async Task<ExecutionContext?> ResolveExecutionContextAsync(Workflow workflow, CancellationToken cancellationToken)
-    {
-        var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-        if (workflow.CurrentDefinitionStepId is null)
-        {
-            var legacyKind = workflow.CurrentStep switch
-            {
-                WorkflowStep.Plan => TaskRunKind.Plan,
-                WorkflowStep.Implement => TaskRunKind.Implement,
-                WorkflowStep.CreatePullRequest => TaskRunKind.CreatePullRequest,
-                WorkflowStep.AddressComments => TaskRunKind.AddressComments,
-                _ => (TaskRunKind?)null
-            };
-            workflow.CurrentDefinitionStepId = legacyKind.HasValue
-                ? document.Steps.FirstOrDefault(item => item.Uses == WorkflowDefinitionValidator.UsesFor(legacyKind.Value))?.Id
-                : document.StartStepId;
-        }
-        var step = document.Steps.SingleOrDefault(item => item.Id == workflow.CurrentDefinitionStepId)
-            ?? throw new InvalidOperationException($"Workflow step '{workflow.CurrentDefinitionStepId}' was not found in its immutable definition.");
-        if (!WorkflowDefinitionValidator.TryMapUsesToTaskKind(step.Uses, out var kind))
-            throw new InvalidOperationException($"Workflow step '{step.Id}' uses unsupported task '{step.Uses}'.");
-
-        var loop = document.Loops?.SingleOrDefault(item => item.BodyStepIds.Contains(step.Id, StringComparer.Ordinal));
-        int? iterationNumber = null;
-        if (loop is not null)
-        {
-            var history = (await store.ListLoopIterationsAsync(workflow.Id, cancellationToken))
-                .Where(item => item.LoopId == loop.Id).OrderBy(item => item.IterationNumber).ToArray();
-            var active = history.LastOrDefault(item => item.Outcome == WorkflowLoopIterationOutcome.Running);
-            if (active is null)
-            {
-                var nextIteration = history.Length == 0 ? 1 : history.Max(item => item.IterationNumber) + 1;
-                var loopStartedAt = history.FirstOrDefault()?.StartedAt;
-                string? failureCode = null;
-                if (nextIteration > loop.MaxIterations) failureCode = "LOOP_MAX_ITERATIONS_EXCEEDED";
-                else if (loop.TimeoutSeconds.HasValue && loopStartedAt.HasValue
-                    && clock.UtcNow - loopStartedAt.Value >= TimeSpan.FromSeconds(loop.TimeoutSeconds.Value))
-                    failureCode = "LOOP_TIMEOUT_EXCEEDED";
-                if (failureCode is not null)
-                {
-                    var reason = $"{failureCode}: Loop '{loop.Id}' cannot start iteration {nextIteration}.";
-                    await AddEventAsync(workflow.Id, null, WorkflowEventTypes.LoopGuardrailFailed, "Error", reason,
-                        new { code = failureCode, loopId = loop.Id, iteration = nextIteration, loop.MaxIterations, loop.TimeoutSeconds, loopStartedAt }, cancellationToken);
-                    await FailWorkflowAsync(workflow, reason, new { code = failureCode, loopId = loop.Id, iteration = nextIteration }, cancellationToken);
-                    return null;
-                }
-                active = new WorkflowLoopIteration
-                {
-                    WorkflowId = workflow.Id,
-                    LoopId = loop.Id,
-                    IterationNumber = nextIteration,
-                    StartedAt = clock.UtcNow
-                };
-                await store.UpsertLoopIterationAsync(active, cancellationToken);
-            }
-            iterationNumber = active.IterationNumber;
-        }
-
-        return new ExecutionContext(document, step, kind, loop, iterationNumber);
-    }
-
-    private async Task<WorkflowDefinitionDocument> ResolveDefinitionAsync(Workflow workflow, CancellationToken cancellationToken)
-    {
-        var version = workflow.WorkflowDefinitionVersionId.HasValue
-            ? await store.GetWorkflowDefinitionVersionAsync(workflow.WorkflowDefinitionVersionId.Value, cancellationToken)
-            : null;
-        if (version is null && workflow.WorkflowDefinitionVersionId.HasValue)
-            throw new InvalidOperationException($"Workflow definition version '{workflow.WorkflowDefinitionVersionId}' was not found.");
-        if (version is null)
-        {
-            version = await store.GetDefaultEnabledWorkflowDefinitionVersionAsync(cancellationToken);
-            if (version is null)
-            {
-                var defaults = DefaultWorkflowDefinitions.CreateMvp(clock.UtcNow);
-                await store.EnsureDefaultWorkflowDefinitionAsync(defaults.Definition, defaults.Version, cancellationToken);
-                version = defaults.Version;
-            }
-            workflow.WorkflowDefinitionId = version.WorkflowDefinitionId;
-            workflow.WorkflowDefinitionVersionId = version.Id;
-            workflow.DslSchemaVersion = version.DslSchemaVersion;
-        }
-        if (!version.IsEnabled) throw new InvalidOperationException($"Workflow definition version '{version.Id}' is disabled.");
-        var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
-        var validation = new WorkflowDefinitionValidator().Validate(document);
-        if (document is null || !validation.IsValid) throw new InvalidOperationException("Workflow definition version is invalid.");
-        return document;
-    }
-
-    private async Task<TaskRun?> GetCurrentTaskRunAsync(Workflow workflow, CancellationToken cancellationToken)
-    {
-        var context = await ResolveExecutionContextAsync(workflow, cancellationToken);
-        if (context is null) return null;
-        var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
-        if (execution is not null) return execution;
-        var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
-        return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
-    }
-
-    private async Task<TaskRun> CreateCurrentTaskRunAsync(Workflow workflow, TaskRunKind kind, CancellationToken cancellationToken)
-    {
-        var context = await ResolveExecutionContextAsync(workflow, cancellationToken)
-            ?? throw new InvalidOperationException("The workflow cannot create a task run after a loop guardrail failure.");
-        return new TaskRun { WorkflowId = workflow.Id, Kind = kind, DefinitionStepId = context.Step.Id, LoopIteration = context.Iteration, CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow };
-    }
-
-    private async Task AdvanceDefinitionCursorAsync(Workflow workflow, string message, CancellationToken cancellationToken)
-    {
-        var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-        var step = document.Steps.Single(item => item.Id == workflow.CurrentDefinitionStepId);
-        var loop = document.Loops?.SingleOrDefault(item => item.BodyStepIds.Contains(step.Id, StringComparer.Ordinal));
-        string? nextStepId;
-        if (loop is not null && string.Equals(loop.BodyStepIds[^1], step.Id, StringComparison.Ordinal))
-        {
-            var active = (await store.ListLoopIterationsAsync(workflow.Id, cancellationToken))
-                .Last(item => item.LoopId == loop.Id && item.Outcome == WorkflowLoopIterationOutcome.Running);
-            active.Outcome = WorkflowLoopIterationOutcome.Succeeded;
-            active.CompletedAt = clock.UtcNow;
-            await store.UpsertLoopIterationAsync(active, cancellationToken);
-            nextStepId = active.IterationNumber < loop.RepeatCount ? loop.BodyStepIds[0] : loop.ExitStepId;
-        }
-        else
-        {
-            nextStepId = step.NextStepId;
-        }
-
-        if (string.IsNullOrWhiteSpace(nextStepId))
-        {
-            workflow.CurrentDefinitionStepId = null;
-            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, message, cancellationToken);
-            return;
-        }
-        workflow.CurrentDefinitionStepId = nextStepId;
-        var next = document.Steps.Single(item => item.Id == nextStepId);
-        WorkflowDefinitionValidator.TryMapUsesToTaskKind(next.Uses, out var nextKind);
-        await TransitionWorkflowAsync(workflow, StatusFor(nextKind), StepFor(nextKind), message, cancellationToken);
-    }
-
-    private static WorkflowStatus StatusFor(TaskRunKind kind) => kind switch
-    {
-        TaskRunKind.Plan => WorkflowStatus.Planning,
-        TaskRunKind.Implement => WorkflowStatus.Implementing,
-        TaskRunKind.CreatePullRequest => WorkflowStatus.CreatingPullRequest,
-        TaskRunKind.AddressComments => WorkflowStatus.Reviewing,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind))
-    };
-
-    private static WorkflowStep StepFor(TaskRunKind kind) => kind switch
-    {
-        TaskRunKind.Plan => WorkflowStep.Plan,
-        TaskRunKind.Implement => WorkflowStep.Implement,
-        TaskRunKind.CreatePullRequest => WorkflowStep.CreatePullRequest,
-        TaskRunKind.AddressComments => WorkflowStep.AddressComments,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind))
-    };
-
     private async Task EnsureWorkflowDefinitionAllowsTaskAsync(
         Workflow workflow,
         TaskRunKind kind,
@@ -936,10 +771,35 @@ public sealed class WorkflowOrchestrator(
         }
 
         var expectedUses = WorkflowDefinitionValidator.UsesFor(kind);
-        var step = document.Steps.FirstOrDefault(step => string.Equals(step.Id, workflow.CurrentDefinitionStepId, StringComparison.Ordinal));
-        if (step is null || !string.Equals(step.Uses, expectedUses, StringComparison.Ordinal))
+        var step = document.Steps.FirstOrDefault(step => string.Equals(step.Uses, expectedUses, StringComparison.Ordinal));
+        if (step is null)
         {
-            throw new InvalidOperationException($"Workflow definition step '{workflow.CurrentDefinitionStepId}' does not use required built-in task '{expectedUses}'.");
+            throw new InvalidOperationException($"Workflow definition version '{version.Id}' does not include required built-in task '{expectedUses}'.");
+        }
+
+        var expectedNext = ExpectedNextKind(kind);
+        if (expectedNext is null)
+        {
+            return;
+        }
+
+        var nextStep = string.IsNullOrWhiteSpace(step.NextStepId)
+            ? null
+            : document.Steps.FirstOrDefault(candidate => string.Equals(candidate.Id, step.NextStepId, StringComparison.Ordinal));
+        var expectedNextUses = WorkflowDefinitionValidator.UsesFor(expectedNext.Value);
+        if (nextStep is null || !string.Equals(nextStep.Uses, expectedNextUses, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Workflow definition version '{version.Id}' does not include required transition from '{expectedUses}' to '{expectedNextUses}'.");
         }
     }
+
+    private static TaskRunKind? ExpectedNextKind(TaskRunKind kind)
+        => kind switch
+        {
+            TaskRunKind.Plan => TaskRunKind.Implement,
+            TaskRunKind.Implement => TaskRunKind.CreatePullRequest,
+            TaskRunKind.CreatePullRequest => TaskRunKind.AddressComments,
+            TaskRunKind.AddressComments => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
+        };
 }

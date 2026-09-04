@@ -1314,96 +1314,6 @@ public sealed class WorkflowOrchestratorTests
     }
 
     [Fact]
-    public async Task Definition_driven_orchestrator_executes_bounded_loop_and_records_each_iteration()
-    {
-        var store = new InMemoryWorkflowStore();
-        var workflow = await CreateLoopWorkflowAsync(store, repeatCount: 2, maxIterations: 2);
-        var orchestrator = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), new FakeAgentRunner(), new FilePromptRenderer());
-
-        await orchestrator.AdvanceAsync(workflow, CancellationToken.None);
-        await orchestrator.AdvanceAsync(workflow, CancellationToken.None);
-        await orchestrator.AdvanceAsync(workflow, CancellationToken.None);
-
-        var runs = await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None);
-        var iterations = await store.ListLoopIterationsAsync(workflow.Id, CancellationToken.None);
-        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
-        Assert.Equal([1, 2], runs.Where(run => run.DefinitionStepId == "plan").Select(run => run.LoopIteration));
-        Assert.Equal(3, runs.Select(run => run.Id).Distinct().Count());
-        Assert.Equal([1, 2], iterations.Select(iteration => iteration.IterationNumber));
-        Assert.All(iterations, iteration => Assert.Equal(WorkflowLoopIterationOutcome.Succeeded, iteration.Outcome));
-    }
-
-    [Fact]
-    public async Task Definition_driven_orchestrator_fails_before_timed_out_next_iteration()
-    {
-        var store = new InMemoryWorkflowStore();
-        var clock = new MutableClock(DateTimeOffset.Parse("2026-09-04T12:00:00Z"));
-        var workflow = await CreateLoopWorkflowAsync(store, repeatCount: 3, maxIterations: 3, timeoutSeconds: 5);
-        var orchestrator = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), new FakeAgentRunner(), new FilePromptRenderer(), clock);
-
-        await orchestrator.AdvanceAsync(workflow, CancellationToken.None);
-        clock.UtcNow = clock.UtcNow.AddSeconds(6);
-        await orchestrator.AdvanceAsync(workflow, CancellationToken.None);
-
-        var runs = await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None);
-        var events = await store.ListEventsAsync(workflow.Id, CancellationToken.None);
-        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
-        Assert.StartsWith("LOOP_TIMEOUT_EXCEEDED", workflow.FailureReason);
-        Assert.Single(runs);
-        Assert.Contains(events, item => item.Type == WorkflowEventTypes.LoopGuardrailFailed && item.DetailsJson!.Contains("LOOP_TIMEOUT_EXCEEDED"));
-    }
-
-    [Fact]
-    public async Task Definition_driven_orchestrator_resumes_active_iteration_after_restart_without_duplication()
-    {
-        var store = new InMemoryWorkflowStore();
-        var workflow = await CreateLoopWorkflowAsync(store, repeatCount: 2, maxIterations: 2);
-        var runner = new DeferredAgentRunner();
-        var first = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), runner, new FilePromptRenderer());
-        await first.AdvanceAsync(workflow, CancellationToken.None);
-
-        var externalId = Assert.Single(runner.StartedExternalIds);
-        runner.Results[externalId] = new AgentRunResult(true, externalId, "Persisted plan", null);
-        var restarted = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), runner, new FilePromptRenderer());
-        await restarted.AdvanceAsync(workflow, CancellationToken.None);
-        await restarted.AdvanceAsync(workflow, CancellationToken.None);
-
-        var runs = await store.ListTaskRunsAsync(workflow.Id, CancellationToken.None);
-        Assert.Equal(2, runner.StartedTasks.Count);
-        Assert.Equal(2, runs.Count);
-        Assert.Single(runs, run => run.LoopIteration == 1 && run.Status == TaskRunStatus.Succeeded);
-        Assert.Single(runs, run => run.LoopIteration == 2 && run.Status == TaskRunStatus.Running);
-    }
-
-    private static async Task<Workflow> CreateLoopWorkflowAsync(InMemoryWorkflowStore store, int repeatCount, int maxIterations, int? timeoutSeconds = null)
-    {
-        var definition = new WorkflowDefinition { Name = "Loop workflow" };
-        var document = new WorkflowDefinitionDocument(
-            DefaultWorkflowDefinitions.V1Alpha2Schema, "plan",
-            [new("plan", "builtins.plan", "plan"), new("implement", "builtins.implement")],
-            Loops: [new("planning", ["plan"], repeatCount, maxIterations, "implement", timeoutSeconds)]);
-        var version = new WorkflowDefinitionVersion
-        {
-            WorkflowDefinitionId = definition.Id,
-            Version = 1,
-            DslSchemaVersion = document.Schema,
-            IsEnabled = true,
-            IsDefault = true,
-            DefinitionJson = WorkflowDefinitionJson.Serialize(document)
-        };
-        await store.EnsureDefaultWorkflowDefinitionAsync(definition, version, CancellationToken.None);
-        return await store.CreateWorkflowAsync(new Workflow
-        {
-            IssueUrl = $"https://github.com/acme/widgets/issues/{Guid.NewGuid():N}",
-            RepositoryUrl = "https://github.com/acme/widgets",
-            WorkflowDefinitionId = definition.Id,
-            WorkflowDefinitionVersionId = version.Id,
-            DslSchemaVersion = document.Schema,
-            CurrentDefinitionStepId = document.StartStepId
-        }, CancellationToken.None);
-    }
-
-    [Fact]
     public void OctokitGitHubApi_GraphQl_variable_serialization_preserves_issueId_key()
     {
         var body = new Dictionary<string, object?>
@@ -2272,6 +2182,36 @@ public sealed class AdapterContractTests
     }
 
     [Fact]
+    public async Task OpenHands_runner_exposes_pushed_checkpoint_as_retryable_failure()
+    {
+        var jobRunner = new CapturingJobRunner
+        {
+            Result = new RuntimeJobResult(false, "formicae-implement-test", """
+                worker output
+                {"type":"formicae.checkpoint","branch":"formicae/test","commitSha":"abc123","changed":true,"pushed":true,"reason":"Deadline approaching"}
+                """, "Kubernetes job failed.")
+        };
+        var runner = new OpenHandsAgentRunner(
+            jobRunner,
+            Options.Create(new RuntimeJobOptions { Image = "worker:test" }),
+            Options.Create(new OpenHandsOptions { DefaultModel = "test-model" }));
+
+        var start = await runner.StartAsync(new AgentTask(
+            Guid.Parse("55555555-5555-5555-5555-555555555555"),
+            TaskRunKind.Implement,
+            "Implement this",
+            "https://github.com/acme/widgets",
+            "formicae/test",
+            null), CancellationToken.None);
+        var result = await runner.TryGetResultAsync(start.ExternalId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.False(result.Succeeded);
+        Assert.Contains("checkpointed commit abc123", result.FailureReason);
+        Assert.Contains("Retry the task", result.FailureReason);
+    }
+
+    [Fact]
     public async Task OpenHands_runner_uses_codex_subscription_command_when_configured()
     {
         var jobRunner = new CapturingJobRunner();
@@ -2313,6 +2253,7 @@ public sealed class AdapterContractTests
         Assert.NotNull(jobRunner.LastSpec.ExecutionRequirements);
         Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresBrowser);
         Assert.True(jobRunner.LastSpec.ExecutionRequirements.RequiresNestedContainers);
+        Assert.Equal(new RuntimeJobExecutionPolicy(3600, 600), jobRunner.LastSpec.ExecutionPolicy);
     }
 
     [Fact]
@@ -2430,6 +2371,14 @@ public sealed class AdapterContractTests
             Assert.Equal("installation-token", jobRunner.LastSpec.Environment["FORMICAE_GIT_ACCESS_TOKEN"]);
             Assert.Equal("https://github.com/acme/widgets", jobRunner.LastSpec.Environment["FORMICAE_REPOSITORY_URL"]);
             Assert.Equal("formicae/test", jobRunner.LastSpec.Environment["FORMICAE_BRANCH"]);
+            if (kind is TaskRunKind.Implement or TaskRunKind.AddressComments)
+            {
+                Assert.Equal(new RuntimeJobExecutionPolicy(3600, 600), jobRunner.LastSpec.ExecutionPolicy);
+            }
+            else
+            {
+                Assert.Null(jobRunner.LastSpec.ExecutionPolicy);
+            }
         }
 
         Assert.Equal([integration.Id, integration.Id, integration.Id], gitHubAppClient.IntegrationIds);
@@ -2542,6 +2491,8 @@ public sealed class AdapterContractTests
         Assert.False(api.CreatedJob.Spec.Template.Spec.AutomountServiceAccountToken);
         Assert.False(api.CreatedJob.Spec.Template.Spec.HostNetwork);
         Assert.Equal(5, api.CreatedJob.Spec.ActiveDeadlineSeconds);
+        Assert.Null(api.CreatedJob.Spec.Template.Spec.TerminationGracePeriodSeconds);
+        Assert.DoesNotContain(container.Env, env => env.Name is "FORMICAE_JOB_TIMEOUT_SECONDS" or "FORMICAE_CHECKPOINT_GRACE_SECONDS");
         Assert.NotNull(container.Resources);
     }
 
@@ -2564,10 +2515,12 @@ public sealed class AdapterContractTests
             ["dotnet", "hhnl.Formicae.Worker.dll"],
             ExecutionRequirements: new RuntimeJobExecutionRequirements(
                 RequiresBrowser: true,
-                RequiresNestedContainers: true)), CancellationToken.None);
+                RequiresNestedContainers: true),
+            ExecutionPolicy: new RuntimeJobExecutionPolicy(3600, 600)), CancellationToken.None);
 
         Assert.NotNull(api.CreatedJob);
-        Assert.Equal(900, api.CreatedJob.Spec.ActiveDeadlineSeconds);
+        Assert.Equal(3600, api.CreatedJob.Spec.ActiveDeadlineSeconds);
+        Assert.Equal(120, api.CreatedJob.Spec.Template.Spec.TerminationGracePeriodSeconds);
         Assert.False(api.CreatedJob.Spec.Template.Spec.AutomountServiceAccountToken);
         Assert.False(api.CreatedJob.Spec.Template.Spec.HostNetwork);
 
@@ -2576,6 +2529,8 @@ public sealed class AdapterContractTests
         Assert.Contains(worker.Env, env => env.Name == "FORMICAE_REQUIRES_BROWSER" && env.Value == "true");
         Assert.Contains(worker.Env, env => env.Name == "FORMICAE_REQUIRES_NESTED_CONTAINERS" && env.Value == "true");
         Assert.Contains(worker.Env, env => env.Name == "DOCKER_HOST" && env.Value == "unix:///run/formicae-docker/docker.sock");
+        Assert.Contains(worker.Env, env => env.Name == "FORMICAE_JOB_TIMEOUT_SECONDS" && env.Value == "3600");
+        Assert.Contains(worker.Env, env => env.Name == "FORMICAE_CHECKPOINT_GRACE_SECONDS" && env.Value == "600");
         Assert.Contains(worker.VolumeMounts, mount => mount.Name == "docker-socket" && mount.MountPath == "/run/formicae-docker");
 
         var dind = Assert.Single(api.CreatedJob.Spec.Template.Spec.InitContainers);
@@ -2932,7 +2887,8 @@ public sealed class AdapterContractTests
             Image = "worker:test",
             WorkspaceRoot = workspace.Path,
             Network = "formicae-net",
-            Executable = "podman"
+            Executable = "podman",
+            TimeoutSeconds = 900
         }), []);
 
         var start = await runtime.StartJobAsync(new RuntimeJobSpec(
@@ -2950,7 +2906,10 @@ public sealed class AdapterContractTests
         Assert.Contains("--detach", run.Arguments);
         Assert.Contains("formicae.managed-by=formicae", run.Arguments);
         Assert.Contains("formicae.job=formicae-plan-test", run.Arguments);
+        Assert.Contains("formicae.timeout-seconds=900", run.Arguments);
         Assert.Contains("FORMICAE_TASK_KIND=Plan", run.Arguments);
+        Assert.DoesNotContain(run.Arguments, argument => argument.StartsWith("FORMICAE_JOB_TIMEOUT_SECONDS=", StringComparison.Ordinal));
+        Assert.DoesNotContain(run.Arguments, argument => argument.StartsWith("FORMICAE_CHECKPOINT_GRACE_SECONDS=", StringComparison.Ordinal));
         Assert.Contains("LLM_API_KEY=secret", run.Arguments);
         Assert.Contains("formicae-net", run.Arguments);
         Assert.Contains("worker:test", run.Arguments);
@@ -3009,6 +2968,38 @@ public sealed class AdapterContractTests
         Assert.Equal("running output", result.Logs);
         Assert.Contains("timed out after 1 seconds", result.FailureReason);
         Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "--force", "formicae-plan-timeout"]));
+    }
+
+    [Fact]
+    public async Task Container_runtime_propagates_and_honors_per_job_timeout_without_waiting()
+    {
+        var cli = new CapturingContainerCli();
+        var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions
+        {
+            TimeoutSeconds = 1,
+            DeleteFinishedContainers = false
+        }), []);
+
+        await runtime.StartJobAsync(new RuntimeJobSpec(
+            "formicae-implement-timeout",
+            "worker:test",
+            new Dictionary<string, string>(),
+            ["dotnet", "hhnl.Formicae.Worker.dll"],
+            ExecutionPolicy: new RuntimeJobExecutionPolicy(3600, 600)), CancellationToken.None);
+
+        var run = Assert.Single(cli.Calls, call => call.Arguments.FirstOrDefault() == "run");
+        Assert.Contains("formicae.timeout-seconds=3600", run.Arguments);
+        Assert.Contains("FORMICAE_JOB_TIMEOUT_SECONDS=3600", run.Arguments);
+        Assert.Contains("FORMICAE_CHECKPOINT_GRACE_SECONDS=600", run.Arguments);
+
+        cli.InspectResults.Enqueue(ContainerInspectJson(
+            running: true,
+            exitCode: 0,
+            DateTimeOffset.UtcNow.AddSeconds(-60),
+            timeoutSeconds: 3600));
+        var result = await runtime.TryGetJobResultAsync("formicae-implement-timeout", CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -3152,10 +3143,15 @@ public sealed class AdapterContractTests
     private static IConfiguration BuildInfrastructureConfiguration(IReadOnlyDictionary<string, string?> values)
         => new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 
-    private static string ContainerInspectJson(bool running, int exitCode, DateTimeOffset startedAt)
+    private static string ContainerInspectJson(bool running, int exitCode, DateTimeOffset startedAt, int? timeoutSeconds = null)
         => $$"""
             [
               {
+                "Config": {
+                  "Labels": {
+                    "formicae.timeout-seconds": "{{timeoutSeconds?.ToString() ?? string.Empty}}"
+                  }
+                },
                 "State": {
                   "Running": {{running.ToString().ToLowerInvariant()}},
                   "ExitCode": {{exitCode}},

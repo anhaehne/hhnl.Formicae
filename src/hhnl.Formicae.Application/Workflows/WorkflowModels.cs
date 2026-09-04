@@ -63,7 +63,6 @@ public sealed class Workflow
     public Guid? WorkflowDefinitionId { get; set; }
     public Guid? WorkflowDefinitionVersionId { get; set; }
     public string? DslSchemaVersion { get; set; }
-    public string? CurrentDefinitionStepId { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -92,16 +91,7 @@ public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("schema")] string Schema,
     [property: JsonPropertyName("startStepId")] string StartStepId,
     [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps,
-    [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null,
-    [property: JsonPropertyName("loops")] IReadOnlyList<WorkflowDefinitionLoop>? Loops = null);
-
-public sealed record WorkflowDefinitionLoop(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("bodyStepIds")] IReadOnlyList<string> BodyStepIds,
-    [property: JsonPropertyName("repeatCount")] int RepeatCount,
-    [property: JsonPropertyName("maxIterations")] int MaxIterations,
-    [property: JsonPropertyName("exitStepId")] string ExitStepId,
-    [property: JsonPropertyName("timeoutSeconds")] int? TimeoutSeconds = null);
+    [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null);
 
 public sealed record WorkflowDefinitionTrigger(
     [property: JsonPropertyName("id")] string Id,
@@ -123,8 +113,6 @@ public sealed class TaskRun
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid WorkflowId { get; init; }
     public TaskRunKind Kind { get; init; }
-    public string DefinitionStepId { get; init; } = string.Empty;
-    public int? LoopIteration { get; init; }
     public TaskRunStatus Status { get; set; } = TaskRunStatus.Queued;
     public string? ExternalId { get; set; }
     public string? Output { get; set; }
@@ -133,25 +121,6 @@ public sealed class TaskRun
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
-}
-
-public enum WorkflowLoopIterationOutcome
-{
-    Running,
-    Succeeded,
-    Failed
-}
-
-public sealed class WorkflowLoopIteration
-{
-    public Guid Id { get; init; } = Guid.NewGuid();
-    public Guid WorkflowId { get; init; }
-    public required string LoopId { get; init; }
-    public int IterationNumber { get; init; }
-    public DateTimeOffset StartedAt { get; init; }
-    public DateTimeOffset? CompletedAt { get; set; }
-    public WorkflowLoopIterationOutcome Outcome { get; set; } = WorkflowLoopIterationOutcome.Running;
-    public string? FailureReason { get; set; }
 }
 
 public sealed class WorkflowEvent
@@ -330,8 +299,7 @@ public sealed record WorkflowSummaryResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? PullRequestUrl,
-    string? FailureReason,
-    string? CurrentDefinitionStepId = null);
+    string? FailureReason);
 
 public sealed record WorkflowEventResponse(
     Guid Id,
@@ -361,19 +329,7 @@ public sealed record TaskRunResponse(
     DateTimeOffset? CompletedAt,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<AgentMessageResponse> AgentMessages,
-    string DefinitionStepId,
-    int? LoopIteration);
-
-public sealed record WorkflowLoopIterationResponse(
-    Guid Id,
-    Guid WorkflowId,
-    string LoopId,
-    int IterationNumber,
-    DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt,
-    WorkflowLoopIterationOutcome Outcome,
-    string? FailureReason);
+    IReadOnlyList<AgentMessageResponse> AgentMessages);
 
 public sealed record WorkflowSignalResponse(
     string Severity,
@@ -400,7 +356,6 @@ public static class WorkflowEventTypes
     public const string PullRequestCreated = "PullRequestCreated";
     public const string WorkflowCompleted = "WorkflowCompleted";
     public const string WorkflowFailed = "WorkflowFailed";
-    public const string LoopGuardrailFailed = "LoopGuardrailFailed";
     public const string ChatCaptured = "ChatCaptured";
 }
 

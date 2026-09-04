@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.8.0"
+  tag: "0.7.5"
   pullPolicy: IfNotPresent
 
 api:
@@ -85,6 +85,8 @@ config:
   kubernetesJobsPollIntervalSeconds: "5"
   kubernetesJobsDeleteFinishedJobs: "false"
   kubernetesJobsWorkerCallbackUrl: ""
+  runtimeJobsImplementationTimeoutSeconds: "3600"
+  runtimeJobsImplementationCheckpointGraceSeconds: "600"
 
 secrets:
   create: true
