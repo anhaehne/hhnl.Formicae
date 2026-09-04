@@ -45,6 +45,13 @@ jobs:
             exit 1
           fi
 
+          dind_disabled="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set agentJobs.dind.enabled=false)"
+          if grep -Fq 'app.kubernetes.io/component: namespace-pod-security' <<<"$dind_disabled"; then
+            echo 'Namespace Pod Security hook rendered while DinD was disabled.' >&2
+            exit 1
+          fi
+
           custom_namespace="$(helm template formicae deploy/helm/formicae --namespace formicae \
             --set config.kubernetesJobsNamespace=formicae-agents)"
           grep -Fq 'resourceNames: ["formicae-agents"]' <<<"$custom_namespace"
@@ -53,6 +60,10 @@ jobs:
           custom_image="$(helm template formicae deploy/helm/formicae --namespace formicae \
             --set config.kubernetesJobsImage=registry.example/formicae-worker:test)"
           grep -Fq 'image: "registry.example/formicae-worker:test"' <<<"$custom_image"
+
+          legacy_values="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set-json agentJobs.dind=null)"
+          grep -Fq 'app.kubernetes.io/component: namespace-pod-security' <<<"$legacy_values"
 
   unit-and-browser:
     runs-on: ubuntu-latest

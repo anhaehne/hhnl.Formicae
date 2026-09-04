@@ -1,9 +1,13 @@
 {{- $dind := default (dict) (index (default (dict) (index .Values "agentJobs")) "dind") -}}
+{{- $dindEnabled := true -}}
+{{- if hasKey $dind "enabled" -}}
+{{- $dindEnabled = index $dind "enabled" -}}
+{{- end -}}
 {{- $configureNamespacePodSecurity := true -}}
 {{- if hasKey $dind "configureNamespacePodSecurity" -}}
 {{- $configureNamespacePodSecurity = index $dind "configureNamespacePodSecurity" -}}
 {{- end -}}
-{{- if and (default false (index $dind "enabled")) $configureNamespacePodSecurity -}}
+{{- if and $dindEnabled $configureNamespacePodSecurity -}}
 {{- $targetNamespace := default .Release.Namespace .Values.config.kubernetesJobsNamespace -}}
 {{- $hookName := printf "%s-%s-pod-security" (include "formicae.fullname" .) $targetNamespace | trunc 63 | trimSuffix "-" -}}
 apiVersion: v1
