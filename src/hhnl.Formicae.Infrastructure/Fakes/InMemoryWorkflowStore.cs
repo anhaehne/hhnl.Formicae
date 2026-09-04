@@ -7,6 +7,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly object gate = new();
     private readonly Dictionary<Guid, Workflow> workflows = [];
     private readonly Dictionary<Guid, TaskRun> runs = [];
+    private readonly Dictionary<Guid, WorkflowLoopIteration> loopIterations = [];
     private readonly List<WorkflowEvent> events = [];
     private readonly List<WorkflowTriggerEvent> triggerEvents = [];
     private readonly List<WorkflowLog> logs = [];
@@ -104,7 +105,16 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     {
         lock (gate)
         {
-            return Task.FromResult(runs.Values.SingleOrDefault(run => run.WorkflowId == workflowId && run.Kind == kind));
+            return Task.FromResult(runs.Values.Where(run => run.WorkflowId == workflowId && run.Kind == kind).OrderByDescending(run => run.CreatedAt).FirstOrDefault());
+        }
+    }
+
+    public Task<TaskRun?> GetTaskRunExecutionAsync(Guid workflowId, string definitionStepId, int? loopIteration, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(runs.Values.SingleOrDefault(run => run.WorkflowId == workflowId
+                && run.DefinitionStepId == definitionStepId && run.LoopIteration == loopIteration));
         }
     }
 
@@ -116,6 +126,22 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
                 .Where(run => run.WorkflowId == workflowId)
                 .OrderBy(run => run.CreatedAt)
                 .ToArray());
+        }
+    }
+
+    public Task<WorkflowLoopIteration> UpsertLoopIterationAsync(WorkflowLoopIteration iteration, CancellationToken cancellationToken)
+    {
+        lock (gate) { loopIterations[iteration.Id] = iteration; }
+        return Task.FromResult(iteration);
+    }
+
+    public Task<IReadOnlyList<WorkflowLoopIteration>> ListLoopIterationsAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult<IReadOnlyList<WorkflowLoopIteration>>(loopIterations.Values
+                .Where(item => item.WorkflowId == workflowId)
+                .OrderBy(item => item.StartedAt).ThenBy(item => item.IterationNumber).ToArray());
         }
     }
 

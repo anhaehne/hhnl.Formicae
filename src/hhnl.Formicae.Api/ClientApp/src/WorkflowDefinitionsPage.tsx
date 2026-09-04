@@ -24,6 +24,7 @@ import {
   IntegrationDetail,
   listIntegrations,
   WorkflowDefinitionTrigger,
+  WorkflowDefinitionLoop,
   WorkflowDefinitionResponse,
   WorkflowDefinitionValidationError
 } from "./api";
@@ -83,6 +84,7 @@ function WorkflowDefinitionsEditor({
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<DraftValidationError[]>([]);
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([]);
+  const [loops, setLoops] = useState<WorkflowDefinitionLoop[]>([]);
   const [integrationDetails, setIntegrationDetails] = useState<IntegrationDetail[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowStepNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -155,6 +157,7 @@ function WorkflowDefinitionsEditor({
     setSchema(selectedVersion.definition.schema || selectedVersion.dslSchemaVersion || workflowSchema);
     setStartStepId(selectedVersion.definition.startStepId);
     setTriggers(selectedVersion.definition.triggers ?? []);
+    setLoops(selectedVersion.definition.loops ?? []);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -185,6 +188,7 @@ function WorkflowDefinitionsEditor({
     setSchema(workflowSchema);
     setStartStepId("plan");
     setTriggers([]);
+    setLoops([]);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -310,11 +314,23 @@ function WorkflowDefinitionsEditor({
     setTriggers(current => current.filter((_, currentIndex) => currentIndex !== index));
   }
 
+  function addLoop() {
+    const body = nodes[0]?.id ?? "";
+    const exit = nodes.find(node => node.id !== body)?.id ?? "";
+    setSchema(workflowSchema);
+    setLoops(current => [...current, { id: `loop${current.length + 1}`, bodyStepIds: body ? [body] : [], repeatCount: 2, maxIterations: 2, timeoutSeconds: null, exitStepId: exit }]);
+  }
+
+  function updateLoop(index: number, values: Partial<WorkflowDefinitionLoop>) {
+    setLoops(current => current.map((loop, currentIndex) => currentIndex === index ? { ...loop, ...values } : loop));
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const clientErrors = [
-      ...validateGraph(definitionName, nodes, edges, startStepId),
-      ...validateTriggers(triggers)
+      ...validateGraph(definitionName, nodes, edges, startStepId, loops),
+      ...validateTriggers(triggers),
+      ...validateLoops(loops, nodes)
     ];
     setValidationErrors(clientErrors);
     if (clientErrors.length > 0) {
@@ -335,7 +351,7 @@ function WorkflowDefinitionsEditor({
         version: versionNumber.trim() ? Number(versionNumber) : null,
         isEnabled,
         isDefault,
-        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId, normalizeTriggers(triggers))
+        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId, normalizeTriggers(triggers), loops)
       });
 
       setSelectedDefinitionId(definition.id);
@@ -481,6 +497,31 @@ function WorkflowDefinitionsEditor({
 
           <section className="settings-section">
             <div className="section-heading-row">
+              <h3>Loops</h3>
+              <button type="button" className="secondary-button compact-button" onClick={addLoop} disabled={!canAdminister}>Add</button>
+            </div>
+            {loops.map((loop, index) => (
+              <div className="trigger-row" key={`${loop.id}-${index}`}>
+                <div className="form-row">
+                  <label><span>ID</span><input value={loop.id} onChange={event => updateLoop(index, { id: event.target.value })} disabled={!canAdminister} /></label>
+                  <label><span>Body steps (ordered)</span><input value={loop.bodyStepIds.join(", ")} onChange={event => updateLoop(index, { bodyStepIds: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} disabled={!canAdminister} /></label>
+                </div>
+                <div className="form-row">
+                  <label><span>Repeat count</span><input type="number" min="1" value={loop.repeatCount} onChange={event => updateLoop(index, { repeatCount: Number(event.target.value) })} disabled={!canAdminister} /></label>
+                  <label><span>Maximum iterations</span><input type="number" min="1" value={loop.maxIterations} onChange={event => updateLoop(index, { maxIterations: Number(event.target.value) })} disabled={!canAdminister} /></label>
+                </div>
+                <div className="form-row">
+                  <label><span>Timeout seconds (optional)</span><input type="number" min="1" value={loop.timeoutSeconds ?? ""} onChange={event => updateLoop(index, { timeoutSeconds: event.target.value ? Number(event.target.value) : null })} disabled={!canAdminister} /></label>
+                  <label><span>Exit step</span><select value={loop.exitStepId} onChange={event => updateLoop(index, { exitStepId: event.target.value })} disabled={!canAdminister}>{nodes.map(node => <option key={node.id} value={node.id}>{node.id}</option>)}</select></label>
+                </div>
+                <button type="button" className="secondary-button danger-button compact-button" onClick={() => setLoops(current => current.filter((_, currentIndex) => currentIndex !== index))} disabled={!canAdminister}>Remove</button>
+              </div>
+            ))}
+            {loops.length === 0 ? <p className="muted">No loops configured.</p> : null}
+          </section>
+
+          <section className="settings-section">
+            <div className="section-heading-row">
               <h3>Triggers</h3>
               <button type="button" className="secondary-button compact-button" onClick={handleAddTrigger} disabled={!canAdminister}>Add</button>
             </div>
@@ -584,7 +625,7 @@ function ValidationErrorList({ errors }: { errors: DraftValidationError[] }) {
   );
 }
 
-function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], startStepId: string): DraftValidationError[] {
+function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], startStepId: string, loops: WorkflowDefinitionLoop[]): DraftValidationError[] {
   const errors: DraftValidationError[] = [];
   const ids = nodes.map(node => node.data.stepId || node.id);
   const uniqueIds = new Set(ids);
@@ -613,7 +654,8 @@ function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], s
     }
   }
   for (const [target, count] of incomingCounts) {
-    if (count > 1 || (target === startStepId && count > 0)) {
+    const loopBackEdges = loops.filter(loop => loop.bodyStepIds[0] === target).length;
+    if (count > 1 + loopBackEdges || (target === startStepId && count > loopBackEdges)) {
       errors.push({ code: "definition.graph.incoming.invalid", message: `Step '${target}' has invalid incoming edges.`, path: "steps", source: "client" });
     }
   }
@@ -648,6 +690,26 @@ function validateTriggers(triggers: WorkflowDefinitionTrigger[]): DraftValidatio
     }
   });
 
+  return errors;
+}
+
+function validateLoops(loops: WorkflowDefinitionLoop[], nodes: WorkflowStepNode[]): DraftValidationError[] {
+  const errors: DraftValidationError[] = [];
+  const nodeIds = new Set(nodes.map(node => node.id));
+  const owners = new Set<string>();
+  const ids = new Set<string>();
+  for (const loop of loops) {
+    if (!loop.id.trim() || ids.has(loop.id)) errors.push({ code: "definition.loop.id.invalid", message: "Loop ids are required and must be unique.", path: "loops[].id", source: "client" });
+    ids.add(loop.id);
+    if (loop.repeatCount <= 0 || loop.maxIterations <= 0 || loop.repeatCount > loop.maxIterations) errors.push({ code: "definition.loop.bounds.invalid", message: `Loop '${loop.id}' has invalid iteration bounds.`, path: "loops", source: "client" });
+    if (loop.timeoutSeconds != null && loop.timeoutSeconds <= 0) errors.push({ code: "definition.loop.timeout.invalid", message: `Loop '${loop.id}' timeout must be positive.`, path: "loops[].timeoutSeconds", source: "client" });
+    if (!nodeIds.has(loop.exitStepId) || loop.bodyStepIds.includes(loop.exitStepId)) errors.push({ code: "definition.loop.exit.invalid", message: `Loop '${loop.id}' requires an exit step outside its body.`, path: "loops[].exitStepId", source: "client" });
+    for (const stepId of loop.bodyStepIds) {
+      if (!nodeIds.has(stepId)) errors.push({ code: "definition.loop.body.unknown", message: `Loop '${loop.id}' references unknown step '${stepId}'.`, path: "loops[].bodyStepIds", source: "client" });
+      if (owners.has(stepId)) errors.push({ code: "definition.loop.body.overlap", message: `Step '${stepId}' belongs to more than one loop.`, path: "loops[].bodyStepIds", source: "client" });
+      owners.add(stepId);
+    }
+  }
   return errors;
 }
 
