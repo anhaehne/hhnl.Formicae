@@ -309,6 +309,8 @@ Codex auth is used by API-triggered agent Jobs. The API does not mount the auth 
 
 The chart defaults `image.tag` to the current chart app version. The GitHub Actions image workflow tags images with the .NET project version from `Directory.Build.props`, so chart `appVersion`, chart defaults, and pushed image tags should be kept aligned when releasing.
 
+The 0.7.5 recovery release keeps lightweight agent jobs at the 1,800-second runtime default and gives `Implement` and `AddressComments` jobs a 3,600-second deadline with a 600-second checkpoint window. Override `config.runtimeJobsImplementationTimeoutSeconds` and `config.runtimeJobsImplementationCheckpointGraceSeconds` only when worker capacity or repository verification requires different limits. Checkpointed jobs remain failed and must be retried after reviewing the persisted branch and commit information.
+
 ## Kubernetes E2E Tests
 
 Kubernetes E2E tests live in a separate project and are not part of the normal solution test path.

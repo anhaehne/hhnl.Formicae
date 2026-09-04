@@ -19,11 +19,16 @@ public sealed record RuntimeJobSpec(
     string ContextFilesMountPath = "/workspace/formicae/context",
     IReadOnlyList<RuntimeJobSecretFile>? SecretFiles = null,
     RuntimeJobSecretEnvironment? SecretEnvironment = null,
-    RuntimeJobExecutionRequirements? ExecutionRequirements = null);
+    RuntimeJobExecutionRequirements? ExecutionRequirements = null,
+    RuntimeJobExecutionPolicy? ExecutionPolicy = null);
 
 public sealed record RuntimeJobExecutionRequirements(
     bool RequiresBrowser = false,
     bool RequiresNestedContainers = false);
+
+public sealed record RuntimeJobExecutionPolicy(
+    int TimeoutSeconds,
+    int CheckpointGraceSeconds = 0);
 
 public sealed record RuntimeJobContextFile(string FileName, string Content);
 
@@ -49,4 +54,6 @@ public sealed class RuntimeJobOptions
     public string WorkerCallbackSecret { get; set; } = string.Empty;
     public string CodexAuthSecretKey { get; set; } = "auth.json";
     public string CodexAuthMountPath { get; set; } = "/root/.codex";
+    public int ImplementationTimeoutSeconds { get; set; } = 3600;
+    public int ImplementationCheckpointGraceSeconds { get; set; } = 600;
 }

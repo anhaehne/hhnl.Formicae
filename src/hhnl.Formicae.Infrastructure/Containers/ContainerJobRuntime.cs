@@ -64,6 +64,7 @@ public sealed class ContainerJobRuntime(
     private const string ManagedByLabel = "formicae.managed-by";
     private const string ManagedByValue = "formicae";
     private const string JobLabel = "formicae.job";
+    private const string TimeoutLabel = "formicae.timeout-seconds";
 
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
@@ -89,7 +90,7 @@ public sealed class ContainerJobRuntime(
 
         if (state.Running)
         {
-            if (IsTimedOut(externalId, state.StartedAt, out var timeoutReason))
+            if (IsTimedOut(externalId, state, out var timeoutReason))
             {
                 var timeoutLogs = await ReadJobLogsAsync(externalId, CancellationToken.None);
                 await RemoveIfConfiguredAsync(externalId, force: true, CancellationToken.None);
@@ -114,6 +115,7 @@ public sealed class ContainerJobRuntime(
 
     private IReadOnlyList<string> BuildRunArguments(RuntimeJobSpec spec)
     {
+        var executionPolicy = ResolveExecutionPolicy(spec);
         var arguments = new List<string>
         {
             "run",
@@ -123,7 +125,9 @@ public sealed class ContainerJobRuntime(
             "--label",
             $"{ManagedByLabel}={ManagedByValue}",
             "--label",
-            $"{JobLabel}={spec.Name}"
+            $"{JobLabel}={spec.Name}",
+            "--label",
+            $"{TimeoutLabel}={executionPolicy.TimeoutSeconds}"
         };
 
         if (!string.IsNullOrWhiteSpace(options.Value.Network))
@@ -132,7 +136,14 @@ public sealed class ContainerJobRuntime(
             arguments.Add(options.Value.Network);
         }
 
-        foreach (var (key, value) in spec.Environment.OrderBy(pair => pair.Key))
+        var environment = spec.Environment.ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (spec.ExecutionPolicy is not null)
+        {
+            environment["FORMICAE_JOB_TIMEOUT_SECONDS"] = Math.Max(1, executionPolicy.TimeoutSeconds).ToString(CultureInfo.InvariantCulture);
+            environment["FORMICAE_CHECKPOINT_GRACE_SECONDS"] = Math.Clamp(executionPolicy.CheckpointGraceSeconds, 0, Math.Max(0, executionPolicy.TimeoutSeconds - 1)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        foreach (var (key, value) in environment.OrderBy(pair => pair.Key))
         {
             arguments.Add("--env");
             arguments.Add($"{key}={value}");
@@ -198,23 +209,33 @@ public sealed class ContainerJobRuntime(
         }
     }
 
-    private bool IsTimedOut(string externalId, DateTimeOffset? startedAt, out string reason)
+    private bool IsTimedOut(string externalId, ContainerState state, out string reason)
     {
-        if (startedAt is null)
+        if (state.StartedAt is null)
         {
             reason = string.Empty;
             return false;
         }
 
-        var timeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds));
-        if (DateTimeOffset.UtcNow - startedAt.Value.ToUniversalTime() <= timeout)
+        var timeoutSeconds = Math.Max(1, state.TimeoutSeconds ?? options.Value.TimeoutSeconds);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        if (DateTimeOffset.UtcNow - state.StartedAt.Value.ToUniversalTime() <= timeout)
         {
             reason = string.Empty;
             return false;
         }
 
-        reason = $"Container '{externalId}' timed out after {options.Value.TimeoutSeconds} seconds.";
+        reason = $"Container '{externalId}' timed out after {timeoutSeconds} seconds.";
         return true;
+    }
+
+    private RuntimeJobExecutionPolicy ResolveExecutionPolicy(RuntimeJobSpec spec)
+    {
+        var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(options.Value.TimeoutSeconds);
+        var timeoutSeconds = Math.Max(1, requested.TimeoutSeconds);
+        return new RuntimeJobExecutionPolicy(
+            timeoutSeconds,
+            Math.Clamp(requested.CheckpointGraceSeconds, 0, Math.Max(0, timeoutSeconds - 1)));
     }
 
     private async Task RemoveIfConfiguredAsync(string externalId, bool force, CancellationToken cancellationToken)
@@ -248,7 +269,7 @@ public sealed class ContainerJobRuntime(
                         return;
                     }
 
-                    if (!state.Running || IsTimedOut(externalId, state.StartedAt, out _))
+                    if (!state.Running || IsTimedOut(externalId, state, out _))
                     {
                         signal.Signal();
                         return;
@@ -294,23 +315,34 @@ public sealed class ContainerJobRuntime(
     private static ContainerState ParseState(string json)
     {
         using var document = JsonDocument.Parse(json);
-        var root = document.RootElement.ValueKind == JsonValueKind.Array
-            ? document.RootElement.EnumerateArray().First().GetProperty("State")
-            : document.RootElement.GetProperty("State");
-        var running = root.TryGetProperty("Running", out var runningElement) && runningElement.GetBoolean();
-        var exitCode = root.TryGetProperty("ExitCode", out var exitCodeElement) ? exitCodeElement.GetInt32() : -1;
+        var container = document.RootElement.ValueKind == JsonValueKind.Array
+            ? document.RootElement.EnumerateArray().First()
+            : document.RootElement;
+        var state = container.GetProperty("State");
+        var running = state.TryGetProperty("Running", out var runningElement) && runningElement.GetBoolean();
+        var exitCode = state.TryGetProperty("ExitCode", out var exitCodeElement) ? exitCodeElement.GetInt32() : -1;
         DateTimeOffset? startedAt = null;
-        if (root.TryGetProperty("StartedAt", out var startedAtElement)
+        if (state.TryGetProperty("StartedAt", out var startedAtElement)
             && DateTimeOffset.TryParse(startedAtElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
         {
             startedAt = parsed;
         }
 
-        return new ContainerState(running, exitCode, startedAt);
+        int? timeoutSeconds = null;
+        if (container.TryGetProperty("Config", out var config)
+            && config.TryGetProperty("Labels", out var labels)
+            && labels.ValueKind == JsonValueKind.Object
+            && labels.TryGetProperty(TimeoutLabel, out var timeoutLabel)
+            && int.TryParse(timeoutLabel.GetString(), CultureInfo.InvariantCulture, out var parsedTimeout))
+        {
+            timeoutSeconds = parsedTimeout;
+        }
+
+        return new ContainerState(running, exitCode, startedAt, timeoutSeconds);
     }
 
     private static string TrimProcessError(ContainerCliResult result)
         => string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput.Trim() : result.StandardError.Trim();
 
-    private sealed record ContainerState(bool Running, int ExitCode, DateTimeOffset? StartedAt);
+    private sealed record ContainerState(bool Running, int ExitCode, DateTimeOffset? StartedAt, int? TimeoutSeconds);
 }
