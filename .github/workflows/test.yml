@@ -11,6 +11,49 @@ permissions:
   contents: read
 
 jobs:
+  helm-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate namespace Pod Security hook
+        run: |
+          set -euo pipefail
+          helm lint deploy/helm/formicae
+
+          rendered="$(helm template formicae deploy/helm/formicae --namespace formicae)"
+          for expected in \
+            'kind: ClusterRole' \
+            'kind: ClusterRoleBinding' \
+            'app.kubernetes.io/component: namespace-pod-security' \
+            '"helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed' \
+            'resourceNames: ["formicae"]' \
+            'pod-security.kubernetes.io/enforce=privileged' \
+            'pod-security.kubernetes.io/audit=baseline' \
+            'pod-security.kubernetes.io/warn=baseline'; do
+            grep -Fq "$expected" <<<"$rendered"
+          done
+
+          disabled="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set agentJobs.dind.configureNamespacePodSecurity=false)"
+          if grep -Fq 'app.kubernetes.io/component: namespace-pod-security' <<<"$disabled"; then
+            echo 'Namespace Pod Security hook rendered while disabled.' >&2
+            exit 1
+          fi
+
+          custom_namespace="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set config.kubernetesJobsNamespace=formicae-agents)"
+          grep -Fq 'resourceNames: ["formicae-agents"]' <<<"$custom_namespace"
+          grep -Fq -- '- "formicae-agents"' <<<"$custom_namespace"
+
+          custom_image="$(helm template formicae deploy/helm/formicae --namespace formicae \
+            --set config.kubernetesJobsImage=registry.example/formicae-worker:test)"
+          grep -Fq 'image: "registry.example/formicae-worker:test"' <<<"$custom_image"
+
   unit-and-browser:
     runs-on: ubuntu-latest
     steps:
