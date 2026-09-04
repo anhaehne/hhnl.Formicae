@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionLoop, WorkflowDefinitionResponse, WorkflowDefinitionTrigger, WorkflowDefinitionVersionResponse } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionTrigger, WorkflowDefinitionVersionResponse } from "./api";
 
 export type WorkflowStepNodeData = {
   stepId: string;
@@ -10,7 +10,7 @@ export type WorkflowStepNodeData = {
 
 export type WorkflowStepNode = Node<WorkflowStepNodeData, "workflowStep">;
 
-export const workflowSchema = "formicae.workflow/v1alpha2";
+export const workflowSchema = "formicae.workflow/v1alpha1";
 
 export const supportedUses = [
   "builtins.plan",
@@ -50,10 +50,7 @@ export function definitionToGraph(document: WorkflowDefinitionDocument): { nodes
     .map(step => ({
       id: `${step.id}->${step.nextStepId}`,
       source: step.id,
-      target: step.nextStepId!,
-      animated: document.loops?.some(loop => loop.bodyStepIds.at(-1) === step.id && loop.bodyStepIds[0] === step.nextStepId),
-      style: document.loops?.some(loop => loop.bodyStepIds.at(-1) === step.id && loop.bodyStepIds[0] === step.nextStepId)
-        ? { strokeDasharray: "6 4", stroke: "#8b5cf6" } : undefined
+      target: step.nextStepId!
     }));
 
   return { nodes, edges };
@@ -64,8 +61,7 @@ export function graphToDefinition(
   edges: Edge[],
   schema: string,
   startStepId: string,
-  triggers?: WorkflowDefinitionTrigger[],
-  loops?: WorkflowDefinitionLoop[]
+  triggers?: WorkflowDefinitionTrigger[]
 ): WorkflowDefinitionDocument {
   const outgoingBySource = new Map<string, Edge>();
   for (const edge of edges) {
@@ -78,7 +74,6 @@ export function graphToDefinition(
     schema,
     startStepId,
     triggers: triggers && triggers.length > 0 ? triggers : undefined,
-    loops: loops && loops.length > 0 ? loops : undefined,
     steps: nodes.map(node => ({
       id: node.data.stepId || node.id,
       uses: node.data.uses || "builtins.plan",

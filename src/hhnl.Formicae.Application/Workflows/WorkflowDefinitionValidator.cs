@@ -31,8 +31,7 @@ public sealed class WorkflowDefinitionValidator
             return new WorkflowDefinitionValidationResult(errors);
         }
 
-        if (!string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha1Schema, StringComparison.Ordinal)
-            && !string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha2Schema, StringComparison.Ordinal))
+        if (!string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha1Schema, StringComparison.Ordinal))
         {
             errors.Add(new WorkflowDefinitionValidationError(
                 "definition.schema.unsupported",
@@ -94,88 +93,30 @@ public sealed class WorkflowDefinitionValidator
             }
         }
 
-        var loops = document.Loops ?? [];
-        if (loops.Count > 0 && !string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha2Schema, StringComparison.Ordinal))
-        {
-            errors.Add(new WorkflowDefinitionValidationError(
-                "definition.loops.schema.required",
-                $"Loops require schema '{DefaultWorkflowDefinitions.V1Alpha2Schema}'.",
-                "schema"));
-        }
-
-        var loopIds = new HashSet<string>(StringComparer.Ordinal);
-        var loopByBodyStep = new Dictionary<string, WorkflowDefinitionLoop>(StringComparer.Ordinal);
-        foreach (var loop in loops)
-        {
-            if (string.IsNullOrWhiteSpace(loop.Id) || !loopIds.Add(loop.Id))
-            {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.id.invalid", "Loop ids are required and must be unique.", "loops[].id"));
-            }
-            if (loop.BodyStepIds.Count == 0)
-            {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.required", $"Loop '{loop.Id}' requires at least one body step.", "loops[].bodyStepIds"));
-                continue;
-            }
-            if (loop.RepeatCount <= 0 || loop.MaxIterations <= 0 || loop.RepeatCount > loop.MaxIterations)
-            {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.bounds.invalid", $"Loop '{loop.Id}' requires positive bounds with repeatCount less than or equal to maxIterations.", "loops"));
-            }
-            if (loop.TimeoutSeconds is <= 0)
-            {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.timeout.invalid", $"Loop '{loop.Id}' timeoutSeconds must be positive when provided.", "loops[].timeoutSeconds"));
-            }
-            if (!stepsById.ContainsKey(loop.ExitStepId) || loop.BodyStepIds.Contains(loop.ExitStepId, StringComparer.Ordinal))
-            {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.exit.invalid", $"Loop '{loop.Id}' exit step '{loop.ExitStepId}' must reference a step outside its body.", "loops[].exitStepId"));
-            }
-            for (var index = 0; index < loop.BodyStepIds.Count; index++)
-            {
-                var stepId = loop.BodyStepIds[index];
-                if (!stepsById.TryGetValue(stepId, out var bodyStep))
-                {
-                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.unknown", $"Loop '{loop.Id}' references unknown body step '{stepId}'.", "loops[].bodyStepIds"));
-                    continue;
-                }
-                if (!loopByBodyStep.TryAdd(stepId, loop))
-                {
-                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.overlap", $"Step '{stepId}' belongs to more than one loop.", "loops[].bodyStepIds"));
-                }
-                var expectedNext = index + 1 < loop.BodyStepIds.Count ? loop.BodyStepIds[index + 1] : loop.BodyStepIds[0];
-                if (!string.Equals(bodyStep.NextStepId, expectedNext, StringComparison.Ordinal))
-                {
-                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.transition.invalid", $"Loop '{loop.Id}' body must be contiguous and close with a back-edge to '{loop.BodyStepIds[0]}'.", "steps[].nextStepId"));
-                }
-            }
-        }
-
         if (errors.Count > 0 || !stepsById.TryGetValue(document.StartStepId, out var current))
         {
             return new WorkflowDefinitionValidationResult(errors);
         }
 
         var visited = new HashSet<string>(StringComparer.Ordinal);
-        var visiting = new HashSet<string>(StringComparer.Ordinal);
-        void Visit(string stepId)
+        while (true)
         {
-            if (visiting.Contains(stepId))
+            if (!visited.Add(current.Id))
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.graph.cycle", $"Sequential graph contains an undeclared cycle at step '{stepId}'.", "steps[].nextStepId"));
-                return;
+                errors.Add(new WorkflowDefinitionValidationError(
+                    "definition.graph.cycle",
+                    $"Sequential graph contains a cycle at step '{current.Id}'.",
+                    "steps[].nextStepId"));
+                break;
             }
-            if (!visited.Add(stepId)) return;
-            visiting.Add(stepId);
-            var step = stepsById[stepId];
-            if (!string.IsNullOrWhiteSpace(step.NextStepId))
+
+            if (string.IsNullOrWhiteSpace(current.NextStepId))
             {
-                var isDeclaredBackEdge = loopByBodyStep.TryGetValue(step.Id, out var owner)
-                    && string.Equals(owner.BodyStepIds[^1], step.Id, StringComparison.Ordinal)
-                    && string.Equals(owner.BodyStepIds[0], step.NextStepId, StringComparison.Ordinal);
-                if (!isDeclaredBackEdge) Visit(step.NextStepId);
-                else Visit(owner!.ExitStepId);
+                break;
             }
-            visiting.Remove(stepId);
+
+            current = stepsById[current.NextStepId];
         }
-        Visit(current.Id);
 
         var disconnected = stepsById.Keys.Except(visited, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         foreach (var stepId in disconnected)

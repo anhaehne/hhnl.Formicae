@@ -29,7 +29,6 @@ import {
   listIntegrations,
   listLogs,
   listRuns,
-  listLoopIterations,
   listSignals,
   listWorkflows,
   listWorkflowDefinitions,
@@ -45,7 +44,6 @@ import {
   startCodexAuthConnection,
   startWorkflow,
   TaskRun,
-  WorkflowLoopIteration,
   updateAiSettings,
   updateManagementUserRoles,
 
@@ -119,7 +117,6 @@ type GiteaIntegrationFormState = {
 type DetailState = {
   workflow?: WorkflowSummary;
   runs: TaskRun[];
-  loopIterations: WorkflowLoopIteration[];
   logs: WorkflowLog[];
   events: WorkflowEvent[];
   signals: WorkflowSignal[];
@@ -186,7 +183,7 @@ export default function App() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionResponse[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
-  const [detail, setDetail] = useState<DetailState>({ runs: [], loopIterations: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
+  const [detail, setDetail] = useState<DetailState>({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [loadingWorkflowDefinitions, setLoadingWorkflowDefinitions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -630,7 +627,7 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedWorkflowId) {
-      setDetail({ runs: [], loopIterations: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
+      setDetail({ runs: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
       return;
     }
 
@@ -641,24 +638,22 @@ export default function App() {
         setDetail(current => ({ ...current, loading: true, error: undefined }));
       }
       try {
-        const [workflow, runs, loopIterations, logs, events, signals, chatMessages] = await Promise.all([
+        const [workflow, runs, logs, events, signals, chatMessages] = await Promise.all([
           getWorkflow(workflowId),
           listRuns(workflowId),
-          listLoopIterations(workflowId),
           listLogs(workflowId),
           listEvents(workflowId),
           listSignals(workflowId),
           listChatMessages(workflowId)
         ]);
         if (!ignore) {
-          setDetail({ workflow, runs, loopIterations, logs, events, signals, chatMessages, loading: false });
+          setDetail({ workflow, runs, logs, events, signals, chatMessages, loading: false });
         }
       } catch (error) {
         if (!ignore) {
           setDetail({
             workflow: workflows.find(workflow => workflow.workflowId === workflowId),
             runs: [],
-            loopIterations: [],
             logs: [],
             events: [],
             signals: [],
@@ -681,16 +676,15 @@ export default function App() {
   }, [selectedWorkflowId, workflows]);
 
   async function refreshWorkflowDetail(workflowId: string) {
-    const [workflow, runs, loopIterations, logs, events, signals, chatMessages] = await Promise.all([
+    const [workflow, runs, logs, events, signals, chatMessages] = await Promise.all([
       getWorkflow(workflowId),
       listRuns(workflowId),
-      listLoopIterations(workflowId),
       listLogs(workflowId),
       listEvents(workflowId),
       listSignals(workflowId),
       listChatMessages(workflowId)
     ]);
-    setDetail({ workflow, runs, loopIterations, logs, events, signals, chatMessages, loading: false });
+    setDetail({ workflow, runs, logs, events, signals, chatMessages, loading: false });
   }
 
   async function handleRetryRun(run: TaskRun) {
@@ -1392,7 +1386,6 @@ export default function App() {
               <SummaryItem label="Workflow ID" value={selectedWorkflow.workflowId} mono />
               <SummaryItem label="Status" value={formatEnum(selectedWorkflow.status, workflowStatuses)} />
               <SummaryItem label="Current Step" value={formatEnum(selectedWorkflow.currentStep, workflowSteps)} />
-              <SummaryItem label="Definition Step" value={selectedWorkflow.currentDefinitionStepId ?? "Done"} mono />
               <SummaryItem label="Issue" value={<ExternalLink href={selectedWorkflow.issueUrl}>{selectedWorkflow.issueUrl}</ExternalLink>} />
               <SummaryItem label="Pull Request" value={selectedWorkflow.pullRequestUrl ? <ExternalLink href={selectedWorkflow.pullRequestUrl}>{selectedWorkflow.pullRequestUrl}</ExternalLink> : "None"} />
               <SummaryItem label="Failure" value={selectedWorkflow.failureReason ?? "None"} />
@@ -1451,23 +1444,6 @@ export default function App() {
               </section>
 
               <section>
-                <h3>Loop Iterations</h3>
-                <div className="run-list">
-                  {detail.loopIterations.map(iteration => (
-                    <article className="run-card" key={iteration.id}>
-                      <div className="run-meta">
-                        <strong>{iteration.loopId} #{iteration.iterationNumber}</strong>
-                        <StatusBadge value={formatEnum(iteration.outcome, ["Running", "Succeeded", "Failed"])} />
-                        <span>{formatDuration(iteration.startedAt, iteration.completedAt)}</span>
-                      </div>
-                      {iteration.failureReason ? <p className="error-text">{iteration.failureReason}</p> : null}
-                    </article>
-                  ))}
-                  {detail.loopIterations.length === 0 ? <p className="muted">No loop iterations recorded.</p> : null}
-                </div>
-              </section>
-
-              <section>
                 <h3>Task Runs</h3>
                 <div className="run-list">
                   {detail.runs.map(run => {
@@ -1477,7 +1453,6 @@ export default function App() {
                     <article className="run-card" key={run.id}>
                       <div className="run-meta">
                         <strong>{formatEnum(run.kind, taskRunKinds)}</strong>
-                        <span className="mono">{run.definitionStepId || "legacy"}{run.loopIteration ? ` #${run.loopIteration}` : ""}</span>
                         <StatusBadge value={runStatus} />
                         <span>{formatDate(run.updatedAt)}</span>
                         <span>{formatDuration(run.startedAt, run.completedAt)}</span>
