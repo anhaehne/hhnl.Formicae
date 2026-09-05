@@ -12,7 +12,8 @@ public static class WorkflowMapping
             workflow.CreatedAt,
             workflow.UpdatedAt,
             workflow.PullRequestUrl,
-            workflow.FailureReason);
+            workflow.FailureReason,
+            workflow.CurrentDefinitionStepId);
 
     public static TaskRunResponse ToResponse(this TaskRun run)
         => new(
@@ -27,7 +28,13 @@ public static class WorkflowMapping
             run.CompletedAt,
             run.CreatedAt,
             run.UpdatedAt,
-            AgentMessageParser.Parse(run.Output));
+            AgentMessageParser.Parse(run.Output),
+            run.DefinitionStepId,
+            run.LoopIteration);
+
+    public static WorkflowLoopIterationResponse ToResponse(this WorkflowLoopIteration iteration)
+        => new(iteration.Id, iteration.WorkflowId, iteration.LoopId, iteration.IterationNumber,
+            iteration.StartedAt, iteration.CompletedAt, iteration.Outcome, iteration.FailureReason);
 
     public static WorkflowEventResponse ToResponse(this WorkflowEvent evt)
         => new(
