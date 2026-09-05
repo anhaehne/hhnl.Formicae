@@ -1,5 +1,10 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Text.Json.Nodes;
+using hhnl.Formicae.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace hhnl.Formicae.KubernetesE2ETests.Infrastructure;
 
@@ -25,9 +30,19 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
     {
         Directory.CreateDirectory(TempRoot);
         await PreflightAsync();
-        await EnsureClusterAsync();
-        await BuildAndLoadImagesAsync();
-        await DeployAsync();
+        try
+        {
+            await EnsureClusterAsync();
+            await BuildAndLoadImagesAsync();
+            await DeployAsync();
+        }
+        catch (Exception exception)
+        {
+            string diagnostics;
+            try { diagnostics = await CaptureDiagnosticsAsync(); }
+            finally { await DisposeAsync(); }
+            throw new InvalidOperationException($"Deployment failed: {exception.Message}\n{diagnostics}", exception);
+        }
     }
 
     public async Task DisposeAsync()
@@ -53,12 +68,14 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         }
     }
 
-    public async Task<PortForwardHandle> StartApiPortForwardAsync()
+    public Task<PortForwardHandle> StartApiPortForwardAsync() => StartPortForwardAsync("formicae-api", 80);
+
+    private async Task<PortForwardHandle> StartPortForwardAsync(string service, int remotePort)
     {
         var port = GetFreeTcpPort();
         var process = CommandRunner.StartLongRunning(
             "kubectl",
-            KubectlArgs(["port-forward", "service/formicae-api", $"{port}:80", "-n", Namespace]),
+            KubectlArgs(["port-forward",  $"service/{service}", $"{port}:{remotePort}", "-n", Namespace]),
             RepositoryRoot);
         longRunningProcesses.Add(process);
 
@@ -93,7 +110,8 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         var sections = new List<string>();
         await AddDiagnosticAsync(sections, "kubectl get all", ["get", "all", "-n", Namespace, "-o", "wide"]);
         await AddDiagnosticAsync(sections, "kubectl describe pods", ["describe", "pods", "-n", Namespace]);
-        await AddDiagnosticAsync(sections, "api logs", ["logs", "deployment/formicae-api", "-n", Namespace, "--tail=200"]);
+        var apiDiagnostics = await RunRolloutDiagnosticsAsync("formicae");
+        sections.Add(apiDiagnostics.CombinedOutput);
         await AddDiagnosticAsync(sections, "postgres logs", ["logs", "deployment/formicae-postgres", "-n", Namespace, "--tail=200"]);
         return string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
@@ -150,9 +168,104 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 
     private async Task DeployAsync()
     {
-        await KubectlRequiredAsync(["apply", "-k", "deploy/kubernetes/overlays/e2e"], TimeSpan.FromMinutes(2));
+        // Hold the API at zero replicas until the actual pre-loop EF schema and history exist.
+        var rendered = await CommandRunner.RunRequiredAsync("kubectl",
+            KubectlArgs(["apply", "--dry-run=client", "-k", "deploy/kubernetes/overlays/e2e", "-o", "json"]),
+            RepositoryRoot, TimeSpan.FromSeconds(30));
+        var manifest = JsonNode.Parse(rendered.StandardOutput)!;
+        var api = manifest["items"]!.AsArray().Single(item =>
+            item!["kind"]!.GetValue<string>() == "Deployment" && item["metadata"]!["name"]!.GetValue<string>() == "formicae-api")!;
+        api["spec"]!["replicas"] = 0;
+        api["spec"]!["template"]!["metadata"]!["labels"]!["app.kubernetes.io/instance"] = "formicae";
+        var manifestPath = Path.Combine(TempRoot, "upgrade-manifest.json");
+        await File.WriteAllTextAsync(manifestPath, manifest.ToJsonString());
+        await KubectlRequiredAsync(["apply", "-f", manifestPath], TimeSpan.FromMinutes(2));
         await KubectlRequiredAsync(["rollout", "status", "deployment/formicae-postgres", "-n", Namespace, "--timeout=180s"], TimeSpan.FromMinutes(4));
+        // The deployment has no readiness probe; Running does not mean PostgreSQL accepts connections.
+        await KubectlRequiredAsync(["exec", "deployment/formicae-postgres", "-n", Namespace, "--", "sh", "-c",
+            "for attempt in $(seq 1 60); do pg_isready -h 127.0.0.1 -U formicae -d formicae && exit 0; sleep 1; done; exit 1"], TimeSpan.FromSeconds(70));
+        using (var postgres = await StartPortForwardAsync("formicae-postgres", 5432))
+        {
+            var connectionString = $"Host=127.0.0.1;Port={postgres.BaseAddress.Port};Database=formicae;Username=formicae;Password=formicae-e2e";
+            await using var db = new FormicaeDbContext(new DbContextOptionsBuilder<FormicaeDbContext>().UseNpgsql(connectionString).Options);
+            await db.GetService<IMigrator>().MigrateAsync("20260709152649_AddWorkflowTriggerEvents");
+            await db.Database.ExecuteSqlRawAsync(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "legacy-0.7.4.sql")));
+        }
+        // The fixed image must migrate on startup using the same PostgreSQL PVC.
+        await KubectlRequiredAsync(["scale", "deployment/formicae-api", "-n", Namespace, "--replicas=1"], TimeSpan.FromMinutes(1));
         await KubectlRequiredAsync(["rollout", "status", "deployment/formicae-api", "-n", Namespace, "--timeout=180s"], TimeSpan.FromMinutes(4));
+    }
+
+
+    internal Task<CommandResult> RunRolloutDiagnosticsAsync(string release)
+        // Windows searches System32 before PATH, where bash.exe is the WSL launcher.
+        // Use Git Bash so kubectl and KUBECONFIG remain in the Windows test environment.
+        => CommandRunner.RunAsync(OperatingSystem.IsWindows()
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "bin", "bash.exe")
+                : "bash", ["scripts/rollout-diagnostics.sh"], RepositoryRoot,
+            TimeSpan.FromMinutes(2), new Dictionary<string, string?>
+            {
+                ["KUBECONFIG"] = KubeconfigPath,
+                ["RELEASE_NAMESPACE"] = Namespace,
+                ["RELEASE_NAME"] = release
+            });
+
+    public async Task<string> ExerciseFailedRolloutAsync()
+    {
+        const string name = "diagnostics-api";
+        var manifestPath = Path.Combine(TempRoot, "failed-rollout.json");
+        var manifest = new
+        {
+            apiVersion = "apps/v1", kind = "Deployment",
+            metadata = new { name, @namespace = Namespace },
+            spec = new
+            {
+                replicas = 1,
+                selector = new { matchLabels = new Dictionary<string, string> { ["app"] = name } },
+                template = new
+                {
+                    metadata = new { labels = new Dictionary<string, string>
+                    {
+                        ["app"] = name, ["app.kubernetes.io/instance"] = "diagnostics", ["app.kubernetes.io/component"] = "api"
+                    } },
+                    spec = new { volumes = new[] { new { name = "restart-state", emptyDir = new { } } }, containers = new[] { new
+                    {
+                        name = "crashing-api", image = ApiImage, imagePullPolicy = "IfNotPresent",
+                        command = new[] { "/bin/sh", "-c", "if [ -f /state/restarted ]; then echo restarted-but-unready; sleep 300; else touch /state/restarted; echo intentional-rollout-failure; exit 1; fi" },
+                        volumeMounts = new[] { new { name = "restart-state", mountPath = "/state" } },
+                        readinessProbe = new { exec = new { command = new[] { "/bin/sh", "-c", "exit 1" } } }
+                    } } }
+                }
+            }
+        };
+        await File.WriteAllTextAsync(manifestPath, System.Text.Json.JsonSerializer.Serialize(manifest));
+        try
+        {
+            await KubectlRequiredAsync(["apply", "-f", manifestPath], TimeSpan.FromSeconds(30));
+            var deadline = DateTimeOffset.UtcNow.AddMinutes(2);
+            var restarted = false;
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                var status = await KubectlAsync(["get", "pods", "-n", Namespace, "-l", $"app={name}",
+                    "-o", "jsonpath={.items[0].status.containerStatuses[0].restartCount}"], TimeSpan.FromSeconds(15));
+                if (int.TryParse(status.StandardOutput, out var count) && count > 0)
+                {
+                    restarted = true;
+                    break;
+                }
+                await Task.Delay(1000);
+            }
+            Assert.True(restarted, "The intentionally failing API container must restart before collecting previous logs.");
+            var rollout = await KubectlAsync(["rollout", "status", $"deployment/{name}", "-n", Namespace, "--timeout=5s"], TimeSpan.FromSeconds(15));
+            Assert.NotEqual(0, rollout.ExitCode);
+            var diagnostics = await RunRolloutDiagnosticsAsync("diagnostics");
+            Assert.Equal(0, diagnostics.ExitCode);
+            return diagnostics.CombinedOutput;
+        }
+        finally
+        {
+            await KubectlAsync(["delete", "deployment", name, "-n", Namespace, "--ignore-not-found"], TimeSpan.FromSeconds(30));
+        }
     }
 
     private async Task AddDiagnosticAsync(List<string> sections, string title, string[] args)

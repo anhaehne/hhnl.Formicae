@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,6 +16,11 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/hhnl.Formicae.Infrastructure/hhnl.Formicae.Infrastructure.csproj" />
+    <None Include="../Fixtures/legacy-0.7.4.sql" Link="Fixtures/legacy-0.7.4.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

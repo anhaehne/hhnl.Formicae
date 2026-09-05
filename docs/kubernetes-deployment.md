@@ -9,6 +9,22 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.8.1 upgrade from 0.7.4 or 0.7.5
+
+Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migration. Before creating the loop-aware task-run index, startup maps legacy task kinds to step IDs in each workflow's pinned, immutable definition version. Workflows without a pinned version use the canonical MVP step IDs. Existing runs remain non-loop executions (`LoopIteration = null`); run IDs, retry state, outputs, timestamps, logs, and events are preserved. The current workflow step is backfilled as well.
+
+Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
+
+Deploy matching API and worker images and Helm chart version **0.8.1**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+
+After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
+
+```bash
+RELEASE_NAMESPACE=formicae RELEASE_NAME=formicae bash scripts/rollout-diagnostics.sh
+```
+
+The PostgreSQL tests exercise clean databases, legacy history, pinned custom definitions, invalid mappings, API startup, and unique-index enforcement. The Kubernetes suite seeds the pre-loop schema on PostgreSQL storage before starting the new API, then checks preserved history, loop execution, and diagnostics from a deliberately failed rollout.
+
 ## Build Images
 
 Build and push images with your registry tag:

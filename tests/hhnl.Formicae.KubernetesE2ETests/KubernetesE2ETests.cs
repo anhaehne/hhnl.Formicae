@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.KubernetesE2ETests.Infrastructure;
 
 namespace hhnl.Formicae.KubernetesE2ETests;
@@ -60,12 +61,29 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
             using (var portForward = await fixture.StartApiPortForwardAsync())
             using (var http = new HttpClient { BaseAddress = portForward.BaseAddress })
             {
+                var definitionResponse = await http.PostAsJsonAsync("/api/workflow-definitions", new { name = "Post-upgrade loop" });
+                definitionResponse.EnsureSuccessStatusCode();
+                var definition = await definitionResponse.Content.ReadFromJsonAsync<JsonElement>();
+                var definitionId = definition.GetProperty("id").GetGuid();
+                var document = DefaultWorkflowDefinitions.CreateMvpDocument() with
+                {
+                    Schema = DefaultWorkflowDefinitions.V1Alpha2Schema,
+                    Steps = DefaultWorkflowDefinitions.CreateMvpDocument().Steps.Select(step =>
+                        step.Id == "plan" ? step with { NextStepId = "plan" } : step).ToArray(),
+                    Loops = [new WorkflowDefinitionLoop("planning", ["plan"], 2, 3, "implement")]
+                };
+                var versionResponse = await http.PostAsJsonAsync($"/api/workflow-definitions/{definitionId}/versions",
+                    new CreateWorkflowDefinitionVersionRequest(null, true, false, document));
+                versionResponse.EnsureSuccessStatusCode();
+                var version = await versionResponse.Content.ReadFromJsonAsync<JsonElement>();
                 var startResponse = await http.PostAsJsonAsync("/api/workflows/github-issue", new
                 {
                     issueUrl = "https://github.com/example/repo/issues/1",
                     repositoryUrl = "https://github.com/example/repo",
                     baseBranch = "main",
-                    model = "e2e-model"
+                    model = "e2e-model",
+                    workflowDefinitionId = definitionId,
+                    workflowDefinitionVersionId = version.GetProperty("id").GetGuid()
                 });
                 startResponse.EnsureSuccessStatusCode();
 
@@ -77,7 +95,10 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
 
                 var runs = await http.GetFromJsonAsync<JsonElement[]>($"/api/workflows/{workflowId}/runs");
                 Assert.NotNull(runs);
-                Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "Plan", 0));
+                Assert.All(runs, run => Assert.False(string.IsNullOrWhiteSpace(run.GetProperty("definitionStepId").GetString())));
+                Assert.Equal(runs.Length, runs.Select(run => (run.GetProperty("definitionStepId").GetString(), run.GetProperty("loopIteration").ToString())).Distinct().Count());
+                var planningRuns = runs.Where(run => IsEnumValue(run.GetProperty("kind"), "Plan", 0)).ToArray();
+                Assert.Equal(new[] { 1, 2 }, planningRuns.Select(run => run.GetProperty("loopIteration").GetInt32()).Order());
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "Implement", 1));
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "CreatePullRequest", 2));
                 Assert.Contains(runs, run => IsEnumValue(run.GetProperty("kind"), "AddressComments", 3));
@@ -96,6 +117,45 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
                 AssertWorkflowCompleted(persisted.RootElement);
             }
         });
+    }
+
+    [Fact]
+    public async Task UpgradeFrom074_PreservesLegacyHistory()
+    {
+        await WithDiagnosticsAsync(async () =>
+        {
+            using var portForward = await fixture.StartApiPortForwardAsync();
+            using var http = new HttpClient { BaseAddress = portForward.BaseAddress };
+            const string id = "74000000-0000-0000-0000-000000000001";
+            (await http.GetAsync("/healthz")).EnsureSuccessStatusCode();
+            var workflow = await http.GetFromJsonAsync<JsonElement>($"/api/workflows/{id}");
+            Assert.Equal("addressComments", workflow.GetProperty("currentDefinitionStepId").GetString());
+            var runs = await http.GetFromJsonAsync<JsonElement[]>($"/api/workflows/{id}/runs");
+            Assert.Equal(4, runs!.Length);
+            Assert.Equal(new[] { "addressComments", "createPullRequest", "implement", "plan" },
+                runs.Select(run => run.GetProperty("definitionStepId").GetString()).Order());
+            Assert.All(runs, run =>
+            {
+                Assert.StartsWith("74000000-", run.GetProperty("id").GetString());
+                Assert.Equal(JsonValueKind.Null, run.GetProperty("loopIteration").ValueKind);
+                Assert.StartsWith("preserved output:", run.GetProperty("output").GetString());
+                Assert.Equal(DateTimeOffset.Parse("2026-07-01T01:00:00Z"), run.GetProperty("createdAt").GetDateTimeOffset());
+            });
+            var logs = await http.GetStringAsync($"/api/workflows/{id}/logs");
+            Assert.Contains("preserved retry log", logs);
+            var events = await http.GetStringAsync($"/api/workflows/{id}/events");
+            Assert.Contains("preserved retry event", events);
+        });
+    }
+
+    [Fact]
+    public async Task FailedRollout_CollectsPreviousContainerLogs()
+    {
+        var diagnostics = await fixture.ExerciseFailedRolloutAsync();
+        Assert.Contains("previous logs (if available)", diagnostics);
+        var previousSection = diagnostics[(diagnostics.IndexOf("previous logs (if available)", StringComparison.Ordinal))..];
+        Assert.Contains("intentional-rollout-failure", previousSection);
+        Assert.Contains("diagnostics-api", diagnostics);
     }
 
     private async Task<JsonDocument> WaitForCompletedWorkflowAsync(HttpClient http, Guid workflowId)

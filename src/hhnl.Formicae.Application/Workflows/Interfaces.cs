@@ -93,7 +93,10 @@ public interface IWorkflowStore
     Task UpdateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<TaskRun> UpsertTaskRunAsync(TaskRun taskRun, CancellationToken cancellationToken);
     Task<TaskRun?> GetTaskRunAsync(Guid workflowId, TaskRunKind kind, CancellationToken cancellationToken);
+    Task<TaskRun?> GetTaskRunExecutionAsync(Guid workflowId, string definitionStepId, int? loopIteration, CancellationToken cancellationToken);
     Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken);
+    Task<WorkflowLoopIteration> UpsertLoopIterationAsync(WorkflowLoopIteration iteration, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowLoopIteration>> ListLoopIterationsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowEvent>> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task AddTriggerEventAsync(WorkflowTriggerEvent evt, CancellationToken cancellationToken);

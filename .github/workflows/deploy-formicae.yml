@@ -155,3 +155,8 @@ jobs:
           kubectl rollout status "deployment/${RELEASE_NAME}-api" \
             --namespace "${RELEASE_NAMESPACE}" \
             --timeout=180s
+
+      - name: Capture failed rollout diagnostics
+        if: failure()
+        shell: bash
+        run: bash ./scripts/rollout-diagnostics.sh
