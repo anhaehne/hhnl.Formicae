@@ -720,6 +720,12 @@ app.MapGet("/api/workflow-definitions/{definitionId:guid}", async (
     return definition is null ? Results.NotFound() : Results.Ok(definition);
 }).RequireAuthorization(ManagementAuthorization.WorkflowView);
 
+app.MapPost("/api/workflow-definitions/validate", async (
+    WorkflowDefinitionDocument definition,
+    WorkflowDefinitionService workflowDefinitions,
+    CancellationToken cancellationToken) => Results.Ok(await workflowDefinitions.ValidateAsync(definition, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapPost("/api/workflow-definitions", async (
     CreateWorkflowDefinitionRequest request,
     WorkflowDefinitionService workflowDefinitions,

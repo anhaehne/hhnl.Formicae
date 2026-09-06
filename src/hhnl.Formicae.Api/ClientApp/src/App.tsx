@@ -56,6 +56,7 @@ import {
   WorkflowSignal,
   WorkflowSummary
 } from "./api";
+import { NavigationIcon } from "./NavigationIcon";
 import WorkflowDefinitionsPage from "./WorkflowDefinitionsPage";
 import { getEnabledDefinitionVersions } from "./workflowGraph";
 
@@ -92,6 +93,15 @@ type AiSettingsFormState = {
 type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "settings";
 
 const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "settings"];
+
+const pageDescriptions: Record<Page, string> = {
+  workflows: "Follow execution and manage your workflow runs.",
+  "workflow-definitions": "Design the steps that turn work items into changes.",
+  integrations: "Connect the services your workflows use.",
+  repositories: "Manage repositories available to your workflows.",
+  users: "Manage workspace access and permissions.",
+  settings: "Configure agents and AI providers."
+};
 
 const pagePaths: Record<Page, string> = {
   "workflows": "/workflows",
@@ -1177,13 +1187,7 @@ export default function App() {
       );
     }
 
-    if (activePage === "workflow-definitions") {
-      return (
-        <button type="button" className="secondary-button" onClick={() => void refreshWorkflowDefinitions()} disabled={loadingWorkflowDefinitions}>
-          {loadingWorkflowDefinitions ? "Refreshing" : "Refresh"}
-        </button>
-      );
-    }
+    if (activePage === "workflow-definitions") return null;
 
     if (activePage === "integrations") {
       return (
@@ -1667,21 +1671,21 @@ export default function App() {
       <div className="app-layout">
         <aside className="side-nav" aria-label="Primary navigation">
           <div className="side-nav-brand">
-            <p className="eyebrow">Formicae</p>
-            <strong>Control</strong>
+            <span className="brand-symbol" aria-hidden="true"><NavigationIcon name="workflow-definitions" /></span><div><strong>Formicae</strong><span className="brand-caption">Automation workspace</span></div>
           </div>
           <nav className="side-nav-menu">
-            {navigationItems.map(item => (
+            {[{ label: "Workspace", items: navigationItems.slice(0, 2) }, { label: "Manage", items: navigationItems.slice(2) }].map(group => <div className="nav-group" key={group.label}><p className="nav-group-label">{group.label}</p>{group.items.map(item => (
               <button
                 type="button"
                 className={`menu-button${activePage === item.page ? " active" : ""}`}
+                aria-current={activePage === item.page ? "page" : undefined}
                 onClick={() => navigateToPage(item.page)}
                 disabled={item.disabled}
                 key={item.page}
               >
-                {item.label}
+                <NavigationIcon name={item.page} /><span>{item.label}</span>
               </button>
-            ))}
+            ))}</div>)}
           </nav>
           <div className="side-nav-footer">
             <AccountStatus
@@ -1689,10 +1693,10 @@ export default function App() {
               busy={authBusy}
               onLogout={handleLogout}
             />
-            <span className="app-version">Formicae {appVersion ? `v${appVersion}` : "version loading"}</span>
+            <span className="app-version" title={appVersion ? `Formicae v${appVersion}` : undefined}><span className="version-mark" aria-hidden="true" />{appVersion ? `v${appVersion.split("+")[0]}` : "Version loading"}</span>
           </div>
         </aside>
-        <section className="app-content">
+        <section className={`app-content${activePage === "workflow-definitions" ? " app-content-editor" : ""}`}>
           <header className="content-header">
             <button
               type="button"
@@ -1704,8 +1708,8 @@ export default function App() {
               Menu
             </button>
             <div>
-              <p className="eyebrow">Formicae</p>
               <h1>{pageTitle(activePage)}</h1>
+              <p className="page-description">{pageDescriptions[activePage]}</p>
             </div>
             <div className="content-header-actions">
               {renderRefreshButton()}

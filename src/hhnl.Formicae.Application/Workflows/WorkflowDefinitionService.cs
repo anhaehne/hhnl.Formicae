@@ -86,13 +86,12 @@ public sealed class WorkflowDefinitionService(
 
         if (request.IsEnabled)
         {
-            var validation = validator.Validate(request.Definition);
+            var validation = await ValidateAsync(request.Definition, cancellationToken);
             if (!validation.IsValid)
             {
                 throw new WorkflowDefinitionValidationException(validation.Errors);
             }
 
-            await ValidateTriggerRepositoriesAsync(request.Definition, cancellationToken);
         }
 
         var latest = await store.GetLatestWorkflowDefinitionVersionAsync(definitionId, cancellationToken);
@@ -167,6 +166,15 @@ public sealed class WorkflowDefinitionService(
         return version;
     }
 
+    public async Task<WorkflowDefinitionValidationResult> ValidateAsync(WorkflowDefinitionDocument? definition, CancellationToken cancellationToken)
+    {
+        var validation = validator.Validate(definition);
+        if (!validation.IsValid || definition is null) return validation;
+        try { await ValidateTriggerRepositoriesAsync(definition, cancellationToken); }
+        catch (WorkflowDefinitionValidationException exception) { return new(exception.Errors); }
+        return validation;
+    }
+
     private async Task ValidateTriggerRepositoriesAsync(
         WorkflowDefinitionDocument definition,
         CancellationToken cancellationToken)
@@ -196,7 +204,8 @@ public sealed class WorkflowDefinitionService(
             .Select(repositoryId => new WorkflowDefinitionValidationError(
                 "definition.trigger.repository.unknown",
                 $"Trigger references unknown repository '{repositoryId}'.",
-                "triggers[].repositoryIds"))
+                "triggers[].repositoryIds",
+                definition.Steps.FirstOrDefault(step => step.Trigger?.RepositoryIds.Contains(repositoryId) == true)?.Id))
             .ToArray());
     }
 }

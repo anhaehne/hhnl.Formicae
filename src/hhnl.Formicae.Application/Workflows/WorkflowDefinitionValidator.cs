@@ -41,6 +41,8 @@ public sealed class WorkflowDefinitionValidator
                 "schema"));
         }
 
+        if (document.Steps is null) return new([new("definition.steps.required", "At least one step is required.", "steps")]);
+
         if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
             return WorkflowNodeDefinitions.Validate(document);
 
@@ -117,27 +119,27 @@ public sealed class WorkflowDefinitionValidator
             }
             if (loop.BodyStepIds.Count == 0)
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.required", $"Loop '{loop.Id}' requires at least one body step.", "loops[].bodyStepIds"));
+                errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.required", $"Loop '{loop.Id}' requires at least one body step.", "loops[].bodyStepIds", loop.Id));
                 continue;
             }
             if (loop.RepeatCount <= 0 || loop.MaxIterations <= 0 || loop.RepeatCount > loop.MaxIterations)
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.bounds.invalid", $"Loop '{loop.Id}' requires positive bounds with repeatCount less than or equal to maxIterations.", "loops"));
+                errors.Add(new WorkflowDefinitionValidationError("definition.loop.bounds.invalid", $"Loop '{loop.Id}' requires positive bounds with repeatCount less than or equal to maxIterations.", "loops", loop.Id));
             }
             if (loop.TimeoutSeconds is <= 0)
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.timeout.invalid", $"Loop '{loop.Id}' timeoutSeconds must be positive when provided.", "loops[].timeoutSeconds"));
+                errors.Add(new WorkflowDefinitionValidationError("definition.loop.timeout.invalid", $"Loop '{loop.Id}' timeoutSeconds must be positive when provided.", "loops[].timeoutSeconds", loop.Id));
             }
             if (!stepsById.ContainsKey(loop.ExitStepId) || loop.BodyStepIds.Contains(loop.ExitStepId, StringComparer.Ordinal))
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.loop.exit.invalid", $"Loop '{loop.Id}' exit step '{loop.ExitStepId}' must reference a step outside its body.", "loops[].exitStepId"));
+                errors.Add(new WorkflowDefinitionValidationError("definition.loop.exit.invalid", $"Loop '{loop.Id}' exit step '{loop.ExitStepId}' must reference a step outside its body.", "loops[].exitStepId", loop.Id));
             }
             for (var index = 0; index < loop.BodyStepIds.Count; index++)
             {
                 var stepId = loop.BodyStepIds[index];
                 if (!stepsById.TryGetValue(stepId, out var bodyStep))
                 {
-                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.unknown", $"Loop '{loop.Id}' references unknown body step '{stepId}'.", "loops[].bodyStepIds"));
+                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.body.unknown", $"Loop '{loop.Id}' references unknown body step '{stepId}'.", "loops[].bodyStepIds", loop.Id));
                     continue;
                 }
                 if (!loopByBodyStep.TryAdd(stepId, loop))
@@ -147,7 +149,7 @@ public sealed class WorkflowDefinitionValidator
                 var expectedNext = index + 1 < loop.BodyStepIds.Count ? loop.BodyStepIds[index + 1] : loop.BodyStepIds[0];
                 if (!string.Equals(bodyStep.NextStepId, expectedNext, StringComparison.Ordinal))
                 {
-                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.transition.invalid", $"Loop '{loop.Id}' body must be contiguous and close with a back-edge to '{loop.BodyStepIds[0]}'.", "steps[].nextStepId"));
+                    errors.Add(new WorkflowDefinitionValidationError("definition.loop.transition.invalid", $"Loop '{loop.Id}' body must be contiguous and close with a back-edge to '{loop.BodyStepIds[0]}'.", "steps[].nextStepId", loop.Id));
                 }
             }
         }
@@ -231,7 +233,7 @@ public sealed class WorkflowDefinitionValidator
                 errors.Add(new WorkflowDefinitionValidationError(
                     "definition.trigger.type.unsupported",
                     $"Trigger '{trigger.Id}' uses unsupported type '{trigger.Type}'.",
-                    "triggers[].type"));
+                    "triggers[].type", trigger.Id));
             }
 
             if (!trigger.Enabled || trigger.Type != WorkflowTriggerType.DevOpsIssueLabel)
@@ -244,7 +246,7 @@ public sealed class WorkflowDefinitionValidator
                 errors.Add(new WorkflowDefinitionValidationError(
                     "definition.trigger.repositories.required",
                     $"Trigger '{trigger.Id}' requires at least one repository.",
-                    "triggers[].repositoryIds"));
+                    "triggers[].repositoryIds", trigger.Id));
             }
 
             if (string.IsNullOrWhiteSpace(trigger.Label))
@@ -252,7 +254,7 @@ public sealed class WorkflowDefinitionValidator
                 errors.Add(new WorkflowDefinitionValidationError(
                     "definition.trigger.label.required",
                     $"Trigger '{trigger.Id}' requires a label.",
-                    "triggers[].label"));
+                    "triggers[].label", trigger.Id));
             }
         }
     }
