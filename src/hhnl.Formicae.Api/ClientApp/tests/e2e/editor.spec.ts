@@ -198,3 +198,59 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByText("Stale validation error")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
+
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop"]) {
+  test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
+    const item = await seed(request, 4);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.addInitScript(() => {
+      const NativeObserver = window.ResizeObserver;
+      window.ResizeObserver = class extends NativeObserver {
+        constructor(callback: ResizeObserverCallback) { super((entries, observer) => { window.setTimeout(() => callback(entries, observer), 250); }); }
+      };
+    });
+    await open(page, item.name);
+    const crashes: string[] = [];
+    page.on("pageerror", error => crashes.push(error.message));
+    await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+    await page.getByLabel("Search step types").fill(title);
+    const validation = page.waitForResponse(response => response.url().endsWith("/workflow-definitions/validate") && response.request().postData()?.includes('"step5"') === true);
+    await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: new RegExp(title) }).click();
+    await validation;
+    await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue(title);
+    await expect(page.locator('.react-flow__node[data-id="step5"]')).toBeInViewport();
+    await expect(page.locator(".react-flow__viewport")).not.toHaveAttribute("style", /NaN|Infinity/);
+    await page.getByRole("button", { name: /Problems \(/ }).click();
+    await page.screenshot({ path: testInfo.outputPath("added-node.png") });
+    await expect.poll(async () => (await page.locator(".editor-canvas").boundingBox())?.height ?? 0).toBeGreaterThan(200);
+    await expect(page.locator(".react-flow__node")).toHaveCount(5);
+    await page.getByRole("button", { name: "Fit All", exact: true }).click();
+    for (const id of ["n0", "n1", "n2", "n3", "step5"]) await expect(page.locator(`.react-flow__node[data-id="${id}"]`)).toBeInViewport();
+    await page.getByLabel("Display Name", { exact: true }).fill(`${title} edited`);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue(title);
+    await find(page, "step5");
+    const added = page.locator('.react-flow__node[data-id="step5"]');
+    await expect(added).toHaveCSS("visibility", "visible");
+    await page.evaluate(() => {
+      const hidden: string[] = [];
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          const node = record.target as HTMLElement;
+          if (node.style.visibility === "hidden" || /visibility: hidden/.test(record.oldValue ?? "")) hidden.push(node.dataset.id ?? "unknown");
+        }
+      });
+      document.querySelectorAll(".react-flow__node").forEach(node => observer.observe(node, { attributes: true, attributeFilter: ["style"], attributeOldValue: true }));
+      Object.assign(window, { dragVisibility: { hidden, observer } });
+    });
+    const box = await added.boundingBox();
+    await page.mouse.move(box!.x + 50, box!.y + 40); await page.mouse.down();
+    await page.mouse.move(box!.x + 100, box!.y + 80, { steps: 12 }); await page.mouse.up();
+    const hidden = await page.evaluate(() => {
+      const state = (window as unknown as { dragVisibility: { hidden: string[]; observer: MutationObserver } }).dragVisibility;
+      state.observer.disconnect(); return state.hidden;
+    });
+    expect(hidden, "Measured nodes must not be hidden again while dragging").toEqual([]);
+    expect(crashes).toEqual([]);
+  });
+}

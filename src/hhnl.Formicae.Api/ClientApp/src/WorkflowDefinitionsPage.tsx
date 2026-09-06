@@ -1,7 +1,7 @@
 import { StepIcon } from "./workflowEditor/StepIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useBeforeUnload } from "react-router-dom";
-import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, MarkerType, type Connection, type Edge } from "@xyflow/react";
+import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, useNodesInitialized, MarkerType, type Connection, type Edge } from "@xyflow/react";
 import { ApiError, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
 import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, loopUses, triggerUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
 import { useEditorState, type EditorDraft } from "./workflowEditor/state";
@@ -30,7 +30,10 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<{ message: string; label: string; action: () => void }>();
   const initialized = useRef(false), generation = useRef(0), validationGeneration = useRef(0);
-  const { fitView, setViewport, getViewport, screenToFlowPosition } = useReactFlow();
+  const { fitView, setViewport, getViewport, screenToFlowPosition, getNode } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({});
+  const [focusNodeId, setFocusNodeId] = useState<string>();
   const canvas = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(100);
   useOnViewportChange({ onChange: viewport => setZoom(Math.round(viewport.zoom * 100)) });
@@ -43,7 +46,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
 
   async function openVersion(item: WorkflowDefinitionResponse, version?: WorkflowDefinitionVersionResponse) {
     initialized.current = true; const token = ++generation.current; setLoadingDraft(true);
-    setDefinitionId(item.id); setVersionId(version?.id); setSelected([]); setSelectedEdges([]); setNotice(""); setSwitcher(false); setSettings(false);
+    setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(item.id); setVersionId(version?.id); setSelected([]); setSelectedEdges([]); setNotice(""); setSwitcher(false); setSettings(false);
     const doc = toNodeDefinition(version?.definition ?? createDefaultDefinitionDocument());
     const graph = definitionToGraph(doc);
     try { if (!doc.editor?.positions || Object.keys(doc.editor.positions).length === 0) graph.nodes = await arrange(graph.nodes, graph.edges); }
@@ -65,7 +68,14 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     return () => { window.clearTimeout(timer); validationGeneration.current++; };
   }, [document, canAdminister, loadingDraft]);
   const guard = (action: () => void) => { state.commit(); if (state.dirty) setPending({ message: "Discard unsaved workflow changes?", label: "Discard", action }); else action(); };
-  const reveal = (id: string) => { setSelected([id]); setSelectedEdges([]); setInspector(true); setSettings(false); void fitView({ nodes: [{ id }], padding: 0.6, maxZoom: 1, duration: 180 }); };
+  const reveal = (id: string) => { setSelected([id]); setSelectedEdges([]); setInspector(true); setSettings(false); setFocusNodeId(id); };
+  useEffect(() => {
+    if (!focusNodeId || !nodesInitialized) return;
+    const node = getNode(focusNodeId);
+    if (!node?.measured?.width || !node.measured.height) return;
+    void fitView({ nodes: [{ id: focusNodeId }], padding: 0.6, maxZoom: 1, duration: 180 });
+    setFocusNodeId(undefined);
+  }, [focusNodeId, nodesInitialized, getNode, fitView]);
   const update = (edit: (current: EditorDraft) => EditorDraft) => { if (editable) state.update(edit); };
   const remove = () => { if (!editable) return; state.commit(); state.update(current => ({ ...current, nodes: current.nodes.filter(node => !selected.includes(node.id)), edges: current.edges.filter(edge => !selectedEdges.includes(edge.id) && !selected.includes(edge.source) && !selected.includes(edge.target)) })); setSelected([]); setSelectedEdges([]); };
   useEffect(() => {
@@ -101,7 +111,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
       trigger: uses === triggerUses ? { type: "DevOpsIssueLabel", enabled: true, repositoryIds: [], label: "" } : undefined } };
     state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
-    setMenu(false); setContext(undefined); window.setTimeout(() => reveal(id), 30);
+    setMenu(false); setContext(undefined); reveal(id);
   }
   async function layout() {
     if (!editable) return; state.commit(); setArranging(true); const token = generation.current;
@@ -123,7 +133,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     finally { setSaving(false); }
   }
   function newDefinition() { guard(() => { void (async () => {
-    initialized.current = true; const token = ++generation.current; setLoadingDraft(true); setDefinitionId(undefined); setVersionId(undefined); setSelected([]); setSettings(true); setSwitcher(false); setNotice("");
+    initialized.current = true; const token = ++generation.current; setLoadingDraft(true); setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(undefined); setVersionId(undefined); setSelected([]); setSettings(true); setSwitcher(false); setNotice("");
     let nodes = initial.nodes;
     try { nodes = await arrange(initial.nodes, initial.edges); } catch { onError("Automatic layout failed. Use Arrange to retry."); }
     if (token !== generation.current) return;
@@ -145,7 +155,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <button type="button" className="editor-add-step" disabled={!editable} onClick={() => { setContext(undefined); setQuery(""); setMenu(!menu); }}>+ Add Step</button>
       <button type="button" disabled={!editable || !state.canUndo} onClick={state.undo} className="editor-icon-button" aria-label="Undo" title="Undo (Ctrl+Z)"><ToolbarIcon name="undo" /></button><button type="button" disabled={!editable || !state.canRedo} onClick={state.redo} className="editor-icon-button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><ToolbarIcon name="redo" /></button>
       <button type="button" disabled={!editable || (!selected.length && !selectedEdges.length)} onClick={remove} className="editor-icon-button" aria-label="Delete" title="Delete selection"><ToolbarIcon name="delete" /></button>
-      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }] })); window.setTimeout(() => reveal(id), 30); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
+      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }] })); reveal(id); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
       </div>
       <div className="editor-tool-group" role="group" aria-label="Canvas view">
       <button type="button" disabled={!editable} onClick={() => void layout()}><ToolbarIcon name="arrange" />{arranging ? "Arranging…" : "Arrange"}</button>
@@ -161,8 +171,21 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     <div className="editor-body">
       <div className="editor-canvas" ref={canvas}>
         <NodeActions.Provider value={{ start: draft.start, errors: new Set(errors.flatMap(error => error.nodeId ? [error.nodeId] : [])), editable, add: (source, port) => { setContext({ source, port }); setQuery(""); setMenu(true); } }}>
-          <ReactFlow nodes={draft.nodes.map(node => ({ ...node, selected: selectedSet.has(node.id) }))} edges={draft.edges.map(edge => ({ ...edge, selected: edgeSet.has(edge.id) }))} nodeTypes={nodeTypes} minZoom={0.02} maxZoom={2} nodesDraggable={editable} nodesConnectable={editable} edgesReconnectable={editable} deleteKeyCode={null} onNodeDragStart={state.begin} onNodeDragStop={state.commit}
-            onNodesChange={changes => { const selection = changes.filter(change => change.type === "select"); if (selection.length) setSelected(current => { const ids = new Set(current); selection.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; }); if (editable && changes.some(change => change.type === "position" && change.position)) update(current => ({ ...current, nodes: current.nodes.map(node => { const change = changes.find(change => change.type === "position" && change.id === node.id); return change?.type === "position" && change.position ? { ...node, position: change.position } : node; }) })); }}
+          <ReactFlow nodes={draft.nodes.map(node => ({ ...node, measured: measurements[node.id], selected: selectedSet.has(node.id) }))} edges={draft.edges.map(edge => ({ ...edge, selected: edgeSet.has(edge.id) }))} nodeTypes={nodeTypes} minZoom={0.02} maxZoom={2} nodesDraggable={editable} nodesConnectable={editable} edgesReconnectable={editable} deleteKeyCode={null} onNodeDragStart={state.begin} onNodeDragStop={state.commit}
+            onNodesChange={changes => {
+              const dimensions = changes.filter(change => change.type === "dimensions" && change.dimensions);
+              if (dimensions.length) setMeasurements(current => {
+                let next = current;
+                for (const change of dimensions) {
+                  if (change.type !== "dimensions" || !change.dimensions) continue;
+                  const previous = current[change.id];
+                  if (previous?.width === change.dimensions.width && previous?.height === change.dimensions.height) continue;
+                  if (next === current) next = { ...current };
+                  next[change.id] = change.dimensions;
+                }
+                return next;
+              });
+              const selection = changes.filter(change => change.type === "select"); if (selection.length) setSelected(current => { const ids = new Set(current); selection.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; }); if (editable && changes.some(change => change.type === "position" && change.position)) update(current => ({ ...current, nodes: current.nodes.map(node => { const change = changes.find(change => change.type === "position" && change.id === node.id); return change?.type === "position" && change.position ? { ...node, position: change.position } : node; }) })); }}
             onEdgesChange={changes => setSelectedEdges(current => { const ids = new Set(current); changes.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; })}
             onNodeClick={(_, node) => { setInspector(true); setSettings(false); }} onPaneClick={() => { setMenu(false); }}
             onConnect={connection => connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input")} isValidConnection={validConnection}
