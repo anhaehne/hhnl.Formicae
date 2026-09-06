@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<WorkerAgentAuthRefreshService>();
         services.AddScoped<AiSettingsService>();
         services.AddScoped<PersonaService>();
+        services.AddScoped<CustomTaskService>();
         services.AddScoped<DevOpsIntegrationService>();
         services.AddScoped<ManagementUserService>();
         services.AddScoped<InviteService>();
@@ -77,6 +78,7 @@ public static class DependencyInjection
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
             services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
+            services.AddSingleton<ICustomTaskStore, InMemoryCustomTaskStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
@@ -91,6 +93,7 @@ public static class DependencyInjection
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
             services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
+            services.AddSingleton<ICustomTaskStore, InMemoryCustomTaskStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
@@ -100,6 +103,7 @@ public static class DependencyInjection
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
             services.AddScoped<IAiSettingsStore, EfAiSettingsStore>();
             services.AddScoped<IPersonaStore, EfPersonaStore>();
+            services.AddScoped<ICustomTaskStore, EfCustomTaskStore>();
             services.AddScoped<IDevOpsIntegrationStore, EfDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }

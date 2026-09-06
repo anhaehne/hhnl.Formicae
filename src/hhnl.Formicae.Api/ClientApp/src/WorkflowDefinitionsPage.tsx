@@ -3,7 +3,7 @@ import { StepIcon } from "./workflowEditor/StepIcon";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useBlocker, useBeforeUnload } from "react-router-dom";
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, useNodesInitialized, MarkerType, type Connection, type Edge } from "@xyflow/react";
-import { ApiError, listPersonas, type Persona, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
+import { ApiError, listCustomTasks, type CustomTaskDefinition, listPersonas, type Persona, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
 import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, loopUses, triggerUses, parallelUses, decisionUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
 import { useEditorState, type EditorDraft } from "./workflowEditor/state";
 import { catalog } from "./workflowEditor/catalog";
@@ -20,6 +20,9 @@ export default function WorkflowDefinitionsPage(props: Props) { return <ReactFlo
 
 function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved, onError }: Props) {
   const state = useEditorState(initial), { draft } = state;
+  const [customTasks, setCustomTasks] = useState<CustomTaskDefinition[]>([]), [customTaskError, setCustomTaskError] = useState("");
+  const refreshCustomTasks = () => listCustomTasks().then(items => { setCustomTasks(items); setCustomTaskError(""); }).catch(() => setCustomTaskError("Could not load custom tasks. Existing selections are preserved."));
+  useEffect(() => { void refreshCustomTasks(); }, []);
   const [personas, setPersonas] = useState<Persona[]>([]), [personaError, setPersonaError] = useState("");
   const refreshPersonas = () => listPersonas().then(items => { setPersonas(items); setPersonaError(""); }).catch(() => setPersonaError("Could not load personas. Existing selections are preserved."));
   useEffect(() => { void refreshPersonas(); }, []);
@@ -118,7 +121,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     while (draft.nodes.some(node => node.id === id)) id = `step${draft.nodes.length + 1}-${suffix++}`;
     const bounds = canvas.current!.getBoundingClientRect();
     const source = draft.nodes.find(node => node.id === context?.source);
-    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
+    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { customTask: uses === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
       decision: uses === decisionUses ? { condition: { source: "literal", valueType: "string", operator: "equals", value: "", compareTo: "", missingValue: "error" }, trueStepId: "", falseStepId: "" } : undefined,
       parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
@@ -141,7 +144,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       if (!id) { const created = await createWorkflowDefinition({ name: draft.name.trim() }); id = created.id; if (saveGeneration !== generation.current) return; setDefinitionId(id); }
       const version = await createWorkflowDefinitionVersion(id, { version: draft.version ? Number(draft.version) : null, isEnabled: draft.enabled, isDefault: draft.isDefault, definition: { ...document, editor: { ...document.editor!, viewport: getViewport() } } });
       if (saveGeneration !== generation.current) return;
-      setVersionId(version.id); const authoritative = { ...submitted, nodes: submitted.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: version.definition.steps.find(step => step.id === node.id)?.personaSnapshot } })) }; state.saved(submitted, authoritative); setNotice("Workflow definition version saved."); onSaved("Workflow definition version saved.");
+      setVersionId(version.id); const authoritative = { ...submitted, nodes: submitted.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: version.definition.steps.find(step => step.id === node.id)?.personaSnapshot, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: version.definition.steps.find(step => step.id === node.id)?.customTask?.snapshot } : undefined } })) }; state.saved(submitted, authoritative); setNotice("Workflow definition version saved."); onSaved("Workflow definition version saved.");
       await onRefresh(id, version.id);
     } catch (failure) { if (saveGeneration !== generation.current) return; if (failure instanceof ApiError && failure.validationErrors.length) { setErrors(failure.validationErrors); setProblems(true); } else onError(failure instanceof Error ? failure.message : "Could not save this version."); }
     finally { if (saveGeneration === generation.current) setSaving(false); }
@@ -160,7 +163,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <button type="button" className="editor-workflow-name" disabled={saving} onClick={() => setSwitcher(!switcher)}>{draft.name} ▾</button>
       <label className="editor-version"><span className="sr-only">Workflow version</span><select aria-label="Workflow version" value={versionId || ""} disabled={!definition || loadingDraft || saving} onChange={event => { const version = definition?.versions.find(item => item.id === event.target.value); if (definition && version) guard(() => void openVersion(definition, version)); }}><option value="" disabled>New workflow</option>{definition?.versions.map(version => <option key={version.id} value={version.id}>v{version.version}{version.isEnabled ? " · Enabled" : " · Disabled"}</option>)}</select></label>
       <span role="status" className="editor-save-status">{loadingDraft ? "Loading…" : saving ? "Saving…" : state.dirty ? "Unsaved changes" : versionId ? "Saved" : "Draft"}</span>
-      <button type="button" onClick={() => { void onRefresh(); void refreshPersonas(); }} disabled={saving || loading}>Refresh</button>
+      <button type="button" onClick={() => { void onRefresh(); void refreshPersonas(); void refreshCustomTasks(); }} disabled={saving || loading}>Refresh</button>
       <button type="button" onClick={() => setSettings(!settings)}>Workflow settings</button>
       <button type="button" className="primary-button" disabled={!editable || saving} onClick={() => void save()}>Save Version</button>
     </header>
@@ -181,7 +184,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <button type="button" className={`editor-problems-toggle${errors.length ? " has-problems" : ""}`} aria-expanded={problems} onClick={() => setProblems(!problems)}><ToolbarIcon name="problems" />Problems ({errors.length})</button>
       </div>
     </div>
-    {(error || notice || validationFailure || personaError) && <div className="editor-message" role="status">{error || notice || validationFailure || personaError}</div>}
+    {(error || notice || validationFailure || personaError || customTaskError) && <div className="editor-message" role="status">{error || notice || validationFailure || personaError || customTaskError}</div>}
     <div className="editor-body">
       <div className="editor-canvas" ref={canvas}>
         <NodeActions.Provider value={{ start: draft.start, errors: new Set(errors.flatMap(error => error.nodeId ? [error.nodeId] : [])), editable, add: (source, port) => { setContext({ source, port }); setQuery(""); setMenu(true); } }}>
@@ -218,7 +221,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         <p className="muted">Enabled versions can start workflows. Disabled versions may be saved with incomplete steps.</p>
         <label className="toggle-label"><input type="checkbox" checked={draft.isDefault} disabled={!editable} onChange={event => update(current => ({ ...current, isDefault: event.target.checked }))} /><span>Default</span></label><p className="muted">Saving a default enabled version changes the default for new runs. Existing versions and runs remain intact.</p>
         <details className="optional-settings"><summary>Advanced</summary><label><span>Schema</span><input readOnly value={workflowSchema} /></label><label><span>Version number</span><input type="number" min="1" disabled={!editable} placeholder="Automatic" value={draft.version} onChange={event => update(current => ({ ...current, version: event.target.value }))} /></label></details>
-      </aside> : inspector && selectedNode ? <Inspector key={selectedNode.id} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={selectedNode} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
+      </aside> : inspector && selectedNode ? <Inspector key={selectedNode.id} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={selectedNode} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
         update={values => update(current => ({ ...current, nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node) }))}
         resizeBranches={count => {
           if (count < 2 || count > 8) return;

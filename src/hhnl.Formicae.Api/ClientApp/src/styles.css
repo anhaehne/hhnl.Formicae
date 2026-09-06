@@ -1710,3 +1710,10 @@ pre.collapsed-content::after {
 .persona-revision-notice, .persona-conflict { background: #fff4df; color: #755618; padding: 10px; border-radius: 6px; font-size: .85rem; }
 .persona-picker { margin-top: 16px; }
 @media(max-width: 800px) { .personas-workspace { grid-template-columns: 1fr; } .persona-list { max-height: 260px; overflow-y: auto; } }
+
+.custom-task-schema { display: grid; gap: 16px; min-width: 0; }
+.custom-task-schema fieldset { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid #d7dbd2; border-radius: 8px; }
+.persona-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.custom-task-form > fieldset { border: 1px solid #d7dbd2; border-radius: 8px; padding: 16px; margin: 16px 0; }
+.custom-task-schema button { width: auto; justify-self: start; }

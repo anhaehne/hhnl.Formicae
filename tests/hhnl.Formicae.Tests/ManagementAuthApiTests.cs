@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,25 @@ namespace hhnl.Formicae.Tests;
 
 public sealed class ManagementAuthApiTests
 {
+    [Fact]
+    public async Task Parallel_api_factories_keep_identity_users_and_role_seeding_isolated()
+    {
+        await using var first = new FormicaeApiFactory(true);
+        await using var second = new FormicaeApiFactory(true);
+        var admins = await Task.WhenAll(Task.Run(() => first.CreateAdminAsync("same-isolated-admin")),
+            Task.Run(() => second.CreateAdminAsync("same-isolated-admin")));
+        Assert.NotEqual(admins[0].Id, admins[1].Id);
+        using var firstScope = first.Services.CreateScope();
+        using var secondScope = second.Services.CreateScope();
+        var firstUsers = firstScope.ServiceProvider.GetRequiredService<UserManager<FormicaeUser>>();
+        var secondUsers = secondScope.ServiceProvider.GetRequiredService<UserManager<FormicaeUser>>();
+        Assert.Null(await firstUsers.FindByIdAsync(admins[1].Id));
+        Assert.Null(await secondUsers.FindByIdAsync(admins[0].Id));
+        Assert.True(await first.IsAdminAsync(admins[0]));
+        Assert.True(await second.IsAdminAsync(admins[1]));
+        Assert.Equal(HttpStatusCode.OK, (await first.CreateAuthenticatedClient(admins[0].Id).GetAsync("/api/personas")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await second.CreateAuthenticatedClient(admins[1].Id).GetAsync("/api/personas")).StatusCode);
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -420,6 +440,8 @@ public sealed class ManagementAuthApiTests
 
     public sealed class FormicaeApiFactory(bool managementAuthEnabled) : WebApplicationFactory<Program>
     {
+        private readonly string identityDatabaseName = $"Formicae-ApiTest-{Guid.NewGuid():N}";
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration((_, configuration) =>
@@ -434,6 +456,8 @@ public sealed class ManagementAuthApiTests
 
             builder.ConfigureTestServices(services =>
             {
+                // Each host owns its identity data; parallel role seeding must not share the production fake database name.
+                services.ConfigureDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase(identityDatabaseName));
                 services
                     .AddAuthentication(TestAuthHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });

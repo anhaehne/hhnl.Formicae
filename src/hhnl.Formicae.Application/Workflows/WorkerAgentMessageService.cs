@@ -14,7 +14,8 @@ public sealed class WorkerAgentMessageService(IWorkflowStore store)
 {
     public async Task<bool> RecordAsync(WorkerAgentMessageRequest request, CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind))
+        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind)
+            || !Enum.IsDefined(taskKind) || string.IsNullOrWhiteSpace(request.ExternalId))
         {
             return false;
         }
@@ -25,19 +26,15 @@ public sealed class WorkerAgentMessageService(IWorkflowStore store)
             return false;
         }
 
-        var run = await store.GetTaskRunAsync(request.WorkflowId, taskKind, cancellationToken);
+        var run = (await store.ListTaskRunsAsync(request.WorkflowId, cancellationToken))
+            .SingleOrDefault(item => item.Kind == taskKind
+                && string.Equals(item.ExternalId, request.ExternalId, StringComparison.Ordinal));
         if (run is null)
         {
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(run.ExternalId)
-            && !string.Equals(run.ExternalId, request.ExternalId, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (TryNormalizeAgentOutputLine(request.Line, request.Timestamp, out var outputLine))
+        if (taskKind != TaskRunKind.Custom && TryNormalizeAgentOutputLine(request.Line, request.Timestamp, out var outputLine))
         {
             run.Output = string.IsNullOrWhiteSpace(run.Output)
                 ? outputLine
@@ -46,15 +43,16 @@ public sealed class WorkerAgentMessageService(IWorkflowStore store)
             await store.UpsertTaskRunAsync(run, cancellationToken);
         }
 
-        if (string.Equals(request.Stream, "stderr", StringComparison.OrdinalIgnoreCase)
+        if (taskKind == TaskRunKind.Custom || string.Equals(request.Stream, "stderr", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.Stream, "worker-error", StringComparison.OrdinalIgnoreCase))
         {
             await store.AddLogAsync(new WorkflowLog
             {
                 WorkflowId = request.WorkflowId,
                 TaskRunId = run.Id,
-                Level = string.Equals(request.Stream, "worker-error", StringComparison.OrdinalIgnoreCase) ? "Error" : "Warning",
-                Message = request.Line,
+                Level = string.Equals(request.Stream, "worker-error", StringComparison.OrdinalIgnoreCase) ? "Error"
+                    : string.Equals(request.Stream, "stderr", StringComparison.OrdinalIgnoreCase) ? "Warning" : "Information",
+                Message = taskKind == TaskRunKind.Custom && request.Line.Length > 16000 ? request.Line[..16000] + "\n[Message truncated]" : request.Line,
                 CreatedAt = request.Timestamp
             }, cancellationToken);
         }

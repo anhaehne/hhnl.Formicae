@@ -1,5 +1,6 @@
-import { loopUses, triggerUses, parallelUses, decisionUses } from "../workflowGraph";
+import { customTaskUses, loopUses, triggerUses, parallelUses, decisionUses } from "../workflowGraph";
 export const catalog = [
+  { uses: customTaskUses, title: "Custom task", icon: "✧", description: "Run a reusable agent prompt with typed inputs in a scratch workspace." },
   { uses: "builtins.plan", title: "Plan", icon: "◈", description: "Create a plan for the work item." },
   { uses: "builtins.implement", title: "Implement", icon: "⌘", description: "Implement the planned changes." },
   { uses: "builtins.create-pull-request", title: "Create pull request", icon: "↗", description: "Open a pull request for the changes." },

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace hhnl.Formicae.Application.Workflows;
 
 public static class WorkflowMapping
@@ -30,7 +32,20 @@ public static class WorkflowMapping
             run.UpdatedAt,
             AgentMessageParser.Parse(run.Output),
             run.DefinitionStepId,
-            run.LoopIteration);
+            run.LoopIteration,
+            ReadCustomExecution(run.CustomTaskExecutionJson));
+
+    private static PreparedCustomTaskExecution? ReadCustomExecution(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            var execution = JsonSerializer.Deserialize<PreparedCustomTaskExecution>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            return execution is { FormatVersion: 1, Inputs: not null, WorkflowFields: not null, Prompt: not null, Revision: > 0 }
+                && !string.IsNullOrWhiteSpace(execution.TaskId) && !string.IsNullOrWhiteSpace(execution.Name) ? execution : null;
+        }
+        catch (JsonException) { return null; }
+    }
 
     public static WorkflowLoopIterationResponse ToResponse(this WorkflowLoopIteration iteration)
         => new(iteration.Id, iteration.WorkflowId, iteration.LoopId, iteration.IterationNumber,

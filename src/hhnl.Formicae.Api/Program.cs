@@ -495,6 +495,31 @@ app.MapDelete("/api/personas/{id}", async (string id, int expectedRevision, Pers
     catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapGet("/api/custom-tasks", async (CustomTaskService tasks, CancellationToken token) => Results.Ok(await tasks.ListAsync(token)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapGet("/api/custom-tasks/{id}", async (string id, CustomTaskService tasks, CancellationToken token) =>
+{
+    var task = await tasks.GetAsync(id, token);
+    return task is null ? Results.NotFound() : Results.Ok(task);
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapPost("/api/custom-tasks", async (CreateCustomTaskRequest request, CustomTaskService tasks, CancellationToken token) =>
+{
+    try { var task = await tasks.CreateAsync(request, token); return Results.Created($"/api/custom-tasks/{task.Id}", task); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapPut("/api/custom-tasks/{id}", async (string id, UpdateCustomTaskRequest request, CustomTaskService tasks, CancellationToken token) =>
+{
+    try { var task = await tasks.UpdateAsync(id, request, token); return task is null ? Results.NotFound() : Results.Ok(task); }
+    catch (CustomTaskConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapDelete("/api/custom-tasks/{id}", async (string id, int expectedRevision, CustomTaskService tasks, CancellationToken token) =>
+{
+    try { return await tasks.DeleteAsync(id, expectedRevision, token) ? Results.NoContent() : Results.NotFound(); }
+    catch (CustomTaskConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
     CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));

@@ -134,11 +134,11 @@ public sealed class WorkflowService
             throw new InvalidOperationException("Only tasks in the active parallel group can be retried while that group is active.");
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
-        if (parallel is null && definition?.Steps.Any(step => step.Decision is not null) == true
+        if (parallel is null && definition?.Steps.Any(step => step.Decision is not null || step.Uses == CustomTaskDefinitions.Uses) == true
             && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
                 || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
         {
-            throw new InvalidOperationException("Only the current task execution can be retried in a workflow with decisions.");
+            throw new InvalidOperationException("Only the current task execution can be retried in a workflow with decisions or custom tasks.");
         }
         var retryState = GetRetryWorkflowState(run.Kind);
         var now = clock.UtcNow;
@@ -249,9 +249,9 @@ public sealed class WorkflowService
             }, cancellationToken);
             return workflow.ToSummary();
         }
-        var hasDecisions = definition?.Steps.Any(step => step.Decision is not null) == true;
+        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses == CustomTaskDefinitions.Uses) == true;
         var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed
-            && (!hasDecisions || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
+            && (!requiresCurrentTask || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
         if (failedRun is not null)
         {
             return await RetryTaskRunAsync(workflowId, failedRun.Id, cancellationToken);
@@ -362,6 +362,7 @@ public sealed class WorkflowService
             TaskRunKind.Implement => (WorkflowStatus.Implementing, WorkflowStep.Implement),
             TaskRunKind.CreatePullRequest => (WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest),
             TaskRunKind.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
+            TaskRunKind.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 
@@ -373,6 +374,7 @@ public sealed class WorkflowService
             WorkflowStep.Implement => (WorkflowStatus.Implementing, WorkflowStep.Implement),
             WorkflowStep.CreatePullRequest => (WorkflowStatus.CreatingPullRequest, WorkflowStep.CreatePullRequest),
             WorkflowStep.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
+            WorkflowStep.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
 

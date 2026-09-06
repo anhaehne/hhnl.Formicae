@@ -212,7 +212,7 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
 
-for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel", "Decision"]) {
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel", "Decision", "Custom task"]) {
   test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
     const item = await seed(request, 4);
     await page.setViewportSize({ width: 1280, height: 720 });

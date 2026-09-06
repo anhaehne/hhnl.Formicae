@@ -74,6 +74,7 @@ export type WorkflowDefinitionStep = {
   model?: string | null;
   personaId?: string | null;
   personaSnapshot?: PersonaSnapshot | null;
+  customTask?: WorkflowCustomTaskSettings | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
@@ -154,6 +155,7 @@ export type TaskRun = {
   status: string | number;
   externalId?: string | null;
   output?: string | null;
+  customTaskExecution?: PreparedCustomTaskExecution | null;
   failureReason?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -639,3 +641,16 @@ export const getPersona = (id: string) => send<Persona>(`/api/personas/${encodeU
 export const createPersona = (input: PersonaInput) => send<Persona>("/api/personas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 export const updatePersona = (id: string, input: PersonaInput, expectedRevision: number) => send<Persona>(`/api/personas/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
 export const deletePersona = (id: string, expectedRevision: number) => sendNoContent(`/api/personas/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });
+
+export type CustomTaskScalar = string | number | boolean;
+export type CustomTaskInputDefinition = { name: string; valueType: "string" | "number" | "boolean"; required: boolean; defaultValue?: CustomTaskScalar | null };
+export type CustomTaskRunnerSettings = { kind: "agent"; timeoutSeconds: number };
+export type CustomTaskSnapshot = { id: string; revision: number; name: string; description: string; promptTemplate: string; inputs: CustomTaskInputDefinition[]; runner: CustomTaskRunnerSettings };
+export type CustomTaskDefinition = CustomTaskSnapshot & { createdAt: string; updatedAt: string };
+export type CustomTaskInput = Omit<CustomTaskSnapshot, "id" | "revision">;
+export type WorkflowCustomTaskSettings = { taskId: string; inputs?: Record<string, CustomTaskScalar> | null; snapshot?: CustomTaskSnapshot | null };
+export type PreparedCustomTaskExecution = { taskId: string; revision: number; name: string; inputs: Record<string, CustomTaskScalar>; workflowFields: Record<string, CustomTaskScalar | null>; timeoutSeconds: number; prompt: string; formatVersion: number };
+export const listCustomTasks = () => send<CustomTaskDefinition[]>("/api/custom-tasks");
+export const createCustomTask = (input: CustomTaskInput) => send<CustomTaskDefinition>("/api/custom-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+export const updateCustomTask = (id: string, input: CustomTaskInput, expectedRevision: number) => send<CustomTaskDefinition>(`/api/custom-tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
+export const deleteCustomTask = (id: string, expectedRevision: number) => sendNoContent(`/api/custom-tasks/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });

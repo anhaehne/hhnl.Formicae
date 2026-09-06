@@ -1,18 +1,19 @@
+import { CustomTaskSettings } from "./CustomTaskSettings";
 import { PersonaPicker } from "./PersonaPicker";
 import { DecisionSettings } from "./DecisionSettings";
 import { StepIcon } from "./StepIcon";
 import { useEffect, useState } from "react";
 import type { Edge } from "@xyflow/react";
-import { getIntegration, listIntegrations, type IntegrationDetail, type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot } from "../api";
+import { getIntegration, listIntegrations, type IntegrationDetail, type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot } from "../api";
 import { StepModelSettings } from "../StepModelSettings";
 import { loopUses, triggerUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
 import { titleFor } from "./catalog";
 
-type Props = { savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
+type Props = { customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
   update: (values: Partial<WorkflowStepNodeData>) => void; rename: (id: string) => void; move: (axis: "x" | "y", value: number) => void;
   resizeBranches: (count: number) => void;
   connect: (port: string, target?: string, targetPort?: string) => void; start: () => void; close: () => void; begin: () => void; commit: () => void };
-export function Inspector({ savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, resizeBranches, start, close, begin, commit }: Props) {
+export function Inspector({ customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, resizeBranches, start, close, begin, commit }: Props) {
   const [integrations, setIntegrations] = useState<IntegrationDetail[]>([]);
   const [repositoryError, setRepositoryError] = useState("");
   useEffect(() => { if (node.data.uses !== triggerUses) return; let canceled = false; listIntegrations().then(items => Promise.all(items.map(item => getIntegration(item.id)))).then(items => { if (!canceled) setIntegrations(items); }).catch(() => { if (!canceled) setRepositoryError("Could not load connected repositories. Reopen this inspector to retry."); }); return () => { canceled = true; }; }, []);
@@ -35,11 +36,12 @@ export function Inspector({ savedPersonaSnapshot, personas, defaultPersonaId, no
     <section className="editor-property-section"><h4>General</h4>
     <label><span>Display Name</span><input disabled={disabled} value={data.displayName} onChange={event => update({ displayName: event.target.value })} /></label>
     {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && <>
-      <label><span>Task</span><select value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, ...(event.target.value === "builtins.create-pull-request" ? { personaId: undefined, personaSnapshot: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
+      <label><span>Task</span><select aria-label="Task" value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, customTask: event.target.value === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, ...(event.target.value === "builtins.create-pull-request" ? { personaId: undefined, personaSnapshot: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
 
     </>}
     </section>
     {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>Model & configuration</h4><StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} /><PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} /></section>}
+    {data.uses === "builtins.custom-task" && <CustomTaskSettings value={data.customTask} tasks={customTasks} savedSnapshot={savedCustomSnapshot} disabled={disabled} onChange={customTask => update({ customTask })} />}
     {data.decision && <DecisionSettings condition={data.decision.condition} nodes={nodes} edges={edges} disabled={disabled} update={condition => update({ decision: { ...data.decision!, condition } })} />}
     {data.parallel && <section className="editor-property-section"><h4>Parallel branches</h4>
       <p className="muted">Run 2–8 independent Plan branches concurrently. Each branch must end at this node’s Join input. Next runs after every branch succeeds. Other task types and nested control nodes are not supported inside branches.</p>

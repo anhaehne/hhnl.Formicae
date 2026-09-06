@@ -72,6 +72,8 @@ public sealed partial class WorkflowOrchestrator(
                     return await CreatePullRequestAsync(workflow, cancellationToken);
                 case TaskRunKind.AddressComments:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
+                case TaskRunKind.Custom:
+                    return await RunCustomTaskAsync(workflow, context.Step, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -799,6 +801,8 @@ public sealed partial class WorkflowOrchestrator(
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
         if (workflow.CurrentDefinitionStepId is null)
         {
+            if (workflow.CurrentStep == WorkflowStep.Custom)
+                throw new InvalidOperationException("Custom task execution requires an exact definition step cursor.");
             var legacyKind = workflow.CurrentStep switch
             {
                 WorkflowStep.Plan => TaskRunKind.Plan,
@@ -881,6 +885,8 @@ public sealed partial class WorkflowOrchestrator(
         if (document is null || !validation.IsValid) throw new InvalidOperationException("Workflow definition version is invalid.");
         var personaValidation = PersonaDefinitions.ValidateRuntime(document);
         if (!personaValidation.IsValid) throw new InvalidOperationException(string.Join(" ", personaValidation.Errors.Select(error => error.Message)));
+        var taskValidation = CustomTaskDefinitions.ValidateRuntime(document);
+        if (!taskValidation.IsValid) throw new InvalidOperationException(string.Join(" ", taskValidation.Errors.Select(error => error.Message)));
         return WorkflowNodeDefinitions.Normalize(document);
     }
 
@@ -890,6 +896,7 @@ public sealed partial class WorkflowOrchestrator(
         if (context is null) return null;
         var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
         if (execution is not null) return execution;
+        if (context.Kind == TaskRunKind.Custom) return null;
         var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
         return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
     }
@@ -941,6 +948,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Implement => WorkflowStatus.Implementing,
         TaskRunKind.CreatePullRequest => WorkflowStatus.CreatingPullRequest,
         TaskRunKind.AddressComments => WorkflowStatus.Reviewing,
+        TaskRunKind.Custom => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -950,6 +958,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Implement => WorkflowStep.Implement,
         TaskRunKind.CreatePullRequest => WorkflowStep.CreatePullRequest,
         TaskRunKind.AddressComments => WorkflowStep.AddressComments,
+        TaskRunKind.Custom => WorkflowStep.Custom,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

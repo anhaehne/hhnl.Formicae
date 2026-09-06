@@ -1,3 +1,4 @@
+import CustomTasksPage from "./CustomTasksPage";
 import PersonasPage from "./PersonasPage";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
@@ -63,9 +64,9 @@ import { NavigationIcon } from "./NavigationIcon";
 import WorkflowDefinitionsPage from "./WorkflowDefinitionsPage";
 import { getEnabledDefinitionVersions } from "./workflowGraph";
 
-const workflowStatuses = ["Queued", "Planning", "Implementing", "CreatingPullRequest", "Reviewing", "Completed", "Failed", "Canceled"];
-const workflowSteps = ["None", "Plan", "Implement", "CreatePullRequest", "AddressComments", "Done"];
-const taskRunKinds = ["Plan", "Implement", "CreatePullRequest", "AddressComments"];
+const workflowStatuses = ["Queued", "Planning", "Implementing", "CreatingPullRequest", "Reviewing", "Completed", "Failed", "Canceled", "Running"];
+const workflowSteps = ["None", "Plan", "Implement", "CreatePullRequest", "AddressComments", "Done", "Custom"];
+const taskRunKinds = ["Plan", "Implement", "CreatePullRequest", "AddressComments", "Custom"];
 const taskRunStatuses = ["Queued", "Running", "Succeeded", "Failed"];
 
 type FormState = {
@@ -93,9 +94,9 @@ type AiSettingsFormState = {
   subscriptionCredentialMountPath: string;
 };
 
-type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "settings";
+type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "custom-tasks" | "settings";
 
-const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "settings"];
+const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "custom-tasks", "settings"];
 
 const pageDescriptions: Record<Page, string> = {
   workflows: "Follow execution and manage your workflow runs.",
@@ -103,6 +104,7 @@ const pageDescriptions: Record<Page, string> = {
   integrations: "Connect the services your workflows use.",
   repositories: "Manage repositories available to your workflows.",
   users: "Manage workspace access and permissions.",
+  "custom-tasks": "Define reusable agent tasks with typed inputs and recorded outputs.",
   personas: "Define reusable instructions and operating styles for agents.",
   settings: "Configure agents and AI providers."
 };
@@ -114,6 +116,7 @@ const pagePaths: Record<Page, string> = {
   "repositories": "/repositories",
   "users": "/users",
   "personas": "/personas",
+  "custom-tasks": "/custom-tasks",
   "settings": "/settings"
 };
 
@@ -265,6 +268,7 @@ export default function App() {
     { page: "repositories", label: "Repositories", disabled: !canAdminister },
     { page: "users", label: "Users", disabled: false },
     { page: "personas", label: "Personas", disabled: !canViewWorkflows },
+    { page: "custom-tasks", label: "Custom tasks", disabled: !canViewWorkflows },
     { page: "settings", label: "Settings", disabled: !canAdminister }
   ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
@@ -1196,7 +1200,7 @@ export default function App() {
       );
     }
 
-    if (activePage === "workflow-definitions" || activePage === "personas") return null;
+    if (activePage === "workflow-definitions" || activePage === "personas" || activePage === "custom-tasks") return null;
 
     if (activePage === "integrations") {
       return (
@@ -1264,7 +1268,7 @@ export default function App() {
   }
 
   function renderActivePage() {
-    return activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
+    return activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -1528,7 +1532,8 @@ export default function App() {
                           ))}
                         </div>
                       ) : null}
-                      {run.output ? <Expandable title="Raw Output" content={run.output} pre /> : <p className="muted">No output recorded.</p>}
+                      {formatEnum(run.kind, taskRunKinds) === "Custom" && <section aria-label="Custom task execution"><h4>{run.customTaskExecution ? `${run.customTaskExecution.name} · revision ${run.customTaskExecution.revision}` : "Custom task metadata unavailable"}</h4>{run.customTaskExecution && <><p className="muted">Task {run.customTaskExecution.taskId} · {run.customTaskExecution.timeoutSeconds}s timeout · inputs captured for this execution</p><Expandable title="Prepared inputs" content={JSON.stringify(run.customTaskExecution.inputs, null, 2)} pre /><Expandable title="Workflow source values" content={JSON.stringify(run.customTaskExecution.workflowFields, null, 2)} pre /><Expandable title="Prepared prompt" content={run.customTaskExecution.prompt} pre /></>}</section>}
+                      {run.output != null ? <Expandable title={formatEnum(run.kind, taskRunKinds) === "Custom" ? "Task output" : "Raw Output"} content={run.output} pre /> : <p className="muted">No output recorded.</p>}
                     </article>
                     );
                   })}
@@ -2699,6 +2704,8 @@ function pageTitle(page: Page) {
       return "Repositories";
     case "users":
       return "Users";
+    case "custom-tasks":
+      return "Custom tasks";
     case "personas":
       return "Personas";
     case "settings":

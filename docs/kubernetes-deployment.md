@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.14.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.15.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -425,3 +425,12 @@ Operators can manage reusable personas and select a workflow default or an overr
 Each new workflow version records the current persona revision for its AI steps. Existing versions and retries retain that snapshot after catalog edits or deletion. The editor previews the saved and next-save revisions; disabled drafts can retain unresolved selections, while enabled versions require valid active selections when saved.
 
 The generated AddPersonas migration adds the persona catalog table. Deploy matching 0.14.0 API and worker images. The additive table can remain during rollback, but workflows using custom persona snapshots should not start under an older application that cannot apply their instructions.
+## 0.15.0 reusable custom tasks
+
+Operators can define reusable agent tasks with prompt templates, typed inputs and a bounded execution timeout, then use them as Custom task nodes. Workflow versions snapshot task definitions and personas; each execution records its resolved inputs and rendered prompt before launch. Retries retain that context. Outputs and task identity are visible in run history.
+
+Custom tasks execute in a fresh scratch workspace with their input context. They do not automatically check out a repository, receive repository tokens, provision browser/nested containers, commit, post comments, or open pull requests. Existing built-in tasks retain their behavior. Custom tasks support sequential execution and loop bodies; Parallel branches remain Plan-only.
+
+Templates support declared input tokens and the documented workflow-field allowlist. Numeric inputs must round-trip exactly through browser JSON and stay within the safe integer magnitude; invalid types, missing required inputs, oversized prompts and oversized outputs fail clearly. Task deadlines terminate the agent process tree even when the scheduler is unavailable.
+
+The generated AddCustomTasks migration adds the task catalog and nullable prepared-execution metadata. Deploy matching 0.15.0 API and worker images. The additive database fields may remain during rollback; workflows containing Custom task nodes require 0.15.0 or later and must not start under older applications.

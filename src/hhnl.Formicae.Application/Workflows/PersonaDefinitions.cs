@@ -5,7 +5,7 @@ public sealed record PersonaDefinitionResolution(WorkflowDefinitionDocument Docu
 /// <summary>Captures catalog revisions at save time and validates pinned execution without catalog reads.</summary>
 public static class PersonaDefinitions
 {
-    public static bool IsAiTask(string? uses) => uses is "builtins.plan" or "builtins.implement" or "builtins.address-comments";
+    public static bool IsAiTask(string? uses) => uses is "builtins.plan" or "builtins.implement" or "builtins.address-comments" or CustomTaskDefinitions.Uses;
 
     public static async Task<PersonaDefinitionResolution> ResolveAsync(
         WorkflowDefinitionDocument document, PersonaService? personas, CancellationToken cancellationToken)
@@ -38,7 +38,7 @@ public static class PersonaDefinitions
             if (!IsAiTask(step.Uses))
             {
                 if (step.PersonaId is not null)
-                    errors.Add(new("definition.persona.unsupported", "Only Plan, Implement and Address comments tasks can select a persona.", "steps[].personaId", step.Id));
+                    errors.Add(new("definition.persona.unsupported", "Only AI tasks can select a persona.", "steps[].personaId", step.Id));
             }
             else
             {

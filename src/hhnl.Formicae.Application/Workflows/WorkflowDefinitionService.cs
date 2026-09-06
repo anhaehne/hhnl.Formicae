@@ -7,7 +7,8 @@ public sealed class WorkflowDefinitionService(
     WorkflowDefinitionValidator validator,
     IDevOpsIntegrationStore? integrationStore = null,
     IClock? clock = null,
-    PersonaService? personas = null)
+    PersonaService? personas = null,
+    CustomTaskService? customTasks = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
 
@@ -88,11 +89,12 @@ public sealed class WorkflowDefinitionService(
         if (request.Definition is null)
             throw new WorkflowDefinitionValidationException([new("definition.required", "Workflow definition is required.")]);
         var resolution = await PersonaDefinitions.ResolveAsync(request.Definition, personas, cancellationToken);
-        var document = resolution.Document;
+        var taskResolution = await CustomTaskDefinitions.ResolveAsync(resolution.Document, customTasks, cancellationToken);
+        var document = taskResolution.Document;
         if (request.IsEnabled)
         {
             var graphValidation = await ValidateGraphAndRepositoriesAsync(document, cancellationToken);
-            var validation = new WorkflowDefinitionValidationResult([.. graphValidation.Errors, .. resolution.Validation.Errors]);
+            var validation = new WorkflowDefinitionValidationResult([.. graphValidation.Errors, .. resolution.Validation.Errors, .. taskResolution.Validation.Errors]);
             if (!validation.IsValid)
             {
                 throw new WorkflowDefinitionValidationException(validation.Errors);
@@ -166,6 +168,7 @@ public sealed class WorkflowDefinitionService(
         var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
         var validation = validator.Validate(document);
         if (validation.IsValid && document is not null) validation = PersonaDefinitions.ValidateRuntime(document);
+        if (validation.IsValid && document is not null) validation = CustomTaskDefinitions.ValidateRuntime(document);
         if (!validation.IsValid)
         {
             throw new WorkflowDefinitionValidationException(validation.Errors);
@@ -179,7 +182,8 @@ public sealed class WorkflowDefinitionService(
         var graphValidation = await ValidateGraphAndRepositoriesAsync(definition, cancellationToken);
         if (definition is null) return graphValidation;
         var resolution = await PersonaDefinitions.ResolveAsync(definition, personas, cancellationToken);
-        return new([.. graphValidation.Errors, .. resolution.Validation.Errors]);
+        var taskResolution = await CustomTaskDefinitions.ResolveAsync(definition, customTasks, cancellationToken);
+        return new([.. graphValidation.Errors, .. resolution.Validation.Errors, .. taskResolution.Validation.Errors]);
     }
 
     private async Task<WorkflowDefinitionValidationResult> ValidateGraphAndRepositoriesAsync(WorkflowDefinitionDocument? definition, CancellationToken cancellationToken)

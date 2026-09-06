@@ -19,6 +19,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
     public DbSet<WorkflowDefinitionVersion> WorkflowDefinitionVersions => Set<WorkflowDefinitionVersion>();
     public DbSet<Persona> Personas => Set<Persona>();
+    public DbSet<CustomTaskDefinition> CustomTasks => Set<CustomTaskDefinition>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
@@ -154,6 +155,18 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(log => log.Message).IsRequired();
             entity.Property(log => log.Level).IsRequired();
             entity.HasIndex(log => log.WorkflowId);
+        });
+
+        modelBuilder.Entity<CustomTaskDefinition>(entity =>
+        {
+            entity.ToTable("custom_tasks");
+            entity.HasKey(task => task.Id);
+            entity.Property(task => task.Name).IsRequired().HasMaxLength(120);
+            entity.Property(task => task.Description).IsRequired().HasMaxLength(2000);
+            entity.Property(task => task.PromptTemplate).IsRequired().HasMaxLength(16000);
+            entity.Property(task => task.InputsJson).IsRequired();
+            entity.Property(task => task.RunnerJson).IsRequired();
+            entity.Property(task => task.Revision).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<Persona>(entity =>

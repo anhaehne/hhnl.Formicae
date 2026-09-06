@@ -12,7 +12,8 @@ public enum WorkflowStatus
     Reviewing,
     Completed,
     Failed,
-    Canceled
+    Canceled,
+    Running
 }
 
 public enum WorkflowStep
@@ -22,7 +23,8 @@ public enum WorkflowStep
     Implement,
     CreatePullRequest,
     AddressComments,
-    Done
+    Done,
+    Custom
 }
 
 public enum TaskRunKind
@@ -30,7 +32,8 @@ public enum TaskRunKind
     Plan,
     Implement,
     CreatePullRequest,
-    AddressComments
+    AddressComments,
+    Custom
 }
 
 public enum TaskRunStatus
@@ -133,7 +136,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("parallel")] WorkflowParallelNodeSettings? Parallel = null,
     [property: JsonPropertyName("decision")] WorkflowDecisionNodeSettings? Decision = null,
     [property: JsonPropertyName("personaId")] string? PersonaId = null,
-    [property: JsonPropertyName("personaSnapshot")] PersonaSnapshot? PersonaSnapshot = null);
+    [property: JsonPropertyName("personaSnapshot")] PersonaSnapshot? PersonaSnapshot = null,
+    [property: JsonPropertyName("customTask")] WorkflowCustomTaskSettings? CustomTask = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -194,6 +198,7 @@ public sealed class TaskRun
     public string DefinitionStepId { get; init; } = string.Empty;
     public int? LoopIteration { get; init; }
     public Guid? ExecutionAttemptId { get; set; }
+    public string? CustomTaskExecutionJson { get; set; }
     public TaskRunStatus Status { get; set; } = TaskRunStatus.Queued;
     public string? ExternalId { get; set; }
     public string? Output { get; set; }
@@ -432,7 +437,8 @@ public sealed record TaskRunResponse(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<AgentMessageResponse> AgentMessages,
     string DefinitionStepId,
-    int? LoopIteration);
+    int? LoopIteration,
+    PreparedCustomTaskExecution? CustomTaskExecution = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,
@@ -625,7 +631,8 @@ public sealed record AgentTask(
     string? Model,
     IReadOnlyList<AgentTaskContextFile>? ContextFiles = null,
     string? AiSettingsId = null,
-    Guid? ExecutionAttemptId = null);
+    Guid? ExecutionAttemptId = null,
+    int? TimeoutSeconds = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 

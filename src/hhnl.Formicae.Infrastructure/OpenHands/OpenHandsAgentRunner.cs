@@ -101,7 +101,10 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             SecretFiles: secretFiles,
             SecretEnvironment: secretEnvironment,
             ExecutionRequirements: BuildExecutionRequirements(task.Kind),
-            ExecutionPolicy: BuildExecutionPolicy(task.Kind, jobOptions.Value),
+            ExecutionPolicy: task.Kind == TaskRunKind.Custom
+                ? new RuntimeJobExecutionPolicy(task.TimeoutSeconds is >= 1 and <= 3600
+                    ? task.TimeoutSeconds.Value : throw new InvalidOperationException("Custom tasks require a timeout between 1 and 3600 seconds."), 0)
+                : BuildExecutionPolicy(task.Kind, jobOptions.Value),
             ReuseExisting: task.ExecutionAttemptId is not null);
     }
 

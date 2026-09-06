@@ -362,6 +362,52 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.ToTable("ai_settings", (string)null);
                 });
 
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.CustomTaskDefinition", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("InputsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("PromptTemplate")
+                        .IsRequired()
+                        .HasMaxLength(16000)
+                        .HasColumnType("character varying(16000)");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RunnerJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("custom_tasks", (string)null);
+                });
+
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.Persona", b =>
                 {
                     b.Property<string>("Id")
@@ -416,6 +462,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomTaskExecutionJson")
+                        .HasColumnType("text");
 
                     b.Property<string>("DefinitionStepId")
                         .IsRequired()

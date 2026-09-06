@@ -146,6 +146,11 @@ internal static class WorkerCommand
             }
         }
 
+        if (environment.TaskKind == "Custom")
+        {
+            return await RunCustomCommandAsync(environment, workingDirectory, reporter, timeProvider ?? TimeProvider.System, cancellationToken);
+        }
+
         if (environment.UsesCodexSubscription)
         {
             return await RunCodexAsync(environment, workingDirectory, reporter, timeProvider ?? TimeProvider.System, cancellationToken);
@@ -157,6 +162,35 @@ internal static class WorkerCommand
             environment.RequiresRepositoryCheckout ? workingDirectory : null,
             reporter,
             cancellationToken);
+    }
+
+    internal static async Task<int> RunCustomCommandAsync(WorkerEnvironment environment, string workingDirectory,
+        WorkerReporter reporter, TimeProvider timeProvider, CancellationToken cancellationToken,
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? execute = null)
+    {
+        if (environment.JobTimeoutSeconds is not (>= 1 and <= 3600))
+            throw new InvalidOperationException("Custom tasks require a timeout between 1 and 3600 seconds.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(environment.JobTimeoutSeconds.Value), timeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        if (execute is null)
+        {
+            if (environment.UsesCodexSubscription) CodexWorkspace.Prepare(false);
+            execute = (file, arguments, directory, token) => RunProcessAsync(file, arguments, directory, reporter, token);
+        }
+        try
+        {
+            var exit = await execute(environment.UsesCodexSubscription ? "npx" : "openhands",
+                environment.UsesCodexSubscription ? BuildCodexArguments(environment, workingDirectory)
+                    : ["--headless", "--json", "--override-with-envs", "-t", environment.Prompt], workingDirectory, linked.Token);
+            if (environment.UsesCodexSubscription)
+                await reporter.ReportCodexAuthAsync(environment.AiSettingsId, ReadCodexAuth(), linked.Token);
+            return exit;
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            await reporter.ReportAsync("worker-error", "Custom task execution deadline exceeded.", cancellationToken);
+            return 124;
+        }
     }
 
     private static async Task<int> RunCodexAuthSetupAsync(WorkerEnvironment environment, WorkerReporter reporter, CancellationToken cancellationToken)
@@ -460,7 +494,7 @@ internal static class WorkerCommand
         return File.Exists(path) ? File.ReadAllText(path) : null;
     }
 
-    private static async Task<int> RunProcessAsync(
+    internal static async Task<int> RunProcessAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         string? workingDirectory,
@@ -491,8 +525,18 @@ internal static class WorkerCommand
         await reporter.ReportAsync("worker", $"Running {fileName} {string.Join(' ', arguments.Select(arg => Redact(arg, redact)))}", cancellationToken);
         var stdout = PumpAsync(process.StandardOutput, "stdout", reporter, cancellationToken, redact, stdoutObserver);
         var stderr = PumpAsync(process.StandardError, "stderr", reporter, cancellationToken, redact, null);
-        await process.WaitForExitAsync(cancellationToken);
-        await Task.WhenAll(stdout, stderr);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(stdout, stderr);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await InterruptProcessAsync(process);
+            try { await Task.WhenAll(stdout, stderr); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            throw;
+        }
         return process.ExitCode;
     }
 

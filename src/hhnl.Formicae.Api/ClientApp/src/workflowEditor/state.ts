@@ -3,7 +3,7 @@ import type { Edge } from "@xyflow/react";
 import type { WorkflowStepNode } from "../workflowGraph";
 
 export type EditorDraft = { name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
-const comparable = (draft: EditorDraft) => ({ ...draft, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined } })) });
+const comparable = (draft: EditorDraft) => ({ ...draft, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
 const equal = (a: EditorDraft, b: EditorDraft) => JSON.stringify(comparable(a)) === JSON.stringify(comparable(b));
 export function useEditorState(initial: EditorDraft) {
   const [draft, render] = useState(initial);
@@ -25,8 +25,13 @@ export function useEditorState(initial: EditorDraft) {
       if (equal(value.current, submitted)) publish(authoritative);
       else publish({ ...value.current, nodes: value.current.nodes.map(node => {
         const before = submitted.nodes.find(item => item.id === node.id), saved = authoritative.nodes.find(item => item.id === node.id);
-        return before && saved && node.data.uses === before.data.uses && node.data.personaId === before.data.personaId && value.current.defaultPersonaId === submitted.defaultPersonaId
-          ? { ...node, data: { ...node.data, personaSnapshot: saved.data.personaSnapshot } } : node;
+        if (!before || !saved || node.data.uses !== before.data.uses) return node;
+        const personaUnchanged = node.data.personaId === before.data.personaId && value.current.defaultPersonaId === submitted.defaultPersonaId;
+        const taskUnchanged = node.data.customTask?.taskId === before.data.customTask?.taskId;
+        return { ...node, data: { ...node.data,
+          personaSnapshot: personaUnchanged ? saved.data.personaSnapshot : node.data.personaSnapshot,
+          customTask: node.data.customTask && taskUnchanged ? { ...node.data.customTask, snapshot: saved.data.customTask?.snapshot } : node.data.customTask
+        } };
       }) });
     },
     undo: () => { commit(); const previous = past.current.pop(); if (previous) { future.current.push(value.current); publish(previous); } },

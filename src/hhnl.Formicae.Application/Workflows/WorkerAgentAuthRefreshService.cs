@@ -36,12 +36,13 @@ public sealed class WorkerAgentAuthRefreshService(IWorkflowStore workflowStore, 
             return await aiSettingsService.UpdateCodexAuthAsync(request.AiSettingsId, request.CodexAuthJson, cancellationToken);
         }
 
-        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind))
+        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind) || !Enum.IsDefined(taskKind))
         {
             return false;
         }
 
-        var run = await workflowStore.GetTaskRunAsync(request.WorkflowId, taskKind, cancellationToken);
+        var run = (await workflowStore.ListTaskRunsAsync(request.WorkflowId, cancellationToken))
+            .SingleOrDefault(item => item.Kind == taskKind && string.Equals(item.ExternalId, request.ExternalId, StringComparison.Ordinal));
         if (run is null
             || !string.Equals(run.ExternalId, request.ExternalId, StringComparison.Ordinal))
         {

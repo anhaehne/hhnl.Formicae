@@ -7,7 +7,8 @@ public sealed class WorkflowDefinitionValidator
         ["builtins.plan"] = TaskRunKind.Plan,
         ["builtins.implement"] = TaskRunKind.Implement,
         ["builtins.create-pull-request"] = TaskRunKind.CreatePullRequest,
-        ["builtins.address-comments"] = TaskRunKind.AddressComments
+        ["builtins.address-comments"] = TaskRunKind.AddressComments,
+        [CustomTaskDefinitions.Uses] = TaskRunKind.Custom
     };
 
     public WorkflowDefinitionValidationResult ValidateDefinitionName(string? name)
@@ -44,6 +45,14 @@ public sealed class WorkflowDefinitionValidator
         if (document.Steps is null) return new([new("definition.steps.required", "At least one step is required.", "steps")]);
         if (document.Steps.Any(step => step is null))
             return new([new("definition.step.required", "Each step must be a node object.", "steps")]);
+        foreach (var step in document.Steps)
+        {
+            if (step.CustomTask is not null && step.Uses != CustomTaskDefinitions.Uses)
+                errors.Add(new("definition.customTask.invalid", "Only Custom task nodes may carry custom task settings.", "steps[].customTask", step.Id));
+            if (step.Uses == CustomTaskDefinitions.Uses && string.IsNullOrWhiteSpace(step.CustomTask?.TaskId))
+                errors.Add(new("definition.customTask.invalid", "Select a reusable custom task.", "steps[].customTask", step.Id));
+        }
+        if (errors.Count > 0) return new(errors);
 
         if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
             return WorkflowNodeDefinitions.Validate(document);
@@ -274,6 +283,7 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.Implement => "builtins.implement",
             TaskRunKind.CreatePullRequest => "builtins.create-pull-request",
             TaskRunKind.AddressComments => "builtins.address-comments",
+            TaskRunKind.Custom => CustomTaskDefinitions.Uses,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 }
