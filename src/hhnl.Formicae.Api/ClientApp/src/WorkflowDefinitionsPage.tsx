@@ -24,8 +24,7 @@ import {
   getIntegration,
   IntegrationDetail,
   listIntegrations,
-  WorkflowDefinitionTrigger,
-  WorkflowDefinitionLoop,
+  WorkflowTriggerNodeSettings,
   WorkflowDefinitionResponse,
   WorkflowDefinitionValidationError
 } from "./api";
@@ -36,7 +35,7 @@ import {
   supportedUses,
   WorkflowStepNode,
   WorkflowStepNodeData,
-  workflowSchema
+  workflowSchema, toNodeDefinition, triggerUses, loopUses
 } from "./workflowGraph";
 
 type Props = {
@@ -73,6 +72,7 @@ function WorkflowDefinitionsEditor({
   onError
 }: Props) {
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string>();
+  const [creatingDefinition, setCreatingDefinition] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   const [definitionName, setDefinitionName] = useState("Custom workflow");
   const [versionNumber, setVersionNumber] = useState("");
@@ -84,8 +84,7 @@ function WorkflowDefinitionsEditor({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<DraftValidationError[]>([]);
-  const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([]);
-  const [loops, setLoops] = useState<WorkflowDefinitionLoop[]>([]);
+  const [newStepType, setNewStepType] = useState("builtins.plan");
   const [integrationDetails, setIntegrationDetails] = useState<IntegrationDetail[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowStepNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -136,29 +135,29 @@ function WorkflowDefinitionsEditor({
   }, []);
 
   useEffect(() => {
-    if (definitions.length === 0 || selectedDefinitionId) {
+    if (definitions.length === 0 || selectedDefinitionId || creatingDefinition) {
       return;
     }
 
     const first = definitions[0];
     setSelectedDefinitionId(first.id);
     setSelectedVersionId(first.versions[0]?.id);
-  }, [definitions, selectedDefinitionId]);
+  }, [definitions, selectedDefinitionId, creatingDefinition]);
 
   useEffect(() => {
     if (!selectedDefinition || !selectedVersion) {
       return;
     }
 
-    const graph = definitionToGraph(selectedVersion.definition);
+    const draft = toNodeDefinition(selectedVersion.definition);
+    const graph = definitionToGraph(draft);
     setDefinitionName(selectedDefinition.name);
     setVersionNumber("");
     setIsEnabled(selectedVersion.isEnabled);
     setIsDefault(selectedVersion.isDefault);
-    setSchema(selectedVersion.definition.schema || selectedVersion.dslSchemaVersion || workflowSchema);
-    setStartStepId(selectedVersion.definition.startStepId);
-    setTriggers(selectedVersion.definition.triggers ?? []);
-    setLoops(selectedVersion.definition.loops ?? []);
+    setSchema(workflowSchema);
+    setStartStepId(draft.startStepId);
+
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -173,13 +172,14 @@ function WorkflowDefinitionsEditor({
     }
 
     setEdges(current => {
-      const withoutExisting = current.filter(edge => edge.source !== connection.source && edge.target !== connection.target);
-      return addEdge({ ...connection, id: `${connection.source}->${connection.target}` }, withoutExisting);
+      const withoutExisting = current.filter(edge => !(edge.source === connection.source && edge.sourceHandle === connection.sourceHandle));
+      return addEdge({ ...connection, id: `${connection.source}:${connection.sourceHandle}` }, withoutExisting);
     });
   }, [setEdges]);
 
   function handleNewDefinition() {
     const graph = definitionToGraph(createDefaultDefinitionDocument());
+    setCreatingDefinition(true);
     setSelectedDefinitionId(undefined);
     setSelectedVersionId(undefined);
     setDefinitionName("Custom workflow");
@@ -188,8 +188,7 @@ function WorkflowDefinitionsEditor({
     setIsDefault(false);
     setSchema(workflowSchema);
     setStartStepId("plan");
-    setTriggers([]);
-    setLoops([]);
+
     setNodes(graph.nodes);
     setEdges(graph.edges);
     setSelectedNodeId(undefined);
@@ -200,6 +199,7 @@ function WorkflowDefinitionsEditor({
 
   function handleSelectDefinition(definitionId: string) {
     const definition = definitions.find(item => item.id === definitionId);
+    setCreatingDefinition(false);
     setSelectedDefinitionId(definitionId);
     setSelectedVersionId(definition?.versions[0]?.id);
   }
@@ -216,12 +216,14 @@ function WorkflowDefinitionsEditor({
     const nextNode: WorkflowStepNode = {
       id,
       type: "workflowStep",
-      position: { x: 80 + nodes.length * 40, y: 120 + nodes.length * 24 },
-      data: { stepId: id, displayName: "New step", uses: "builtins.plan" }
+      position: { x: 80 + (nodes.length % 3) * 280, y: 80 + Math.floor(nodes.length / 3) * 200 },
+      data: { stepId: id, displayName: newStepType === loopUses ? "Loop" : newStepType === triggerUses ? "Trigger" : "New task", uses: newStepType,
+        loop: newStepType === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
+        trigger: newStepType === triggerUses ? { type: "DevOpsIssueLabel", enabled: true, repositoryIds: [], label: "" } : undefined }
     };
     setNodes(current => [...current, nextNode]);
     setSelectedNodeId(id);
-    if (!startStepId) {
+    if (!startStepId && newStepType !== triggerUses) {
       setStartStepId(id);
     }
   }
@@ -234,7 +236,7 @@ function WorkflowDefinitionsEditor({
     setNodes(current => current.filter(node => node.id !== selectedNodeId));
     setEdges(current => current.filter(edge => edge.source !== selectedNodeId && edge.target !== selectedNodeId));
     if (startStepId === selectedNodeId) {
-      setStartStepId(nodes.find(node => node.id !== selectedNodeId)?.id ?? "");
+      setStartStepId(nodes.find(node => node.id !== selectedNodeId && node.data.uses !== triggerUses)?.id ?? "");
     }
     setSelectedNodeId(undefined);
   }
@@ -275,64 +277,37 @@ function WorkflowDefinitionsEditor({
     setSelectedNodeId(nextId);
   }
 
-  function handleAddTrigger() {
-    let suffix = triggers.length + 1;
-    let id = `issueLabel${suffix}`;
-    while (triggers.some(trigger => trigger.id === id)) {
-      suffix += 1;
-      id = `issueLabel${suffix}`;
-    }
-
-    setTriggers(current => [...current, {
-      id,
-      type: "DevOpsIssueLabel",
-      enabled: true,
-      repositoryIds: [],
-      label: "",
-      baseBranch: "",
-      model: ""
-    }]);
+  function updateTrigger(values: Partial<WorkflowTriggerNodeSettings>) {
+    if (selectedNode?.data.trigger) updateSelectedNodeData({ trigger: { ...selectedNode.data.trigger, ...values } });
   }
 
-  function updateTrigger(index: number, values: Partial<WorkflowDefinitionTrigger>) {
-    setTriggers(current => current.map((trigger, currentIndex) => currentIndex === index ? { ...trigger, ...values } : trigger));
-  }
-
-  function toggleTriggerRepository(index: number, repositoryId: string, selected: boolean) {
-    setTriggers(current => current.map((trigger, currentIndex) => {
-      if (currentIndex !== index) {
-        return trigger;
-      }
-
-      const nextRepositoryIds = selected
-        ? Array.from(new Set([...trigger.repositoryIds, repositoryId]))
-        : trigger.repositoryIds.filter(id => id !== repositoryId);
-      return { ...trigger, repositoryIds: nextRepositoryIds };
-    }));
-  }
-
-  function removeTrigger(index: number) {
-    setTriggers(current => current.filter((_, currentIndex) => currentIndex !== index));
-  }
-
-  function addLoop() {
-    const body = nodes[0]?.id ?? "";
-    const exit = nodes.find(node => node.id !== body)?.id ?? "";
-    setSchema(workflowSchema);
-    setLoops(current => [...current, { id: `loop${current.length + 1}`, bodyStepIds: body ? [body] : [], repeatCount: 2, maxIterations: 2, timeoutSeconds: null, exitStepId: exit }]);
-  }
-
-  function updateLoop(index: number, values: Partial<WorkflowDefinitionLoop>) {
-    setLoops(current => current.map((loop, currentIndex) => currentIndex === index ? { ...loop, ...values } : loop));
+  function connectionPicker(handle: string, label: string) {
+    if (!selectedNode) return null;
+    const connection = edges.find(edge => edge.source === selectedNode.id && (edge.sourceHandle || "next") === handle);
+    return <label><span>{label}</span><select aria-label={label} disabled={!canAdminister}
+      value={connection ? JSON.stringify([connection.target, connection.targetHandle || "input"]) : ""}
+      onChange={event => {
+        const value = event.target.value;
+        setEdges(current => {
+          const remaining = current.filter(edge => !(edge.source === selectedNode.id && (edge.sourceHandle || "next") === handle));
+          if (!value) return remaining;
+          const [target, targetHandle] = JSON.parse(value) as [string, string];
+          return [...remaining, { id: `${selectedNode.id}:${handle}`, source: selectedNode.id, sourceHandle: handle, target, targetHandle,
+            label: targetHandle === "return" ? "Return" : handle === "body" ? "Body" : handle === "exit" ? "Exit" : undefined }];
+        });
+      }}>
+      <option value="">Not connected</option>
+      {nodes.filter(node => node.id !== selectedNode.id && node.data.uses !== triggerUses && (handle !== "body" || node.data.uses !== loopUses)).flatMap(node => [
+        <option key={node.id} value={JSON.stringify([node.id, "input"])}>{node.data.displayName} ({node.id})</option>,
+        ...(node.data.uses === loopUses && selectedNode.data.uses !== triggerUses && selectedNode.data.uses !== loopUses
+          ? [<option key={`${node.id}:return`} value={JSON.stringify([node.id, "return"])}>Return to {node.data.displayName} ({node.id})</option>] : [])
+      ])}
+    </select></label>;
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const clientErrors = [
-      ...validateGraph(definitionName, nodes, edges, startStepId, loops),
-      ...validateTriggers(triggers),
-      ...validateLoops(loops, nodes)
-    ];
+    const clientErrors = validateGraph(definitionName, nodes, edges, startStepId);
     setValidationErrors(clientErrors);
     if (clientErrors.length > 0) {
       return;
@@ -352,9 +327,10 @@ function WorkflowDefinitionsEditor({
         version: versionNumber.trim() ? Number(versionNumber) : null,
         isEnabled,
         isDefault,
-        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId, normalizeTriggers(triggers), loops)
+        definition: graphToDefinition(nodes, edges, schema.trim() || workflowSchema, startStepId)
       });
 
+      setCreatingDefinition(false);
       setSelectedDefinitionId(definition.id);
       setSelectedVersionId(savedVersion.id);
       setValidationErrors([]);
@@ -402,6 +378,9 @@ function WorkflowDefinitionsEditor({
           <div className="panel-heading">
             <h2>Workflow Graph</h2>
             <div className="button-row">
+              <select aria-label="New step type" value={newStepType} onChange={event => setNewStepType(event.target.value)} disabled={!canAdminister}>
+                <option value="builtins.plan">Task</option><option value={triggerUses}>Trigger</option><option value={loopUses}>Loop</option>
+              </select>
               <button type="button" className="secondary-button compact-button" onClick={handleAddStep} disabled={!canAdminister}>Add Step</button>
               <button type="button" className="secondary-button compact-button" onClick={handleDeleteSelectedStep} disabled={!selectedNodeId || !canAdminister}>Delete Step</button>
               <button type="button" className="secondary-button compact-button" onClick={handleDeleteSelectedEdge} disabled={!selectedEdgeId || !canAdminister}>Delete Edge</button>
@@ -416,10 +395,18 @@ function WorkflowDefinitionsEditor({
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              isValidConnection={connection => {
+                const source = nodes.find(node => node.id === connection.source);
+                const target = nodes.find(node => node.id === connection.target);
+                return !!source && !!target && source.id !== target.id && target.data.uses !== triggerUses
+                  && !(connection.sourceHandle === "body" && target.data.uses === loopUses)
+                  && (connection.targetHandle !== "return" || (target.data.uses === loopUses && source.data.uses !== loopUses && source.data.uses !== triggerUses));
+              }}
               onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
                 setSelectedNodeId(selectedNodes[0]?.id);
                 setSelectedEdgeId(selectedEdges[0]?.id);
               }}
+              minZoom={0.1}
               fitView
             >
               <Background />
@@ -449,12 +436,12 @@ function WorkflowDefinitionsEditor({
           <div className="form-row">
             <label>
               <span>Schema</span>
-              <input value={schema} onChange={event => setSchema(event.target.value)} disabled={!canAdminister} />
+              <input value={schema} readOnly />
             </label>
             <label>
               <span>Start Step</span>
               <select value={startStepId} onChange={event => setStartStepId(event.target.value)} disabled={!canAdminister}>
-                {nodes.map(node => <option key={node.id} value={node.id}>{node.data.stepId || node.id}</option>)}
+                {nodes.filter(node => node.data.uses !== triggerUses).map(node => <option key={node.id} value={node.id}>{node.data.stepId || node.id}</option>)}
               </select>
             </label>
           </div>
@@ -481,117 +468,40 @@ function WorkflowDefinitionsEditor({
                   <span>Display Name</span>
                   <input value={selectedNode.data.displayName} onChange={event => updateSelectedNodeData({ displayName: event.target.value })} disabled={!canAdminister} />
                 </label>
-                <label>
-                  <span>Built-in Task</span>
-                  <select value={selectedNode.data.uses} onChange={event => updateSelectedNodeData({ uses: event.target.value })} disabled={!canAdminister}>
+                {selectedNode.data.uses !== triggerUses && selectedNode.data.uses !== loopUses ? <>
+                  <label><span>Built-in Task</span><select value={selectedNode.data.uses} onChange={event => updateSelectedNodeData({ uses: event.target.value })} disabled={!canAdminister}>
                     {supportedUses.map(uses => <option key={uses} value={uses}>{uses}</option>)}
-                  </select>
-                </label>
-                {selectedNode.data.uses !== "builtins.create-pull-request" ? <StepModelSettings
-                  key={selectedNode.id}
-                  aiSettingsId={selectedNode.data.aiSettingsId}
-                  model={selectedNode.data.model}
-                  disabled={!canAdminister}
-                  onChange={updateSelectedNodeData}
-                /> : null}
-                <button type="button" className="secondary-button" onClick={() => setStartStepId(selectedNode.id)} disabled={!canAdminister}>
+                  </select></label>
+                  {selectedNode.data.uses !== "builtins.create-pull-request" ? <StepModelSettings key={selectedNode.id} aiSettingsId={selectedNode.data.aiSettingsId} model={selectedNode.data.model} disabled={!canAdminister} onChange={updateSelectedNodeData} /> : null}
+                </> : <p>{selectedNode.data.uses === triggerUses ? "Trigger" : "Loop"} node</p>}
+                {selectedNode.data.loop ? <>
+                  <label><span>Repeat count</span><input type="number" min="1" value={selectedNode.data.loop.repeatCount} disabled={!canAdminister} onChange={event => updateSelectedNodeData({ loop: { ...selectedNode.data.loop!, repeatCount: Number(event.target.value) } })} /></label>
+                  <label><span>Maximum iterations</span><input type="number" min="1" value={selectedNode.data.loop.maxIterations} disabled={!canAdminister} onChange={event => updateSelectedNodeData({ loop: { ...selectedNode.data.loop!, maxIterations: Number(event.target.value) } })} /></label>
+                  <label><span>Timeout seconds (optional)</span><input type="number" min="1" value={selectedNode.data.loop.timeoutSeconds ?? ""} disabled={!canAdminister} onChange={event => updateSelectedNodeData({ loop: { ...selectedNode.data.loop!, timeoutSeconds: event.target.value ? Number(event.target.value) : null } })} /></label>
+                  {connectionPicker("body", "Loop body")}{connectionPicker("exit", "Loop exit")}
+                  <p className="muted">Connect the final body task to this loop's Return input.</p>
+                </> : connectionPicker("next", "Next step")}
+                {selectedNode.data.trigger ? <>
+                  <p>Event: Issue label added</p>
+                  <label className="toggle-label"><input type="checkbox" checked={selectedNode.data.trigger.enabled} disabled={!canAdminister} onChange={event => updateTrigger({ enabled: event.target.checked })} /><span>Trigger enabled</span></label>
+                  <label><span>Label</span><input value={selectedNode.data.trigger.label ?? ""} disabled={!canAdminister} onChange={event => updateTrigger({ label: event.target.value })} /></label>
+                  {repositoryGroups.map(group => <fieldset key={group.integration.id}><legend>{group.integration.displayName}</legend>
+                    {group.repositories.map(repository => <label className="toggle-label" key={repository.id}>
+                      <input type="checkbox" checked={selectedNode.data.trigger!.repositoryIds.includes(repository.id)} disabled={!canAdminister} onChange={event => updateTrigger({ repositoryIds: event.target.checked
+                        ? [...selectedNode.data.trigger!.repositoryIds, repository.id] : selectedNode.data.trigger!.repositoryIds.filter(id => id !== repository.id) })} />
+                      <span>{repositoryLabel(repository)}</span></label>)}
+                  </fieldset>)}
+                  {repositoryGroups.length === 0 ? <p className="muted">No connected repositories.</p> : null}
+                  <label><span>Base Branch</span><input value={selectedNode.data.trigger.baseBranch ?? ""} disabled={!canAdminister} placeholder="Repository default" onChange={event => updateTrigger({ baseBranch: event.target.value })} /></label>
+                  <label><span>Workflow model</span><input value={selectedNode.data.trigger.model ?? ""} disabled={!canAdminister} placeholder="Default AI model" onChange={event => updateTrigger({ model: event.target.value })} /></label>
+                </> : null}
+                <button type="button" className="secondary-button" onClick={() => setStartStepId(selectedNode.id)} disabled={!canAdminister || selectedNode.data.uses === triggerUses}>
                   Set as Start Step
                 </button>
               </>
             ) : (
               <p className="muted">Select a step node to edit it.</p>
             )}
-          </section>
-
-          <section className="settings-section">
-            <div className="section-heading-row">
-              <h3>Loops</h3>
-              <button type="button" className="secondary-button compact-button" onClick={addLoop} disabled={!canAdminister}>Add</button>
-            </div>
-            {loops.map((loop, index) => (
-              <div className="trigger-row" key={`${loop.id}-${index}`}>
-                <div className="form-row">
-                  <label><span>ID</span><input value={loop.id} onChange={event => updateLoop(index, { id: event.target.value })} disabled={!canAdminister} /></label>
-                  <label><span>Body steps (ordered)</span><input value={loop.bodyStepIds.join(", ")} onChange={event => updateLoop(index, { bodyStepIds: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} disabled={!canAdminister} /></label>
-                </div>
-                <div className="form-row">
-                  <label><span>Repeat count</span><input type="number" min="1" value={loop.repeatCount} onChange={event => updateLoop(index, { repeatCount: Number(event.target.value) })} disabled={!canAdminister} /></label>
-                  <label><span>Maximum iterations</span><input type="number" min="1" value={loop.maxIterations} onChange={event => updateLoop(index, { maxIterations: Number(event.target.value) })} disabled={!canAdminister} /></label>
-                </div>
-                <div className="form-row">
-                  <label><span>Timeout seconds (optional)</span><input type="number" min="1" value={loop.timeoutSeconds ?? ""} onChange={event => updateLoop(index, { timeoutSeconds: event.target.value ? Number(event.target.value) : null })} disabled={!canAdminister} /></label>
-                  <label><span>Exit step</span><select value={loop.exitStepId} onChange={event => updateLoop(index, { exitStepId: event.target.value })} disabled={!canAdminister}>{nodes.map(node => <option key={node.id} value={node.id}>{node.id}</option>)}</select></label>
-                </div>
-                <button type="button" className="secondary-button danger-button compact-button" onClick={() => setLoops(current => current.filter((_, currentIndex) => currentIndex !== index))} disabled={!canAdminister}>Remove</button>
-              </div>
-            ))}
-            {loops.length === 0 ? <p className="muted">No loops configured.</p> : null}
-          </section>
-
-          <section className="settings-section">
-            <div className="section-heading-row">
-              <h3>Triggers</h3>
-              <button type="button" className="secondary-button compact-button" onClick={handleAddTrigger} disabled={!canAdminister}>Add</button>
-            </div>
-            <div className="trigger-list">
-              {triggers.map((trigger, index) => (
-                <div className="trigger-row" key={`${trigger.id}-${index}`}>
-                  <div className="form-row">
-                    <label>
-                      <span>ID</span>
-                      <input value={trigger.id} onChange={event => updateTrigger(index, { id: event.target.value })} disabled={!canAdminister} />
-                    </label>
-                    <label>
-                      <span>Type</span>
-                      <select value={trigger.type} onChange={event => updateTrigger(index, { type: event.target.value as WorkflowDefinitionTrigger["type"] })} disabled={!canAdminister}>
-                        <option value="DevOpsIssueLabel">DevOpsIssueLabel</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label className="toggle-label">
-                    <input type="checkbox" checked={trigger.enabled} onChange={event => updateTrigger(index, { enabled: event.target.checked })} disabled={!canAdminister} />
-                    <span>Enabled</span>
-                  </label>
-                  <label>
-                    <span>Label</span>
-                    <input value={trigger.label ?? ""} onChange={event => updateTrigger(index, { label: event.target.value })} disabled={!canAdminister} />
-                  </label>
-                  <div className="trigger-repository-select">
-                    {repositoryGroups.map(group => (
-                      <fieldset key={group.integration.id}>
-                        <legend>{group.integration.providerType} / {group.integration.displayName}</legend>
-                        {group.repositories.map(repository => (
-                          <label className="toggle-label" key={repository.id}>
-                            <input
-                              type="checkbox"
-                              checked={trigger.repositoryIds.includes(repository.id)}
-                              onChange={event => toggleTriggerRepository(index, repository.id, event.target.checked)}
-                              disabled={!canAdminister}
-                            />
-                            <span>{repositoryLabel(repository)}</span>
-                          </label>
-                        ))}
-                      </fieldset>
-                    ))}
-                    {repositoryGroups.length === 0 ? <p className="muted">No connected repositories.</p> : null}
-                  </div>
-                  <div className="form-row">
-                    <label>
-                      <span>Base Branch</span>
-                      <input value={trigger.baseBranch ?? ""} onChange={event => updateTrigger(index, { baseBranch: event.target.value })} placeholder="Repository default" disabled={!canAdminister} />
-                    </label>
-                    <label>
-                      <span>Model</span>
-                      <input value={trigger.model ?? ""} onChange={event => updateTrigger(index, { model: event.target.value })} placeholder="Default AI model" disabled={!canAdminister} />
-                    </label>
-                  </div>
-                  <button type="button" className="secondary-button danger-button compact-button" onClick={() => removeTrigger(index)} disabled={!canAdminister}>
-                    Remove
-                  </button>
-                </div>
-              ))}
-              {triggers.length === 0 ? <p className="muted">No triggers configured.</p> : null}
-            </div>
           </section>
 
           <button type="submit" className="primary-button" disabled={saving || !canAdminister}>
@@ -606,11 +516,13 @@ function WorkflowDefinitionsEditor({
 function WorkflowStepNodeComponent({ data, selected }: NodeProps<WorkflowStepNode>) {
   return (
     <div className={`workflow-step-node${selected ? " selected" : ""}`}>
-      <Handle type="target" position={Position.Left} />
+      {data.uses !== triggerUses ? <Handle id="input" type="target" position={Position.Left} /> : null}
+      {data.uses === loopUses ? <><span>Return</span><Handle id="return" type="target" position={Position.Top} /></> : null}
       <strong>{data.displayName}</strong>
       <span className="mono">{data.stepId}</span>
-      <span>{data.uses}</span>
-      <Handle type="source" position={Position.Right} />
+      <span>{data.uses === loopUses ? `Repeat ${data.loop?.repeatCount ?? 0} times` : data.uses === triggerUses ? `Label: ${data.trigger?.label || "unset"}` : data.uses}</span>
+      {data.uses === loopUses ? <><span>Body / Exit</span><Handle id="body" type="source" position={Position.Right} style={{ top: "35%" }} /><Handle id="exit" type="source" position={Position.Right} style={{ top: "75%" }} /></>
+        : <Handle id="next" type="source" position={Position.Right} />}
     </div>
   );
 }
@@ -633,104 +545,17 @@ function ValidationErrorList({ errors }: { errors: DraftValidationError[] }) {
   );
 }
 
-function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], startStepId: string, loops: WorkflowDefinitionLoop[]): DraftValidationError[] {
+function validateGraph(name: string, nodes: WorkflowStepNode[], edges: Edge[], startStepId: string): DraftValidationError[] {
   const errors: DraftValidationError[] = [];
-  const ids = nodes.map(node => node.data.stepId || node.id);
-  const uniqueIds = new Set(ids);
-  const outgoingCounts = countBy(edges.map(edge => edge.source));
-  const incomingCounts = countBy(edges.map(edge => edge.target));
-  const terminalCount = nodes.filter(node => !edges.some(edge => edge.source === node.id)).length;
-
-  if (!name.trim()) {
-    errors.push({ code: "definition.name.required", message: "Definition name is required.", path: "name", source: "client" });
-  }
-  if (nodes.length === 0) {
-    errors.push({ code: "definition.steps.required", message: "At least one step is required.", path: "steps", source: "client" });
-  }
-  if (!startStepId || !nodes.some(node => node.id === startStepId)) {
-    errors.push({ code: "definition.startStepId.invalid", message: "Start step must reference an existing step.", path: "startStepId", source: "client" });
-  }
-  if (ids.some(id => !id.trim())) {
-    errors.push({ code: "definition.step.id.required", message: "Node ids must be non-empty.", path: "steps[].id", source: "client" });
-  }
-  if (uniqueIds.size !== ids.length) {
-    errors.push({ code: "definition.step.id.duplicate", message: "Node ids must be unique.", path: "steps[].id", source: "client" });
-  }
-  for (const [source, count] of outgoingCounts) {
-    if (count > 1) {
-      errors.push({ code: "definition.graph.outgoing.invalid", message: `Step '${source}' has more than one outgoing edge.`, path: "steps[].nextStepId", source: "client" });
-    }
-  }
-  for (const [target, count] of incomingCounts) {
-    const loopBackEdges = loops.filter(loop => loop.bodyStepIds[0] === target).length;
-    if (count > 1 + loopBackEdges || (target === startStepId && count > loopBackEdges)) {
-      errors.push({ code: "definition.graph.incoming.invalid", message: `Step '${target}' has invalid incoming edges.`, path: "steps", source: "client" });
-    }
-  }
-  if (nodes.length > 0 && terminalCount !== 1) {
-    errors.push({ code: "definition.graph.terminal.invalid", message: "Only one terminal step should exist.", path: "steps", source: "client" });
-  }
-
+  const error = (message: string) => errors.push({ code: "definition.graph.invalid", message, source: "client" });
+  if (!name.trim()) error("Definition name is required.");
+  if (!nodes.length) error("At least one task is required.");
+  if (!nodes.some(node => node.id === startStepId && node.data.uses !== triggerUses)) error("Manual start must reference a task or loop.");
+  const ids = nodes.map(node => node.id);
+  if (ids.some(id => !id.trim()) || new Set(ids).size !== ids.length) error("Node IDs must be nonempty and unique.");
+  for (const [source, count] of countBy(edges.map(edge => `${edge.source}:${edge.sourceHandle || "next"}`)))
+    if (count > 1) error(`Output '${source}' has more than one connection.`);
   return errors;
-}
-
-function validateTriggers(triggers: WorkflowDefinitionTrigger[]): DraftValidationError[] {
-  const errors: DraftValidationError[] = [];
-  const ids = triggers.map(trigger => trigger.id);
-  const uniqueIds = new Set(ids);
-  if (ids.some(id => !id.trim())) {
-    errors.push({ code: "definition.trigger.id.required", message: "Trigger ids must be non-empty.", path: "triggers[].id", source: "client" });
-  }
-  if (uniqueIds.size !== ids.length) {
-    errors.push({ code: "definition.trigger.id.duplicate", message: "Trigger ids must be unique.", path: "triggers[].id", source: "client" });
-  }
-
-  triggers.forEach((trigger, index) => {
-    if (!trigger.enabled || trigger.type !== "DevOpsIssueLabel") {
-      return;
-    }
-
-    if (!trigger.label?.trim()) {
-      errors.push({ code: "definition.trigger.label.required", message: `Trigger ${index + 1} requires a label.`, path: "triggers[].label", source: "client" });
-    }
-    if (trigger.repositoryIds.length === 0) {
-      errors.push({ code: "definition.trigger.repositories.required", message: `Trigger ${index + 1} requires at least one repository.`, path: "triggers[].repositoryIds", source: "client" });
-    }
-  });
-
-  return errors;
-}
-
-function validateLoops(loops: WorkflowDefinitionLoop[], nodes: WorkflowStepNode[]): DraftValidationError[] {
-  const errors: DraftValidationError[] = [];
-  const nodeIds = new Set(nodes.map(node => node.id));
-  const owners = new Set<string>();
-  const ids = new Set<string>();
-  for (const loop of loops) {
-    if (!loop.id.trim() || ids.has(loop.id)) errors.push({ code: "definition.loop.id.invalid", message: "Loop ids are required and must be unique.", path: "loops[].id", source: "client" });
-    ids.add(loop.id);
-    if (loop.repeatCount <= 0 || loop.maxIterations <= 0 || loop.repeatCount > loop.maxIterations) errors.push({ code: "definition.loop.bounds.invalid", message: `Loop '${loop.id}' has invalid iteration bounds.`, path: "loops", source: "client" });
-    if (loop.timeoutSeconds != null && loop.timeoutSeconds <= 0) errors.push({ code: "definition.loop.timeout.invalid", message: `Loop '${loop.id}' timeout must be positive.`, path: "loops[].timeoutSeconds", source: "client" });
-    if (!nodeIds.has(loop.exitStepId) || loop.bodyStepIds.includes(loop.exitStepId)) errors.push({ code: "definition.loop.exit.invalid", message: `Loop '${loop.id}' requires an exit step outside its body.`, path: "loops[].exitStepId", source: "client" });
-    for (const stepId of loop.bodyStepIds) {
-      if (!nodeIds.has(stepId)) errors.push({ code: "definition.loop.body.unknown", message: `Loop '${loop.id}' references unknown step '${stepId}'.`, path: "loops[].bodyStepIds", source: "client" });
-      if (owners.has(stepId)) errors.push({ code: "definition.loop.body.overlap", message: `Step '${stepId}' belongs to more than one loop.`, path: "loops[].bodyStepIds", source: "client" });
-      owners.add(stepId);
-    }
-  }
-  return errors;
-}
-
-function normalizeTriggers(triggers: WorkflowDefinitionTrigger[]): WorkflowDefinitionTrigger[] {
-  return triggers.map(trigger => ({
-    id: trigger.id.trim(),
-    type: trigger.type,
-    enabled: trigger.enabled,
-    repositoryIds: trigger.repositoryIds,
-    label: trigger.label?.trim() || null,
-    baseBranch: trigger.baseBranch?.trim() || null,
-    model: trigger.model?.trim() || null
-  }));
 }
 
 function repositoryLabel(repository: ConnectedRepository) {

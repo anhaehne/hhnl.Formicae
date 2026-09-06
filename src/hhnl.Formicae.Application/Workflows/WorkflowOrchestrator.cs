@@ -835,7 +835,7 @@ public sealed class WorkflowOrchestrator(
         var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
         var validation = new WorkflowDefinitionValidator().Validate(document);
         if (document is null || !validation.IsValid) throw new InvalidOperationException("Workflow definition version is invalid.");
-        return document;
+        return WorkflowNodeDefinitions.Normalize(document);
     }
 
     private async Task<TaskRun?> GetCurrentTaskRunAsync(Workflow workflow, CancellationToken cancellationToken)

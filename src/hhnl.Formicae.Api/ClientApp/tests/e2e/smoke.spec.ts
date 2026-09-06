@@ -104,7 +104,8 @@ test("workflow editor round-trips loop settings", async ({ page, request }) => {
           { id: "plan", uses: "builtins.plan", nextStepId: "plan", displayName: "Plan repeatedly" },
           { id: "exit", uses: "builtins.implement", nextStepId: null, displayName: "Exit" }
         ],
-        loops: [{ id: "planning", bodyStepIds: ["plan"], repeatCount: 2, maxIterations: 3, timeoutSeconds: 60, exitStepId: "exit" }]
+        loops: [{ id: "planning", bodyStepIds: ["plan"], repeatCount: 2, maxIterations: 3, timeoutSeconds: 60, exitStepId: "exit" }],
+        triggers: [{ id: "ready", type: "DevOpsIssueLabel", enabled: false, repositoryIds: [], label: "ready" }]
       }
     }
   });
@@ -112,16 +113,72 @@ test("workflow editor round-trips loop settings", async ({ page, request }) => {
 
   await page.goto("/workflow-definitions");
   await page.getByRole("button", { name: new RegExp(name) }).click();
-  await expect(page.getByLabel("Body steps (ordered)")).toHaveValue("plan");
+  await page.locator('.react-flow__node[data-id="loop-planning"]').click();
+  await expect(page.getByRole("combobox", { name: "Loop body", exact: true })).toHaveValue(JSON.stringify(["plan", "input"]));
   await expect(page.getByLabel("Repeat count")).toHaveValue("2");
   await expect(page.getByLabel("Maximum iterations")).toHaveValue("3");
   await expect(page.getByLabel("Timeout seconds (optional)")).toHaveValue("60");
-  await expect(page.getByLabel("Exit step")).toHaveValue("exit");
+  await expect(page.getByRole("combobox", { name: "Loop exit", exact: true })).toHaveValue(JSON.stringify(["exit", "input"]));
 
   await page.getByLabel("Repeat count").fill("3");
   await page.getByRole("button", { name: "Save Version" }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: new RegExp(name) }).click();
+  await page.locator('.react-flow__node[data-id="loop-planning"]').click();
   await expect(page.getByLabel("Repeat count")).toHaveValue("3");
+  const persisted = await (await request.get(`${apiUrl}/api/workflow-definitions/${definition.id}`)).json();
+  expect(persisted.versions[0].definition.schema).toBe("formicae.workflow/v1alpha3");
+  expect(persisted.versions[0].definition.steps.find((step: { id: string }) => step.id === "loop-planning").loop.repeatCount).toBe(3);
+  expect(persisted.versions[0].definition.steps.find((step: { id: string }) => step.id === "trigger-ready").nextStepId).toBe("loop-planning");
+  expect(persisted.versions[0].definition.steps.find((step: { id: string }) => step.id === "trigger-ready").trigger.label).toBe("ready");
+  expect(persisted.versions[1].definition.schema).toBe("formicae.workflow/v1alpha2");
+  expect(persisted.versions[1].definition.loops[0].repeatCount).toBe(2);
+});
+
+
+test("trigger and loop nodes can be created configured connected and deleted", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  const name = `Control nodes ${Date.now()}`;
+  await page.goto("/workflow-definitions");
+  await page.getByRole("button", { name: "New Definition", exact: true }).click();
+  await page.getByLabel("Definition Name", { exact: true }).fill(name);
+  await page.getByLabel("New step type").selectOption("builtins.loop");
+  await page.getByRole("button", { name: "Add Step", exact: true }).click();
+  await page.locator('.react-flow__node[data-id="step5"]').click();
+  await page.getByLabel("Display Name", { exact: true }).fill("Repeat planning");
+  await page.getByRole("combobox", { name: "Loop body", exact: true }).selectOption(JSON.stringify(["plan", "input"]));
+  await page.getByRole("combobox", { name: "Loop exit", exact: true }).selectOption(JSON.stringify(["implement", "input"]));
+  await page.getByRole("button", { name: "Set as Start Step" }).click();
+  await page.locator('.react-flow__node[data-id="plan"]').click();
+  await page.getByRole("combobox", { name: "Next step", exact: true }).selectOption(JSON.stringify(["step5", "return"]));
+  await page.getByLabel("New step type").selectOption("builtins.trigger");
+  await page.getByRole("button", { name: "Add Step", exact: true }).click();
+  await page.locator('.react-flow__node[data-id="step6"]').click();
+  await page.getByLabel("Display Name", { exact: true }).fill("Issue ready");
+  await page.getByLabel("Trigger enabled", { exact: true }).uncheck();
+  await page.getByLabel("Label", { exact: true }).fill("ready");
+  await page.getByRole("combobox", { name: "Next step", exact: true }).selectOption(JSON.stringify(["step5", "input"]));
+  await expect(page.getByRole("combobox", { name: "Step model", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await page.locator('.react-flow__node[data-id="step6"]').click();
+  await expect(page.getByLabel("Label", { exact: true })).toHaveValue("ready");
+  await expect(page.getByRole("combobox", { name: "Next step", exact: true })).toHaveValue(JSON.stringify(["step5", "input"]));
+  await page.locator('.workflow-canvas').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("control-nodes.png"), fullPage: true });
+  await page.getByRole("button", { name: "Delete Step", exact: true }).click();
+  await expect(page.locator('.react-flow__node[data-id="step6"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  const definitions = await (await request.get(`${apiUrl}/api/workflow-definitions`)).json();
+  const saved = definitions.find((item: { name: string }) => item.name === name).versions[0].definition;
+  expect(saved.steps.find((step: { id: string }) => step.id === "step5").loop.bodyStepId).toBe("plan");
+  expect(saved.steps.find((step: { id: string }) => step.id === "plan").nextStepPort).toBe("return");
+  expect(saved.steps.some((step: { uses: string }) => step.uses === "builtins.trigger")).toBe(false);
+  expect(errors).toEqual([]);
 });

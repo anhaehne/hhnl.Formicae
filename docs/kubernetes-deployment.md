@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.9.1**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.10.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -369,3 +369,9 @@ In the workflow editor, select an agent step, choose its AI configuration, and u
 ## 0.9.1 Codex profile compatibility
 
 Codex subscription profiles labeled ACP / Codex remain supported by the existing native Codex CLI execution path and CLI model discovery. Other ACP providers remain unsupported. This fixes the 0.9.0 filter that disabled existing Codex profiles in the step picker. No saved configuration or credential changes are required.
+
+## 0.10.0 workflow control nodes
+
+The editor saves formicae.workflow/v1alpha3 definitions. Add Step offers Task, Trigger and Loop nodes. Select a node to configure it; separate trigger/loop lists have been removed. Triggers start at their outgoing connection. Loop Body connects to its first task, the last task connects to Return, and Exit leads to the next task or loop. Manual start can reference a task or loop. Loop count, maximum iterations and timeout are configured on the loop node.
+
+The API validates and normalizes control nodes into the existing task/iteration execution plan. Legacy v1alpha1/v1alpha2 versions remain readable and executable; editing converts only a draft and Save Version creates a new immutable v1alpha3 version. Task IDs and model overrides are retained. No migration is required. Nested loops, event waits, conditional looping and parallel execution are not part of this release.

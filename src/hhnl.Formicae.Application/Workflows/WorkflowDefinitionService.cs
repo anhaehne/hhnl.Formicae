@@ -171,7 +171,7 @@ public sealed class WorkflowDefinitionService(
         WorkflowDefinitionDocument definition,
         CancellationToken cancellationToken)
     {
-        var repositoryIds = definition.Triggers?
+        var repositoryIds = WorkflowNodeDefinitions.Normalize(definition).Triggers?
             .Where(trigger => trigger.Enabled && trigger.Type == WorkflowTriggerType.DevOpsIssueLabel)
             .SelectMany(trigger => trigger.RepositoryIds)
             .Distinct()

@@ -49,6 +49,9 @@ export type WorkflowDefinitionTrigger = {
   model?: string | null;
 };
 
+export type WorkflowTriggerNodeSettings = Omit<WorkflowDefinitionTrigger, "id">;
+export type WorkflowLoopNodeSettings = { bodyStepId: string; repeatCount: number; maxIterations: number; timeoutSeconds?: number | null };
+
 export type WorkflowDefinitionStep = {
   id: string;
   uses: string;
@@ -56,6 +59,9 @@ export type WorkflowDefinitionStep = {
   displayName?: string | null;
   aiSettingsId?: string | null;
   model?: string | null;
+  trigger?: WorkflowTriggerNodeSettings | null;
+  loop?: WorkflowLoopNodeSettings | null;
+  nextStepPort?: "return" | null;
 };
 
 export type ModelDiscoveryStatus = {

@@ -1470,6 +1470,16 @@ pre.collapsed-content::after {
   margin-bottom: 14px;
 }
 
+@media (min-width: 901px) and (max-width: 1500px) {
+  .workflow-definition-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  }
+
+  .definition-list-panel {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 900px) {
   .workflow-definition-layout {
     grid-template-columns: 1fr;

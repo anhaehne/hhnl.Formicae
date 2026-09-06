@@ -110,7 +110,8 @@ public sealed record WorkflowDefinitionTrigger(
     [property: JsonPropertyName("repositoryIds")] IReadOnlyList<Guid> RepositoryIds,
     [property: JsonPropertyName("label")] string? Label,
     [property: JsonPropertyName("baseBranch")] string? BaseBranch = null,
-    [property: JsonPropertyName("model")] string? Model = null);
+    [property: JsonPropertyName("model")] string? Model = null,
+    [property: JsonPropertyName("nextStepId")] string? NextStepId = null);
 
 public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("id")] string Id,
@@ -118,7 +119,17 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("nextStepId")] string? NextStepId = null,
     [property: JsonPropertyName("displayName")] string? DisplayName = null,
     [property: JsonPropertyName("aiSettingsId")] string? AiSettingsId = null,
-    [property: JsonPropertyName("model")] string? Model = null);
+    [property: JsonPropertyName("model")] string? Model = null,
+    [property: JsonPropertyName("trigger")] WorkflowTriggerNodeSettings? Trigger = null,
+    [property: JsonPropertyName("loop")] WorkflowLoopNodeSettings? Loop = null,
+    [property: JsonPropertyName("nextStepPort")] string? NextStepPort = null);
+
+public sealed record WorkflowTriggerNodeSettings(
+    WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
+    string? Label, string? BaseBranch = null, string? Model = null);
+
+public sealed record WorkflowLoopNodeSettings(
+    string BodyStepId, int RepeatCount, int MaxIterations, int? TimeoutSeconds = null);
 
 public sealed class TaskRun
 {

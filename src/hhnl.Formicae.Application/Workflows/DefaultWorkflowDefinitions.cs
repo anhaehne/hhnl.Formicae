@@ -9,6 +9,7 @@ public static class DefaultWorkflowDefinitions
     public const string MvpName = "MVP GitHub issue workflow";
     public const string V1Alpha1Schema = "formicae.workflow/v1alpha1";
     public const string V1Alpha2Schema = "formicae.workflow/v1alpha2";
+    public const string V1Alpha3Schema = "formicae.workflow/v1alpha3";
 
     public static (WorkflowDefinition Definition, WorkflowDefinitionVersion Version) CreateMvp(DateTimeOffset? createdAt = null)
     {

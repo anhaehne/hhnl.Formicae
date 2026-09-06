@@ -32,6 +32,7 @@ public sealed class WorkflowDefinitionValidator
         }
 
         if (!string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha1Schema, StringComparison.Ordinal)
+            && !string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha3Schema, StringComparison.Ordinal)
             && !string.Equals(document.Schema, DefaultWorkflowDefinitions.V1Alpha2Schema, StringComparison.Ordinal))
         {
             errors.Add(new WorkflowDefinitionValidationError(
@@ -39,6 +40,9 @@ public sealed class WorkflowDefinitionValidator
                 $"Schema '{document.Schema}' is not supported.",
                 "schema"));
         }
+
+        if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
+            return WorkflowNodeDefinitions.Validate(document);
 
         if (document.Steps.Count == 0)
         {

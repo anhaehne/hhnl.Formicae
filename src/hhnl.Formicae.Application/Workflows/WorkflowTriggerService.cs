@@ -32,7 +32,9 @@ public sealed class WorkflowTriggerService(
 
         foreach (var version in enabledVersions)
         {
-            var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
+            var rawDocument = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
+            if (rawDocument is null || !new WorkflowDefinitionValidator().Validate(rawDocument).IsValid) continue;
+            var document = WorkflowNodeDefinitions.Normalize(rawDocument);
             foreach (var trigger in document?.Triggers ?? [])
             {
                 if (!IsMatchingTrigger(trigger, evt, repositoryById, out var repository))
@@ -56,7 +58,7 @@ public sealed class WorkflowTriggerService(
                     string.IsNullOrWhiteSpace(trigger.BaseBranch) ? repository.DefaultBranch : trigger.BaseBranch,
                     string.IsNullOrWhiteSpace(trigger.Model) ? null : trigger.Model,
                     version.WorkflowDefinitionId,
-                    version.Id), cancellationToken);
+                    version.Id), cancellationToken, trigger.Id);
 
                 await store.AddTriggerEventAsync(new WorkflowTriggerEvent
                 {

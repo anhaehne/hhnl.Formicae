@@ -67,10 +67,11 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
                 var definitionId = definition.GetProperty("id").GetGuid();
                 var document = DefaultWorkflowDefinitions.CreateMvpDocument() with
                 {
-                    Schema = DefaultWorkflowDefinitions.V1Alpha2Schema,
-                    Steps = DefaultWorkflowDefinitions.CreateMvpDocument().Steps.Select(step =>
-                        step.Id == "plan" ? step with { NextStepId = "plan" } : step).ToArray(),
-                    Loops = [new WorkflowDefinitionLoop("planning", ["plan"], 2, 3, "implement")]
+                    Schema = DefaultWorkflowDefinitions.V1Alpha3Schema,
+                    StartStepId = "planning",
+                    Steps = [.. DefaultWorkflowDefinitions.CreateMvpDocument().Steps.Select(step =>
+                        step.Id == "plan" ? step with { NextStepId = "planning", NextStepPort = "return" } : step),
+                        new("planning", WorkflowNodeDefinitions.LoopUses, "implement", Loop: new("plan", 2, 3))]
                 };
                 var versionResponse = await http.PostAsJsonAsync($"/api/workflow-definitions/{definitionId}/versions",
                     new CreateWorkflowDefinitionVersionRequest(null, true, false, document));
@@ -95,6 +96,7 @@ public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : I
 
                 var runs = await http.GetFromJsonAsync<JsonElement[]>($"/api/workflows/{workflowId}/runs");
                 Assert.NotNull(runs);
+                Assert.DoesNotContain(runs, run => run.GetProperty("definitionStepId").GetString() == "planning");
                 Assert.All(runs, run => Assert.False(string.IsNullOrWhiteSpace(run.GetProperty("definitionStepId").GetString())));
                 Assert.Equal(runs.Length, runs.Select(run => (run.GetProperty("definitionStepId").GetString(), run.GetProperty("loopIteration").ToString())).Distinct().Count());
                 var planningRuns = runs.Where(run => IsEnumValue(run.GetProperty("kind"), "Plan", 0)).ToArray();

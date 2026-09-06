@@ -26,7 +26,8 @@ public sealed class WorkflowService
 
     public async Task<WorkflowSummaryResponse> StartGitHubIssueWorkflowAsync(
         StartGitHubIssueWorkflowRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? triggerNodeId = null)
     {
         if (string.IsNullOrWhiteSpace(request.IssueUrl))
         {
@@ -45,6 +46,16 @@ public sealed class WorkflowService
             ? await ResolveDefaultWorkflowDefinitionVersionAsync(cancellationToken)
             : await workflowDefinitions.ResolveForRunAsync(request.WorkflowDefinitionId, request.WorkflowDefinitionVersionId, cancellationToken);
 
+        var document = WorkflowDefinitionJson.Deserialize(definitionVersion.DefinitionJson)
+            ?? throw new InvalidOperationException("Workflow definition is missing.");
+        var plan = WorkflowNodeDefinitions.Normalize(document);
+        var entry = plan.StartStepId;
+        if (triggerNodeId is not null)
+        {
+            var trigger = plan.Triggers?.SingleOrDefault(t => t.Id == triggerNodeId && t.Enabled)
+                ?? throw new InvalidOperationException("The workflow trigger was not found or is disabled.");
+            entry = document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema ? trigger.NextStepId ?? entry : entry;
+        }
         var workflow = new Workflow
         {
             IssueUrl = request.IssueUrl,
@@ -56,7 +67,7 @@ public sealed class WorkflowService
             WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
             WorkflowDefinitionVersionId = definitionVersion.Id,
             DslSchemaVersion = definitionVersion.DslSchemaVersion,
-            CurrentDefinitionStepId = WorkflowDefinitionJson.Deserialize(definitionVersion.DefinitionJson)?.StartStepId
+            CurrentDefinitionStepId = entry
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
@@ -64,7 +75,7 @@ public sealed class WorkflowService
         {
             WorkflowId = workflow.Id,
             Type = WorkflowEventTypes.WorkflowQueued,
-            Message = "Workflow queued from manual GitHub issue trigger.",
+            Message = triggerNodeId is null ? "Workflow queued from manual GitHub issue trigger." : $"Workflow queued from trigger node '{triggerNodeId}'.",
             CreatedAt = clock.UtcNow
         }, cancellationToken);
         await store.AddLogAsync(new WorkflowLog
