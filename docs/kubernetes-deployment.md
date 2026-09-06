@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.12.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.13.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -405,3 +405,15 @@ A failed branch stops its own remaining tasks while unaffected branches finish. 
 The generated `AddWorkflowParallelExecutions` migration adds durable group activations and nullable task attempt IDs. Existing task rows retain null attempt IDs. Deploy matching API and worker images. For rollback, deploy the previous application/chart version and disable definitions containing Parallel nodes before starting new runs; the additive database columns/table may remain.
 
 Verification: 375 backend tests, 26 browser tests, and 5 local Kubernetes E2E tests passed. The final three Parallel browser cases passed again after the layout correction. Frontend build, Helm lint and managed development lifecycle passed. Added 82 backend and 3 browser cases; edited 2 migration cases and 6 browser selectors; removed none.
+
+## 0.13.0 workflow decisions
+
+Decision nodes route execution through exactly one True or False output. Configure a literal, an allowed workflow field, or a completed ordinary task's output, then choose its scalar type and comparison. Strings compare ordinally and case-sensitively; numeric text uses invariant decimal parsing without thousands separators. Exists tests presence (empty text is present); null/missing values otherwise fail evaluation unless missing-value behavior is explicitly False. No arbitrary expressions or external condition requests run.
+
+Exclusive paths may converge or contain further decisions, loops or parallel groups. Decisions inside loop/parallel bodies and references to those body tasks' outputs are unsupported. A task-output source must precede the decision on every manual/trigger path; validation rejects ambiguous sources, unknown targets, body entry and outer cycles. Retry retains the chosen route. Automatic feedback-driven re-planning is disabled for decision-containing definitions; start a new workflow for changed inputs.
+
+The generated `AddWorkflowDecisionExecutions` migration adds durable outcomes. Outcome insertion and cursor advancement share one transaction. Recovery reuses the recorded choice even if inputs have changed. Run details show the result, configured target, resolved execution entry, source input and evaluation time through the read-only decisions endpoint. These rows remain authoritative if supplemental event logging fails.
+
+Deploy matching 0.13.0 API and worker images. Earlier definitions remain compatible. Rollback may retain the additive table, but definitions using Decision nodes require 0.13.0 or later and should not start under an older application.
+
+Verification: 516 backend tests, 31 browser tests and 5 local Kubernetes E2E tests passed. Frontend build, Helm lint and managed API/UI lifecycle passed. Added 141 backend and 5 browser cases; no existing cases edited or removed.

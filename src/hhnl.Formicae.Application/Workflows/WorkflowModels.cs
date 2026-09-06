@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace hhnl.Formicae.Application.Workflows;
@@ -128,7 +129,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("trigger")] WorkflowTriggerNodeSettings? Trigger = null,
     [property: JsonPropertyName("loop")] WorkflowLoopNodeSettings? Loop = null,
     [property: JsonPropertyName("nextStepPort")] string? NextStepPort = null,
-    [property: JsonPropertyName("parallel")] WorkflowParallelNodeSettings? Parallel = null);
+    [property: JsonPropertyName("parallel")] WorkflowParallelNodeSettings? Parallel = null,
+    [property: JsonPropertyName("decision")] WorkflowDecisionNodeSettings? Decision = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -138,6 +140,30 @@ public sealed record WorkflowLoopNodeSettings(
     string BodyStepId, int RepeatCount, int MaxIterations, int? TimeoutSeconds = null);
 
 public sealed record WorkflowParallelNodeSettings(IReadOnlyList<string> BranchStepIds);
+
+public sealed record WorkflowDecisionNodeSettings(
+    WorkflowDecisionCondition Condition, string TrueStepId, string FalseStepId,
+    [property: JsonIgnore] string? ConfiguredTrueStepId = null,
+    [property: JsonIgnore] string? ConfiguredFalseStepId = null);
+
+public sealed record WorkflowDecisionCondition(
+    string Source, string ValueType, string Operator, string? Reference = null,
+    JsonElement? Value = null, JsonElement? CompareTo = null, string MissingValue = "error");
+
+public sealed class WorkflowDecisionExecution
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid WorkflowId { get; init; }
+    public required string NodeId { get; init; }
+    public required string ConfiguredTargetId { get; init; }
+    public required string SelectedTargetId { get; init; }
+    public required string InputJson { get; init; }
+    public Guid? SourceTaskRunId { get; init; }
+    public bool BooleanResult { get; init; }
+    public DateTimeOffset EvaluatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public sealed record WorkflowDecisionCommitResult(WorkflowDecisionExecution Execution, Workflow Workflow, bool Applied);
 
 public enum WorkflowParallelExecutionOutcome
 {

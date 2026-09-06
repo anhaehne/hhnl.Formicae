@@ -30,7 +30,8 @@ This skill is project-local to this repository. When this workflow requires user
 - Add a workflow editor.
 - Support loops and triggers as configurable workflow nodes (available).
 - Support parallel planning branches with an explicit join (available in 0.12.0); parallel shared-branch writes remain deferred.
-- Add workflow decisions and scripts.
+- Support deterministic workflow decisions with durable route history (available in 0.13.0).
+- Add workflow scripts.
 - Support customizable personas.
 - Support customizable tasks.
 - Support per-workflow-step capabilities, environments, and secrets.

@@ -40,6 +40,8 @@ public sealed partial class WorkflowOrchestrator(
         {
             var definition = await ResolveDefinitionAsync(workflow, cancellationToken);
             var current = definition.Steps.SingleOrDefault(step => step.Id == (workflow.CurrentDefinitionStepId ?? definition.StartStepId));
+            if (current?.Uses == WorkflowDecisionDefinitions.Uses)
+                return await AdvanceDecisionAsync(workflow, definition, current, cancellationToken);
             if (current?.Uses == WorkflowParallelDefinitions.Uses)
             {
                 try { return await AdvanceParallelAsync(workflow, definition, current, cancellationToken); }
@@ -284,6 +286,8 @@ public sealed partial class WorkflowOrchestrator(
         if (planRun is not null)
         {
             var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+            if (document.Steps.Any(step => step.Uses == WorkflowDecisionDefinitions.Uses))
+                return []; // Committed decisions must not be replayed by legacy feedback rewinds.
             if (document.Steps.Where(step => step.Parallel is not null)
                 .SelectMany(group => WorkflowParallelDefinitions.Branches(document, group)).SelectMany(branch => branch)
                 .Any(step => step.Id == planRun.DefinitionStepId))
@@ -912,7 +916,7 @@ public sealed partial class WorkflowOrchestrator(
         workflow.CurrentDefinitionStepId = nextStepId;
         var next = document.Steps.Single(item => item.Id == nextStepId);
         var nextKind = TaskRunKind.Plan;
-        if (next.Uses != WorkflowParallelDefinitions.Uses)
+        if (next.Uses != WorkflowParallelDefinitions.Uses && next.Uses != WorkflowDecisionDefinitions.Uses)
             WorkflowDefinitionValidator.TryMapUsesToTaskKind(next.Uses, out nextKind);
         await TransitionWorkflowAsync(workflow, StatusFor(nextKind), StepFor(nextKind), message, cancellationToken);
     }

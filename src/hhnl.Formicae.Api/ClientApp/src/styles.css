@@ -1694,3 +1694,7 @@ pre.collapsed-content::after {
 .editor-inspector-icon.is-parallel { color: #62509b; background: #eeeaf7; }
 
 .editor-node.parallel .editor-return { top: 3px; left: 54%; color: #62509b; background: white; padding: 1px 4px; }
+
+.editor-node.decision { border-color: #bd984c; }
+.editor-node.decision .editor-node-kind { color: #86601a; }
+.editor-inspector-icon.is-decision { color: #86601a; background: #f7efdc; }

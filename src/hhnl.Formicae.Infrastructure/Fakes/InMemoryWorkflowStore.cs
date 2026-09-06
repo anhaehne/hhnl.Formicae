@@ -9,6 +9,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly Dictionary<Guid, TaskRun> runs = [];
     private readonly Dictionary<Guid, WorkflowLoopIteration> loopIterations = [];
     private readonly Dictionary<Guid, WorkflowParallelExecution> parallelExecutions = [];
+    private readonly Dictionary<Guid, WorkflowDecisionExecution> decisionExecutions = [];
     private readonly List<WorkflowEvent> events = [];
     private readonly List<WorkflowTriggerEvent> triggerEvents = [];
     private readonly List<WorkflowLog> logs = [];
@@ -163,6 +164,40 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
             parallelExecutions[execution.Id] = execution;
         }
         return Task.FromResult(execution);
+    }
+
+    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+            return Task.FromResult(decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == workflowId && execution.NodeId == nodeId));
+    }
+
+    public Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+            return Task.FromResult<IReadOnlyList<WorkflowDecisionExecution>>(decisionExecutions.Values.Where(execution => execution.WorkflowId == workflowId)
+                .OrderBy(execution => execution.EvaluatedAt).ThenBy(execution => execution.Id).ToArray());
+    }
+
+    public Task<WorkflowDecisionCommitResult> CommitDecisionAsync(WorkflowDecisionExecution proposed, WorkflowStatus nextStatus,
+        WorkflowStep nextStep, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (gate)
+        {
+            var workflow = workflows.GetValueOrDefault(proposed.WorkflowId)
+                ?? throw new InvalidOperationException("The decision workflow does not exist.");
+            var existing = decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == proposed.WorkflowId && execution.NodeId == proposed.NodeId);
+            if (existing is not null) return Task.FromResult(new WorkflowDecisionCommitResult(existing, workflow, false));
+            if (workflow.CurrentDefinitionStepId != proposed.NodeId
+                || workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
+                throw new InvalidOperationException("The workflow is no longer awaiting this decision.");
+            decisionExecutions.Add(proposed.Id, proposed);
+            workflow.CurrentDefinitionStepId = proposed.SelectedTargetId;
+            workflow.Status = nextStatus; workflow.CurrentStep = nextStep;
+            workflow.FailureReason = null; workflow.UpdatedAt = proposed.EvaluatedAt;
+            return Task.FromResult(new WorkflowDecisionCommitResult(proposed, workflow, true));
+        }
     }
 
     public Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)

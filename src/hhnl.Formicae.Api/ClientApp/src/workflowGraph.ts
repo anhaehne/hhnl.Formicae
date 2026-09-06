@@ -1,14 +1,15 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings } from "./api";
 
 export const triggerUses = "builtins.trigger";
+export const decisionUses = "builtins.decision";
 export const parallelUses = "builtins.parallel";
 export const loopUses = "builtins.loop";
 export const workflowSchema = "formicae.workflow/v1alpha3";
 export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments"] as const;
 export type WorkflowStepNodeData = {
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
-  trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null;
+  trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
   [key: string]: unknown;
 };
 export type WorkflowStepNode = Node<WorkflowStepNodeData, "workflowStep">;
@@ -53,7 +54,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
-      aiSettingsId: step.aiSettingsId, model: step.model, trigger: step.trigger, loop: step.loop, parallel: step.parallel }
+      aiSettingsId: step.aiSettingsId, model: step.model, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
@@ -61,6 +62,9 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
       label: step.nextStepPort === "join" ? "Join" : step.nextStepPort === "return" ? "Return" : step.uses === loopUses ? "Exit" : undefined });
+    if (step.decision) for (const [port, target] of [["true", step.decision.trueStepId], ["false", step.decision.falseStepId]]) {
+      if (target) edges.push({ id: `${step.id}:${port}`, source: step.id, sourceHandle: port, target, targetHandle: "input", markerEnd: { type: MarkerType.ArrowClosed }, label: port === "true" ? "True" : "False" });
+    }
     step.parallel?.branchStepIds.forEach((target, index) => {
       if (target) edges.push({ id: `${step.id}:branch:${index}`, source: step.id, sourceHandle: `branch:${index}`, target, targetHandle: "input", markerEnd: { type: MarkerType.ArrowClosed }, label: `Branch ${index + 1}` });
     });
@@ -75,8 +79,11 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
-      nextStepId: next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
+      nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
       aiSettingsId: node.data.aiSettingsId || undefined, model: node.data.model || undefined,
+      decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
+        trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",
+        falseStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "false")?.target ?? "" } : undefined,
       parallel: node.data.uses === parallelUses ? { branchStepIds: (node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => edges.find(edge => edge.source === node.id && edge.sourceHandle === `branch:${index}`)?.target ?? "") } : undefined,
       trigger: node.data.uses === triggerUses ? node.data.trigger : undefined,
       loop: node.data.uses === loopUses && node.data.loop ? { ...node.data.loop, bodyStepId: body?.target ?? "" } : undefined };

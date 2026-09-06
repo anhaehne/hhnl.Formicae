@@ -212,7 +212,7 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
 
-for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel"]) {
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel", "Decision"]) {
   test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
     const item = await seed(request, 4);
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -338,4 +338,97 @@ test("parallel branch resizing and contextual Plan insertion remain undoable", a
   const saved = await persisted(request, item.id);
   expect(saved.steps.find((step: { id: string }) => step.id === "step4").parallel.branchStepIds).toEqual(["", "", "step5"]);
   expect(saved.steps.find((step: { id: string }) => step.id === "step5").nextStepId).toBe("n0");
+});
+
+
+for (const outcome of [true, false]) test(`decision ${outcome} routes persist with contextual insertion`, async ({ page, request }, testInfo) => {
+  const item = await seed(request); await open(page, item.name);
+  await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /^Decision / }).click();
+  await expect(page.getByRole("button", { name: "Duplicate task", exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Next step", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /Problems \([1-9]/ }).click();
+  const problems = page.getByRole("region", { name: "Workflow problems" });
+  await problems.getByRole("button").nth(1).click();
+  await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue("Decision");
+  await problems.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByLabel("Value type", { exact: true }).selectOption("boolean");
+  await page.getByLabel("Source value", { exact: true }).selectOption(String(outcome));
+  await page.getByLabel("Compare to", { exact: true }).selectOption("true");
+  await expect(page.getByLabel("Operator", { exact: true }).getByRole("option", { name: "Contains", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Set as Start Step", exact: true }).click();
+  await page.getByLabel("True route", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
+  await page.getByLabel("False route", { exact: true }).selectOption(JSON.stringify(["n1", "input"]));
+  for (const [route, target] of [["True", "n0"], ["False", "n1"]]) {
+    await find(page, "step4");
+    await page.getByRole("button", { name: `Add after Decision ${route}`, exact: true }).click();
+    await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /^Plan / }).click();
+    await expect(page.getByLabel("Next step", { exact: true })).toHaveValue(JSON.stringify([target, "input"]));
+  }
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  const saved = await persisted(request, item.id);
+  const decision = saved.steps.find((step: { id: string }) => step.id === "step4");
+  expect(decision.nextStepId ?? null).toBeNull();
+  expect(decision.decision.trueStepId).toBe("step5"); expect(decision.decision.falseStepId).toBe("step6");
+  expect(decision.decision.condition).toMatchObject({ source: "literal", valueType: "boolean", value: outcome, compareTo: true });
+  await open(page, item.name); await find(page, "step4");
+  await expect(page.getByLabel("Source value", { exact: true })).toHaveValue(String(outcome));
+  await expect(page.getByLabel("True route", { exact: true })).toHaveValue(JSON.stringify(["step5", "input"]));
+  await expect(page.getByLabel("False route", { exact: true })).toHaveValue(JSON.stringify(["step6", "input"]));
+  await page.getByRole("button", { name: "Arrange", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Arrange", exact: true })).toBeEnabled();
+  for (const width of [1600, 800]) {
+    await page.setViewportSize({ width, height: 900 }); await page.getByRole("button", { name: "Fit All", exact: true }).click();
+    await expect(page.locator(".react-flow__viewport")).not.toHaveAttribute("style", /NaN|Infinity/);
+    await page.screenshot({ path: testInfo.outputPath(`decision-${width}.png`) });
+  }
+});
+
+test("decision task output choices exclude loop and parallel bodies and remain read-only", async ({ page, request }) => {
+  const item = await seed(request);
+  const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: false, isDefault: false, definition: {
+    schema: "formicae.workflow/v1alpha3", startStepId: "ordinary", steps: [
+      { id: "ordinary", uses: "builtins.plan", nextStepId: "decision" },
+      { id: "decision", uses: "builtins.decision", decision: { condition: { source: "taskOutput", valueType: "string", reference: "ordinary", operator: "exists", missingValue: "error" }, trueStepId: "parallel", falseStepId: "loop" } },
+      { id: "parallel", uses: "builtins.parallel", parallel: { branchStepIds: ["branch1", "branch2"] } },
+      { id: "branch1", uses: "builtins.plan", nextStepId: "parallel", nextStepPort: "join" },
+      { id: "branch2", uses: "builtins.plan", nextStepId: "parallel", nextStepPort: "join" },
+      { id: "loop", uses: "builtins.loop", loop: { bodyStepId: "body", repeatCount: 2, maxIterations: 2 } },
+      { id: "body", uses: "builtins.plan", nextStepId: "loop", nextStepPort: "return" }
+    ] } } }); expect(response.ok()).toBeTruthy();
+  await open(page, item.name); await find(page, "decision");
+  const options = page.getByLabel("Source task", { exact: true }).getByRole("option");
+  await expect(options).toHaveText(["Choose a task", "ordinary (ordinary)"]);
+  await page.getByLabel("Value type", { exact: true }).selectOption("number");
+  await page.getByLabel("Operator", { exact: true }).selectOption("greaterThan");
+  await page.getByLabel("Compare to", { exact: true }).fill("12.5");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByLabel("Compare to", { exact: true })).toHaveValue("0");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  await page.route("**/api/auth/current-user", async route => { const response = await route.fetch(); await route.fulfill({ json: { ...await response.json(), canAdminister: false, canViewWorkflows: true } }); });
+  await open(page, item.name); await find(page, "decision");
+  await expect(page.getByLabel("Condition source", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("True route", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save Version", exact: true })).toBeDisabled();
+});
+
+test("workflow decision history shows both outcomes and recorded input", async ({ page }, testInfo) => {
+  const id = "11111111-1111-1111-1111-111111111111";
+  const workflow = { workflowId: id, issueUrl: "https://example.com/issues/1", repositoryUrl: "https://example.com/repo", status: "Completed", currentStep: "Done", createdAt: "2026-09-06T10:00:00Z", updatedAt: "2026-09-06T10:01:00Z" };
+  await page.route("**/api/workflows**", route => {
+    const path = new URL(route.request().url()).pathname;
+    const json = path.endsWith("/decisions") ? [true, false].map((booleanResult, index) => ({ id: `outcome-${index}`, workflowId: id, nodeId: `decision-${index}`, booleanResult, configuredTargetId: `route-${index}`, selectedTargetId: `route-${index}`, evaluatedAt: "2026-09-06T10:00:30Z", inputJson: JSON.stringify({ source: "workflowField", reference: "baseBranch", valueType: "string", value: "main" }), sourceTaskRunId: null }))
+      : path === "/api/workflows" ? [workflow] : path === `/api/workflows/${id}` ? workflow : [];
+    return route.fulfill({ json });
+  });
+  await page.goto("/workflows");
+  const history = page.getByRole("region", { name: "Decision history" });
+  await expect(history.getByText("Decision decision-0", { exact: true })).toBeVisible();
+  await expect(history.getByText("True", { exact: true })).toBeVisible();
+  await expect(history.getByText("False", { exact: true })).toBeVisible();
+  await expect(history.getByText("route-1", { exact: true })).toBeVisible();
+  await history.getByRole("button", { name: "Expand Evaluated input", exact: true }).first().click();
+  await expect(history.locator("pre").first()).toContainText('"value": "main"');
+  await page.screenshot({ path: testInfo.outputPath("decision-history.png"), fullPage: true });
 });

@@ -891,6 +891,12 @@ app.MapGet("/api/workflows/{workflowId:guid}/loop-iterations", async (
     CancellationToken cancellationToken) => Results.Ok(await workflowService.ListLoopIterationsAsync(workflowId, cancellationToken)))
     .RequireAuthorization(ManagementAuthorization.WorkflowView);
 
+app.MapGet("/api/workflows/{workflowId:guid}/decisions", async (
+    Guid workflowId,
+    WorkflowService workflowService,
+    CancellationToken cancellationToken) => Results.Ok(await workflowService.ListDecisionExecutionsAsync(workflowId, cancellationToken)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
+
 app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", async (
     Guid workflowId,
     Guid taskRunId,

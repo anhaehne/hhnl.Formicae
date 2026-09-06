@@ -46,6 +46,9 @@ public sealed class WorkflowDefinitionValidator
         if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
             return WorkflowNodeDefinitions.Validate(document);
 
+        if (document.Steps.Any(step => step.Decision is not null))
+            errors.Add(new("definition.decision.schema.required", "Decision settings require v1alpha3 Decision nodes.", "steps"));
+
         if (document.Steps.Count == 0)
         {
             errors.Add(new WorkflowDefinitionValidationError("definition.steps.required", "At least one step is required.", "steps"));
@@ -204,7 +207,7 @@ public sealed class WorkflowDefinitionValidator
         return new WorkflowDefinitionValidationResult(errors);
     }
 
-    private static void ValidateTriggers(
+    internal static void ValidateTriggers(
         IReadOnlyList<WorkflowDefinitionTrigger>? triggers,
         List<WorkflowDefinitionValidationError> errors)
     {

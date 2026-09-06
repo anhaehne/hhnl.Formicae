@@ -8,6 +8,7 @@ public static class WorkflowNodeDefinitions
 
     public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document)
     {
+        if (document.Steps.Any(n => n.Uses == WorkflowDecisionDefinitions.Uses || n.Decision is not null)) return WorkflowDecisionDefinitions.Validate(document);
         if (document.Steps.Any(n => n.Uses == WorkflowParallelDefinitions.Uses || n.Parallel is not null)) return WorkflowParallelDefinitions.Validate(document);
         var errors = new List<WorkflowDefinitionValidationError>();
         void Error(string message, string path = "steps", string? nodeId = null) => errors.Add(new("definition.node.invalid", message, path, nodeId));
@@ -122,7 +123,13 @@ public static class WorkflowNodeDefinitions
         }).ToArray();
         var tasks = nodes.Values.Where(n => n.Uses is not (LoopUses or TriggerUses)).Select(n => n with
         {
-            NextStepId = n.NextStepId is null ? null : Entry(n.NextStepId), NextStepPort = n.NextStepPort == "join" ? "join" : null
+            NextStepId = n.NextStepId is null ? null : Entry(n.NextStepId), NextStepPort = n.NextStepPort == "join" ? "join" : null,
+            Decision = n.Decision is null ? null : n.Decision with
+            {
+                ConfiguredTrueStepId = n.Decision.ConfiguredTrueStepId ?? n.Decision.TrueStepId,
+                ConfiguredFalseStepId = n.Decision.ConfiguredFalseStepId ?? n.Decision.FalseStepId,
+                TrueStepId = Entry(n.Decision.TrueStepId), FalseStepId = Entry(n.Decision.FalseStepId)
+            }
         }).ToArray();
         var triggers = nodes.Values.Where(n => n.Uses == TriggerUses).Select(n => new WorkflowDefinitionTrigger(
             n.Id, n.Trigger!.Type, n.Trigger.Enabled, n.Trigger.RepositoryIds, n.Trigger.Label, n.Trigger.BaseBranch, n.Trigger.Model, Entry(n.NextStepId!))).ToArray();

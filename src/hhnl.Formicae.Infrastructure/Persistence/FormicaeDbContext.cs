@@ -12,6 +12,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowLoopIteration> WorkflowLoopIterations => Set<WorkflowLoopIteration>();
     public DbSet<WorkflowParallelExecution> WorkflowParallelExecutions => Set<WorkflowParallelExecution>();
+    public DbSet<WorkflowDecisionExecution> WorkflowDecisionExecutions => Set<WorkflowDecisionExecution>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowTriggerEvent> WorkflowTriggerEvents => Set<WorkflowTriggerEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
@@ -90,6 +91,18 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasKey(execution => execution.Id);
             entity.Property(execution => execution.NodeId).IsRequired();
             entity.Property(execution => execution.Outcome).HasConversion<string>();
+            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId }).IsUnique();
+            entity.HasOne<Workflow>().WithMany().HasForeignKey(execution => execution.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkflowDecisionExecution>(entity =>
+        {
+            entity.ToTable("workflow_decision_executions");
+            entity.HasKey(execution => execution.Id);
+            entity.Property(execution => execution.NodeId).IsRequired();
+            entity.Property(execution => execution.ConfiguredTargetId).IsRequired();
+            entity.Property(execution => execution.SelectedTargetId).IsRequired();
+            entity.Property(execution => execution.InputJson).IsRequired();
             entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId }).IsUnique();
             entity.HasOne<Workflow>().WithMany().HasForeignKey(execution => execution.WorkflowId).OnDelete(DeleteBehavior.Cascade);
         });

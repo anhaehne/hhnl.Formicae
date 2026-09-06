@@ -105,6 +105,9 @@ public sealed class WorkflowService
             .Select(iteration => iteration.ToResponse())
             .ToArray();
 
+    public Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => store.ListDecisionExecutionsAsync(workflowId, cancellationToken);
+
     public async Task<WorkflowSummaryResponse?> RetryTaskRunAsync(Guid workflowId, Guid taskRunId, CancellationToken cancellationToken)
     {
         var workflow = await store.GetWorkflowAsync(workflowId, cancellationToken);
@@ -129,6 +132,13 @@ public sealed class WorkflowService
         if (parallel is not null && !parallel.Value.StepIds.Contains(run.DefinitionStepId))
         {
             throw new InvalidOperationException("Only tasks in the active parallel group can be retried while that group is active.");
+        }
+        var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
+        if (parallel is null && definition?.Steps.Any(step => step.Decision is not null) == true
+            && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
+                || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
+        {
+            throw new InvalidOperationException("Only the current task execution can be retried in a workflow with decisions.");
         }
         var retryState = GetRetryWorkflowState(run.Kind);
         var now = clock.UtcNow;
@@ -224,7 +234,24 @@ public sealed class WorkflowService
             }, cancellationToken);
             return workflow.ToSummary();
         }
-        var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed);
+        var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
+        if (definition?.Steps.SingleOrDefault(step => step.Id == workflow.CurrentDefinitionStepId)?.Decision is not null)
+        {
+            workflow.Status = WorkflowStatus.Planning;
+            workflow.CurrentStep = WorkflowStep.Plan;
+            workflow.FailureReason = null;
+            workflow.UpdatedAt = clock.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await store.AddEventAsync(new WorkflowEvent
+            {
+                WorkflowId = workflow.Id, Type = WorkflowEventTypes.WorkflowTransitioned,
+                Message = $"Decision '{workflow.CurrentDefinitionStepId}' queued for retry.", CreatedAt = clock.UtcNow
+            }, cancellationToken);
+            return workflow.ToSummary();
+        }
+        var hasDecisions = definition?.Steps.Any(step => step.Decision is not null) == true;
+        var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed
+            && (!hasDecisions || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
         if (failedRun is not null)
         {
             return await RetryTaskRunAsync(workflowId, failedRun.Id, cancellationToken);
@@ -260,6 +287,15 @@ public sealed class WorkflowService
         }, cancellationToken);
 
         return workflow.ToSummary();
+    }
+
+    private async Task<WorkflowDefinitionDocument?> GetPinnedDefinitionAsync(Workflow workflow, CancellationToken cancellationToken)
+    {
+        if (workflow.WorkflowDefinitionVersionId is not { } versionId) return null;
+        var version = await store.GetWorkflowDefinitionVersionAsync(versionId, cancellationToken)
+            ?? throw new InvalidOperationException("The workflow definition version is missing.");
+        return WorkflowDefinitionJson.Deserialize(version.DefinitionJson)
+            ?? throw new InvalidOperationException("The workflow definition is missing.");
     }
 
     public async Task<WorkflowEventResponse[]> ListEventsAsync(Guid workflowId, CancellationToken cancellationToken)

@@ -23,6 +23,45 @@ public sealed class ManagementAuthApiTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Decision_history_requires_workflow_view_permission(bool authenticated)
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var client = authenticated ? factory.CreateAuthenticatedClient((await factory.CreateUserAsync("decision-reader")).Id) : factory.CreateClient();
+        var response = await client.GetAsync($"/api/workflows/{Guid.NewGuid()}/decisions");
+        Assert.Equal(authenticated ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Viewer_reads_durable_decision_outcome_without_needing_events()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var viewer = await factory.CreateViewerAsync("decision-viewer");
+        using var scope = factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IWorkflowStore>();
+        var workflow = await store.CreateWorkflowAsync(new Workflow
+        {
+            IssueUrl = "https://example.test/issues/1", RepositoryUrl = "https://example.test/repo",
+            CurrentDefinitionStepId = "decision", Status = WorkflowStatus.Planning
+        }, default);
+        var decision = new WorkflowDecisionExecution
+        {
+            WorkflowId = workflow.Id, NodeId = "decision", BooleanResult = true,
+            ConfiguredTargetId = "loop", SelectedTargetId = "body", InputJson = "{\"source\":\"literal\",\"value\":true}"
+        };
+        await store.CommitDecisionAsync(decision, WorkflowStatus.Planning, WorkflowStep.Plan, default);
+        var outcomes = await factory.CreateAuthenticatedClient(viewer.Id)
+            .GetFromJsonAsync<WorkflowDecisionExecution[]>($"/api/workflows/{workflow.Id}/decisions");
+        var outcome = Assert.Single(outcomes!);
+        Assert.Equal(decision.Id, outcome.Id);
+        Assert.True(outcome.BooleanResult);
+        Assert.Equal("loop", outcome.ConfiguredTargetId);
+        Assert.Equal("body", outcome.SelectedTargetId);
+        Assert.Empty(await store.ListEventsAsync(workflow.Id, default));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Retry_returns_conflict_without_mutation_while_scheduler_holds_lock(bool taskRetry)
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: false);

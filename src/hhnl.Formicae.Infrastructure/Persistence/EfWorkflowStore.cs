@@ -107,6 +107,54 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
         return execution;
     }
 
+    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+        => dbContext.WorkflowDecisionExecutions.AsNoTracking().SingleOrDefaultAsync(execution => execution.WorkflowId == workflowId
+            && execution.NodeId == nodeId, cancellationToken);
+
+    public async Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => await dbContext.WorkflowDecisionExecutions.AsNoTracking().Where(execution => execution.WorkflowId == workflowId)
+            .OrderBy(execution => execution.EvaluatedAt).ThenBy(execution => execution.Id).ToListAsync(cancellationToken);
+
+    public async Task<WorkflowDecisionCommitResult> CommitDecisionAsync(WorkflowDecisionExecution proposed, WorkflowStatus nextStatus,
+        WorkflowStep nextStep, CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        // Serialize outcome insertion and cursor advancement against the current persisted workflow row.
+        var workflow = await dbContext.Workflows.FromSqlInterpolated($"SELECT * FROM workflows WHERE \"Id\" = {proposed.WorkflowId} FOR UPDATE")
+            .AsNoTracking().SingleOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("The decision workflow does not exist.");
+        var existing = await GetDecisionExecutionAsync(proposed.WorkflowId, proposed.NodeId, cancellationToken);
+        if (existing is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return new(existing, workflow, false);
+        }
+        if (workflow.CurrentDefinitionStepId != proposed.NodeId
+            || workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
+            throw new InvalidOperationException("The workflow is no longer awaiting this decision.");
+        try
+        {
+            dbContext.WorkflowDecisionExecutions.Add(proposed);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.Workflows.Where(item => item.Id == workflow.Id).ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.CurrentDefinitionStepId, proposed.SelectedTargetId)
+                .SetProperty(item => item.Status, nextStatus)
+                .SetProperty(item => item.CurrentStep, nextStep)
+                .SetProperty(item => item.FailureReason, (string?)null)
+                .SetProperty(item => item.UpdatedAt, proposed.EvaluatedAt), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            // A failed/uncertain transaction must never leave its pending insert for a later logging SaveChanges.
+            dbContext.Entry(proposed).State = EntityState.Detached;
+        }
+        workflow.CurrentDefinitionStepId = proposed.SelectedTargetId;
+        workflow.Status = nextStatus; workflow.CurrentStep = nextStep;
+        workflow.FailureReason = null; workflow.UpdatedAt = proposed.EvaluatedAt;
+        return new(proposed, workflow, true);
+    }
+
     public async Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)
     {
         dbContext.WorkflowEvents.Add(evt);

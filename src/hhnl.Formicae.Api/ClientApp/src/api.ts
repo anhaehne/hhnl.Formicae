@@ -51,6 +51,15 @@ export type WorkflowDefinitionTrigger = {
 };
 
 export type WorkflowTriggerNodeSettings = Omit<WorkflowDefinitionTrigger, "id">;
+export type DecisionCondition = {
+  source: "literal" | "workflowField" | "taskOutput";
+  valueType: "string" | "number" | "boolean";
+  operator: "equals" | "notEquals" | "contains" | "exists" | "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual";
+  reference?: string | null; value?: string | number | boolean | null; compareTo?: string | number | boolean | null;
+  missingValue: "error" | "false";
+};
+export type WorkflowDecisionNodeSettings = { condition: DecisionCondition; trueStepId: string; falseStepId: string };
+export type WorkflowDecisionExecution = { id: string; workflowId: string; nodeId: string; booleanResult: boolean; configuredTargetId: string; selectedTargetId: string; evaluatedAt: string; inputJson: string; sourceTaskRunId?: string | null };
 export type WorkflowParallelNodeSettings = { branchStepIds: string[] };
 
 export type WorkflowLoopNodeSettings = { bodyStepId: string; repeatCount: number; maxIterations: number; timeoutSeconds?: number | null };
@@ -65,6 +74,7 @@ export type WorkflowDefinitionStep = {
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
+  decision?: WorkflowDecisionNodeSettings | null;
   nextStepPort?: "return" | "join" | null;
 };
 
@@ -612,4 +622,8 @@ function formatValidationErrors(errors: WorkflowDefinitionValidationError[]) {
 
 export function validateWorkflowDefinition(definition: WorkflowDefinitionDocument) {
   return send<{ isValid: boolean; errors: WorkflowDefinitionValidationError[] }>("/api/workflow-definitions/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(definition) });
+}
+
+export async function listDecisionExecutions(workflowId: string): Promise<WorkflowDecisionExecution[]> {
+  return send<WorkflowDecisionExecution[]>(`/api/workflows/${encodeURIComponent(workflowId)}/decisions`);
 }

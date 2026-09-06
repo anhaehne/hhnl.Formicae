@@ -1,13 +1,13 @@
 import type { Edge } from "@xyflow/react";
-import { loopUses, triggerUses, parallelUses, type WorkflowStepNode } from "../workflowGraph";
+import { loopUses, triggerUses, parallelUses, decisionUses, type WorkflowStepNode } from "../workflowGraph";
 export async function arrange(nodes: WorkflowStepNode[], edges: Edge[]): Promise<WorkflowStepNode[]> {
   const { default: ELK } = await import("elkjs/lib/elk.bundled.js");
   const graph = await new ELK().layout({
     id: "workflow", layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "70", "elk.layered.spacing.nodeNodeBetweenLayers": "110" },
-    children: nodes.map(node => ({ id: node.id, width: 240, height: node.data.uses === parallelUses ? 142 + (node.data.parallel?.branchStepIds.length ?? 2) * 34 : node.data.uses === loopUses ? 160 : 120,
+    children: nodes.map(node => ({ id: node.id, width: 240, height: node.data.uses === parallelUses ? 142 + (node.data.parallel?.branchStepIds.length ?? 2) * 34 : (node.data.uses === loopUses || node.data.uses === decisionUses) ? 160 : 120,
       layoutOptions: { "elk.portConstraints": "FIXED_ORDER" },
       ports: [ ...(node.data.uses !== triggerUses ? [{ id: `${node.id}:input`, properties: { "port.side": "WEST" } }] : []),
-        ...(node.data.uses === parallelUses ? [{ id: `${node.id}:join`, properties: { "port.side": "NORTH" } }, ...(node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => ({ id: `${node.id}:branch:${index}`, properties: { "port.side": "EAST" } })), { id: `${node.id}:next`, properties: { "port.side": "EAST" } }] : node.data.uses === loopUses ? [ { id: `${node.id}:return`, properties: { "port.side": "NORTH" } }, { id: `${node.id}:body`, properties: { "port.side": "EAST" } }, { id: `${node.id}:exit`, properties: { "port.side": "EAST" } } ] : [{ id: `${node.id}:next`, properties: { "port.side": "EAST" } }]) ] })),
+        ...(node.data.uses === decisionUses ? [{ id: `${node.id}:true`, properties: { "port.side": "EAST" } }, { id: `${node.id}:false`, properties: { "port.side": "EAST" } }] : node.data.uses === parallelUses ? [{ id: `${node.id}:join`, properties: { "port.side": "NORTH" } }, ...(node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => ({ id: `${node.id}:branch:${index}`, properties: { "port.side": "EAST" } })), { id: `${node.id}:next`, properties: { "port.side": "EAST" } }] : node.data.uses === loopUses ? [ { id: `${node.id}:return`, properties: { "port.side": "NORTH" } }, { id: `${node.id}:body`, properties: { "port.side": "EAST" } }, { id: `${node.id}:exit`, properties: { "port.side": "EAST" } } ] : [{ id: `${node.id}:next`, properties: { "port.side": "EAST" } }]) ] })),
     // Join edges are feedback to the barrier, not forward layout dependencies.
     edges: edges.filter(edge => edge.targetHandle !== "join" && nodes.some(n => n.id === edge.source) && nodes.some(n => n.id === edge.target)).map(edge => ({ id: edge.id, sources: [`${edge.source}:${edge.sourceHandle || "next"}`], targets: [`${edge.target}:${edge.targetHandle || "input"}`] }))
   });
