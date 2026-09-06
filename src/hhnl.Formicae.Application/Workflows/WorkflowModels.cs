@@ -99,7 +99,9 @@ public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null,
     [property: JsonPropertyName("loops")] IReadOnlyList<WorkflowDefinitionLoop>? Loops = null,
     [property: JsonPropertyName("editor")] WorkflowEditorMetadata? Editor = null,
-    [property: JsonPropertyName("defaultPersonaId")] string? DefaultPersonaId = null);
+    [property: JsonPropertyName("defaultPersonaId")] string? DefaultPersonaId = null,
+    [property: JsonPropertyName("defaultEnvironmentId")] string? DefaultEnvironmentId = null,
+    [property: JsonPropertyName("defaultEnvironmentSnapshot")] EnvironmentSnapshot? DefaultEnvironmentSnapshot = null);
 
 public sealed record WorkflowEditorPosition(double X, double Y);
 public sealed record WorkflowEditorViewport(double X, double Y, double Zoom);
@@ -632,7 +634,8 @@ public sealed record AgentTask(
     IReadOnlyList<AgentTaskContextFile>? ContextFiles = null,
     string? AiSettingsId = null,
     Guid? ExecutionAttemptId = null,
-    int? TimeoutSeconds = null);
+    int? TimeoutSeconds = null,
+    EnvironmentSnapshot? EnvironmentSnapshot = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 

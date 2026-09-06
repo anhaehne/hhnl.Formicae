@@ -23,6 +23,8 @@ export type WorkflowSummary = {
 export type WorkflowDefinitionDocument = {
   schema: string;
   defaultPersonaId?: string | null;
+  defaultEnvironmentId?: string | null;
+  defaultEnvironmentSnapshot?: EnvironmentSnapshot | null;
   startStepId: string;
   steps: WorkflowDefinitionStep[];
   triggers?: WorkflowDefinitionTrigger[] | null;
@@ -654,3 +656,12 @@ export const listCustomTasks = () => send<CustomTaskDefinition[]>("/api/custom-t
 export const createCustomTask = (input: CustomTaskInput) => send<CustomTaskDefinition>("/api/custom-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 export const updateCustomTask = (id: string, input: CustomTaskInput, expectedRevision: number) => send<CustomTaskDefinition>(`/api/custom-tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
 export const deleteCustomTask = (id: string, expectedRevision: number) => sendNoContent(`/api/custom-tasks/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });
+
+export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: null; tools: never[]; mcpServers: never[] };
+export type EnvironmentSnapshot = { id: string; revision: number; name: string; description: string; configuration: EnvironmentConfiguration };
+export type EnvironmentProfile = EnvironmentSnapshot & { builtIn: boolean; createdAt: string; updatedAt: string };
+export type EnvironmentInput = Pick<EnvironmentSnapshot, "name" | "description" | "configuration">;
+export const listEnvironments = () => send<EnvironmentProfile[]>("/api/environments");
+export const createEnvironment = (input: EnvironmentInput) => send<EnvironmentProfile>("/api/environments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+export const updateEnvironment = (id: string, input: EnvironmentInput, expectedRevision: number) => send<EnvironmentProfile>(`/api/environments/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
+export const deleteEnvironment = (id: string, expectedRevision: number) => sendNoContent(`/api/environments/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });

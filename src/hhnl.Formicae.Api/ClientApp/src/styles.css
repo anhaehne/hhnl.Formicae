@@ -1717,3 +1717,5 @@ pre.collapsed-content::after {
 
 .custom-task-form > fieldset { border: 1px solid #d7dbd2; border-radius: 8px; padding: 16px; margin: 16px 0; }
 .custom-task-schema button { width: auto; justify-self: start; }
+
+.editor-inspector[aria-label="Workflow settings"] > .persona-picker { margin-left: 18px; margin-right: 18px; }

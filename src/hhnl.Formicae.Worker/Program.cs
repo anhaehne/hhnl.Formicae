@@ -52,7 +52,8 @@ internal sealed record WorkerEnvironment(
     bool RequiresBrowser,
     bool RequiresNestedContainers,
     int? JobTimeoutSeconds,
-    int CheckpointGraceSeconds)
+    int CheckpointGraceSeconds,
+    bool EnvironmentTimeoutLimit = false)
 {
     public static WorkerEnvironment Load()
     {
@@ -75,13 +76,16 @@ internal sealed record WorkerEnvironment(
             IsTrue("FORMICAE_REQUIRES_BROWSER"),
             IsTrue("FORMICAE_REQUIRES_NESTED_CONTAINERS"),
             OptionalPositiveInt("FORMICAE_JOB_TIMEOUT_SECONDS"),
-            OptionalNonNegativeInt("FORMICAE_CHECKPOINT_GRACE_SECONDS"));
+            OptionalNonNegativeInt("FORMICAE_CHECKPOINT_GRACE_SECONDS"),
+            IsTrue("FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"));
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
     public bool IsCodexAuthSetup => TaskKind is "CodexAuthSetup" || string.Equals(AuthMethod, "CodexSubscriptionSetup", StringComparison.OrdinalIgnoreCase);
     public bool RequiresRepositoryCheckout => TaskKind is "Plan" or "Implement" or "AddressComments";
     public bool CanCommitRepositoryChanges => TaskKind is "Implement" or "AddressComments";
+    public bool RequiresHardEnvironmentDeadline => EnvironmentTimeoutLimit && TaskKind != "Custom"
+        && (!UsesCodexSubscription || !CanCommitRepositoryChanges || CheckpointGraceSeconds <= 0);
 
     private static string Required(string name)
         => Optional(name) ?? throw new InvalidOperationException($"Required environment variable '{name}' is missing.");
@@ -130,6 +134,16 @@ internal static class WorkerCommand
             return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);
         }
 
+        if (environment.RequiresHardEnvironmentDeadline)
+            return await RunWithHardDeadlineAsync(environment.JobTimeoutSeconds, reporter, timeProvider ?? TimeProvider.System,
+                cancellationToken, token => RunTaskAsync(environment, reporter, token, timeProvider));
+        return await RunTaskAsync(environment, reporter, cancellationToken, timeProvider);
+    }
+
+    private static async Task<int> RunTaskAsync(WorkerEnvironment environment, WorkerReporter reporter,
+        CancellationToken cancellationToken, TimeProvider? timeProvider)
+    {
+
         if (environment.RequiresNestedContainers && !await WaitForDockerAsync(reporter, cancellationToken))
         {
             return 1;
@@ -162,6 +176,21 @@ internal static class WorkerCommand
             environment.RequiresRepositoryCheckout ? workingDirectory : null,
             reporter,
             cancellationToken);
+    }
+
+    internal static async Task<int> RunWithHardDeadlineAsync(int? timeoutSeconds, WorkerReporter reporter,
+        TimeProvider timeProvider, CancellationToken cancellationToken, Func<CancellationToken, Task<int>> execute)
+    {
+        if (timeoutSeconds is not (>= 1 and <= 3600))
+            throw new InvalidOperationException("Environment-capped tasks require a timeout between 1 and 3600 seconds.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value), timeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        try { return await execute(linked.Token); }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            await reporter.ReportAsync("worker-error", "Environment execution deadline exceeded.", cancellationToken);
+            return 124;
+        }
     }
 
     internal static async Task<int> RunCustomCommandAsync(WorkerEnvironment environment, string workingDirectory,
@@ -608,7 +637,7 @@ internal static class WorkerCommand
         return completion.Task;
     }
 
-    private static async Task<(int ExitCode, string Output)> CaptureProcessAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, CancellationToken cancellationToken)
+    internal static async Task<(int ExitCode, string Output)> CaptureProcessAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo(fileName)
         {
@@ -623,9 +652,21 @@ internal static class WorkerCommand
         }
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Could not start process '{fileName}'.");
-        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        return (process.ExitCode, output);
+        var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var error = process.StandardError.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(output, error);
+            return (process.ExitCode, await output);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await InterruptProcessAsync(process);
+            try { await Task.WhenAll(output, error); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            throw;
+        }
     }
 
     private static async Task PumpAsync(

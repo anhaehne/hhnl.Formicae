@@ -21,7 +21,8 @@ public sealed record RuntimeJobSpec(
     RuntimeJobSecretEnvironment? SecretEnvironment = null,
     RuntimeJobExecutionRequirements? ExecutionRequirements = null,
     RuntimeJobExecutionPolicy? ExecutionPolicy = null,
-    bool ReuseExisting = false);
+    bool ReuseExisting = false,
+    int? TimeoutLimitSeconds = null);
 
 public sealed record RuntimeJobExecutionRequirements(
     bool RequiresBrowser = false,
@@ -30,6 +31,19 @@ public sealed record RuntimeJobExecutionRequirements(
 public sealed record RuntimeJobExecutionPolicy(
     int TimeoutSeconds,
     int CheckpointGraceSeconds = 0);
+
+public static class RuntimeJobPolicyResolver
+{
+    public static RuntimeJobExecutionPolicy Resolve(RuntimeJobSpec spec, int runtimeDefaultTimeoutSeconds)
+    {
+        if (spec.TimeoutLimitSeconds is { } cap && cap is not (>= 1 and <= 3600))
+            throw new InvalidOperationException("Environment timeout limit must be between 1 and 3600 seconds.");
+        var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(runtimeDefaultTimeoutSeconds);
+        var timeout = Math.Max(1, requested.TimeoutSeconds);
+        if (spec.TimeoutLimitSeconds is { } limit) timeout = Math.Min(timeout, limit);
+        return new(timeout, Math.Clamp(requested.CheckpointGraceSeconds, 0, timeout - 1));
+    }
+}
 
 public sealed record RuntimeJobContextFile(string FileName, string Content);
 

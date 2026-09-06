@@ -361,7 +361,7 @@ public sealed class KubernetesJobRunner(
                 Name = ContainerName,
                 Image = spec.Image,
                 ImagePullPolicy = "IfNotPresent",
-                Env = BuildEnvironmentVariables(spec, enableNestedContainers, spec.ExecutionPolicy is null ? null : executionPolicy),
+                Env = BuildEnvironmentVariables(spec, enableNestedContainers, spec.ExecutionPolicy is null && spec.TimeoutLimitSeconds is null ? null : executionPolicy),
                 EnvFrom = envFrom.Count == 0 ? null : envFrom,
                 Command = spec.Command.ToList(),
                 VolumeMounts = volumeMounts.Count == 0 ? null : volumeMounts,
@@ -450,6 +450,8 @@ public sealed class KubernetesJobRunner(
             .ToList();
 
         var requirements = spec.ExecutionRequirements ?? new RuntimeJobExecutionRequirements();
+        if (spec.TimeoutLimitSeconds is not null)
+            env.Add(new V1EnvVar { Name = "FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT", Value = "true" });
         if (executionPolicy is not null)
         {
             env.Add(new V1EnvVar { Name = "FORMICAE_JOB_TIMEOUT_SECONDS", Value = Math.Max(1, executionPolicy.TimeoutSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture) });
@@ -482,13 +484,7 @@ public sealed class KubernetesJobRunner(
     }
 
     private RuntimeJobExecutionPolicy ResolveExecutionPolicy(RuntimeJobSpec spec)
-    {
-        var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(options.Value.TimeoutSeconds);
-        var timeoutSeconds = Math.Max(1, requested.TimeoutSeconds);
-        return new RuntimeJobExecutionPolicy(
-            timeoutSeconds,
-            Math.Clamp(requested.CheckpointGraceSeconds, 0, Math.Max(0, timeoutSeconds - 1)));
-    }
+        => RuntimeJobPolicyResolver.Resolve(spec, options.Value.TimeoutSeconds);
 
     private static V1ResourceRequirements BuildResources(string cpuRequest, string memoryRequest, string cpuLimit, string memoryLimit)
         => new()

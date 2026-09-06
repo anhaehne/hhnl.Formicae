@@ -646,7 +646,8 @@ public sealed partial class WorkflowOrchestrator(
                 $"AI configuration: {started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId}; model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
                 new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
-                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId }, cancellationToken);
+                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId,
+                    run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
             return started;
         }
         catch (Exception exception)
@@ -667,9 +668,16 @@ public sealed partial class WorkflowOrchestrator(
         {
             AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
             Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim(),
+            EnvironmentSnapshot = step is null ? null : EnvironmentDefinitions.ResolveForTask(document, step),
             Prompt = PersonaPromptComposer.Compose(task.Prompt, persona)
         }, persona);
     }
+
+    private static object? EnvironmentAudit(EnvironmentSnapshot? snapshot) => snapshot is null ? null : new
+    {
+        id = snapshot.Id, revision = snapshot.Revision, name = snapshot.Name,
+        timeoutLimitSeconds = snapshot.Configuration.Runtime?.TimeoutLimitSeconds
+    };
 
     private Task CompleteTaskRunAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)
         => CompleteTaskRunAsync(workflow, run, result.Output, result.Succeeded, result.FailureReason, cancellationToken, result.ExternalId);
@@ -886,6 +894,8 @@ public sealed partial class WorkflowOrchestrator(
         var personaValidation = PersonaDefinitions.ValidateRuntime(document);
         if (!personaValidation.IsValid) throw new InvalidOperationException(string.Join(" ", personaValidation.Errors.Select(error => error.Message)));
         var taskValidation = CustomTaskDefinitions.ValidateRuntime(document);
+        var environmentValidation = EnvironmentDefinitions.ValidateRuntime(document);
+        if (!environmentValidation.IsValid) throw new InvalidOperationException(string.Join(" ", environmentValidation.Errors.Select(error => error.Message)));
         if (!taskValidation.IsValid) throw new InvalidOperationException(string.Join(" ", taskValidation.Errors.Select(error => error.Message)));
         return WorkflowNodeDefinitions.Normalize(document);
     }

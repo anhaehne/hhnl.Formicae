@@ -91,7 +91,8 @@ public sealed partial class WorkflowOrchestrator
                 new { aiSettingsId = started.AiSettingsId ?? prepared.Task.AiSettingsId ?? AiSettings.DefaultId,
                     model = started.Model ?? prepared.Task.Model, personaId = prepared.Persona?.Id ?? "default",
                     personaRevision = prepared.Persona?.Revision ?? 1, personaName = prepared.Persona?.Name ?? "Default behavior",
-                    prepared.Task.TimeoutSeconds, started.ExternalId }, token);
+                    prepared.Task.TimeoutSeconds, started.ExternalId, run.ExecutionAttemptId,
+                    environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot) }, token);
             return true;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)

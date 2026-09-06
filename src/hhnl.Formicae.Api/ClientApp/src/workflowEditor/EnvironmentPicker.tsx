@@ -1,0 +1,13 @@
+import type { EnvironmentProfile, EnvironmentSnapshot } from "../api";
+
+export function EnvironmentPicker({ value, environments, savedSnapshot, disabled, onChange }: { value?: string | null; environments: EnvironmentProfile[]; savedSnapshot?: EnvironmentSnapshot | null; disabled: boolean; onChange: (id: string | undefined) => void }) {
+  const id = value ?? "default", current = environments.find(item => item.id === id), saved = savedSnapshot?.id === id ? savedSnapshot : undefined;
+  const preview = current || saved, limit = preview?.configuration.runtime?.timeoutLimitSeconds;
+  return <section className="persona-picker"><label><span>Workflow environment</span><select aria-label="Workflow environment" value={id} disabled={disabled} onChange={event => onChange(event.target.value === "default" ? undefined : event.target.value)}><option value="default">Default environment</option>{value != null && value !== "default" && !current && <option value={value}>Unavailable: {saved?.name || value || "empty environment ID"}</option>}{environments.filter(item => !item.builtIn).map(item => <option key={item.id} value={item.id}>{item.name} · revision {item.revision}</option>)}</select></label>
+    {saved && <p className="muted">Saved environment: {saved.name} · revision {saved.revision}</p>}
+    {saved && current && saved.revision !== current.revision && <p className="persona-revision-notice">Saved version uses environment revision {saved.revision}; Save Version will use revision {current.revision}.</p>}
+    {!current && id !== "default" && <p className="persona-revision-notice">{saved ? "The saved version remains runnable with its recorded environment. " : "This environment is unavailable. "}A new enabled version needs an active environment selection.</p>}
+    {(preview || id === "default") && <p className="muted">{limit != null ? `Maximum task runtime: ${limit} seconds. This cap can shorten an existing timeout and never increases it.` : "Inherit existing task runtime settings."} Applies to AI tasks, including parallel Plan branches.</p>}
+    {preview && <details className="optional-settings persona-preview"><summary>{current ? "Profile for next save" : "Saved profile"} · revision {preview.revision}</summary><p>{preview.description}</p><p>Profile configuration is pinned. Deployment images and platform settings remain platform-managed.</p>{saved && current && saved.revision !== current.revision && <p>Saved runtime limit: {saved.configuration.runtime?.timeoutLimitSeconds != null ? `${saved.configuration.runtime.timeoutLimitSeconds} seconds` : "Inherited"}.</p>}</details>}
+  </section>;
+}

@@ -48,7 +48,7 @@ export function toNodeDefinition(document: WorkflowDefinitionDocument): Workflow
     steps.push({ id: allocate(`trigger-${id}`), uses: triggerUses, displayName: id,
       trigger: settings, nextStepId: entry(document.startStepId), nextStepPort: null });
   }
-  return { schema: workflowSchema, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
+  return { schema: workflowSchema, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
 }
 
 export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes: WorkflowStepNode[]; edges: Edge[] } {

@@ -35,7 +35,7 @@ public sealed class KustomizeOverlayTests
     }
 }
 
-public sealed class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : IClassFixture<KubernetesE2EFixture>
+public sealed partial class KubernetesWorkflowE2ETests(KubernetesE2EFixture fixture) : IClassFixture<KubernetesE2EFixture>
 {
     [Fact]
     public async Task Deployment_ComesUp_And_HealthEndpointResponds()

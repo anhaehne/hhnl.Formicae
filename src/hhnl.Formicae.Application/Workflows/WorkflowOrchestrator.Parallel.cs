@@ -127,7 +127,8 @@ public sealed partial class WorkflowOrchestrator
                 $"Parallel task '{step.Id}': model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
                 new { nodeId = step.Id, aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
-                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId }, cancellationToken);
+                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId,
+                    run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
             if (started.CompletedResult is not null)
             {
                 var result = ValidatePlanningResult(started.CompletedResult);

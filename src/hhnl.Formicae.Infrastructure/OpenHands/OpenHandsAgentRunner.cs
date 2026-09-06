@@ -85,6 +85,12 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private RuntimeJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
     {
+        if (task.EnvironmentSnapshot is { } profile)
+        {
+            var validation = EnvironmentDefinitions.ValidateConfiguration(profile.Configuration);
+            if (!validation.IsValid)
+                throw new InvalidOperationException(string.Join(" ", validation.Errors.Select(error => error.Message)));
+        }
         var authMethod = ResolveAuthMethod(settings.AuthMethod);
         var model = ResolveModel(task, settings, authMethod);
         var jobName = BuildJobName(task);
@@ -105,7 +111,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
                 ? new RuntimeJobExecutionPolicy(task.TimeoutSeconds is >= 1 and <= 3600
                     ? task.TimeoutSeconds.Value : throw new InvalidOperationException("Custom tasks require a timeout between 1 and 3600 seconds."), 0)
                 : BuildExecutionPolicy(task.Kind, jobOptions.Value),
-            ReuseExisting: task.ExecutionAttemptId is not null);
+            ReuseExisting: task.ExecutionAttemptId is not null,
+            TimeoutLimitSeconds: task.EnvironmentSnapshot?.Configuration.Runtime?.TimeoutLimitSeconds);
     }
 
     private static RuntimeJobExecutionRequirements BuildExecutionRequirements(TaskRunKind taskKind)

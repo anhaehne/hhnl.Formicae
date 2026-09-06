@@ -170,11 +170,12 @@ public sealed class ContainerJobRuntime(
         }
 
         var environment = spec.Environment.ToDictionary(pair => pair.Key, pair => pair.Value);
-        if (spec.ExecutionPolicy is not null)
+        if (spec.ExecutionPolicy is not null || spec.TimeoutLimitSeconds is not null)
         {
             environment["FORMICAE_JOB_TIMEOUT_SECONDS"] = Math.Max(1, executionPolicy.TimeoutSeconds).ToString(CultureInfo.InvariantCulture);
             environment["FORMICAE_CHECKPOINT_GRACE_SECONDS"] = Math.Clamp(executionPolicy.CheckpointGraceSeconds, 0, Math.Max(0, executionPolicy.TimeoutSeconds - 1)).ToString(CultureInfo.InvariantCulture);
         }
+        if (spec.TimeoutLimitSeconds is not null) environment["FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"] = "true";
 
         foreach (var (key, value) in environment.OrderBy(pair => pair.Key))
         {
@@ -263,13 +264,7 @@ public sealed class ContainerJobRuntime(
     }
 
     private RuntimeJobExecutionPolicy ResolveExecutionPolicy(RuntimeJobSpec spec)
-    {
-        var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(options.Value.TimeoutSeconds);
-        var timeoutSeconds = Math.Max(1, requested.TimeoutSeconds);
-        return new RuntimeJobExecutionPolicy(
-            timeoutSeconds,
-            Math.Clamp(requested.CheckpointGraceSeconds, 0, Math.Max(0, timeoutSeconds - 1)));
-    }
+        => RuntimeJobPolicyResolver.Resolve(spec, options.Value.TimeoutSeconds);
 
     private async Task RemoveIfConfiguredAsync(string externalId, bool force, CancellationToken cancellationToken)
     {

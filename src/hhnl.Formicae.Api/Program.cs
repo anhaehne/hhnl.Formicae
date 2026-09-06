@@ -495,6 +495,31 @@ app.MapDelete("/api/personas/{id}", async (string id, int expectedRevision, Pers
     catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapGet("/api/environments", async (EnvironmentService environments, CancellationToken token) => Results.Ok(await environments.ListAsync(token)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapGet("/api/environments/{id}", async (string id, EnvironmentService environments, CancellationToken token) =>
+{
+    var environment = await environments.GetAsync(id, token);
+    return environment is null ? Results.NotFound() : Results.Ok(environment);
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapPost("/api/environments", async (CreateEnvironmentRequest request, EnvironmentService environments, CancellationToken token) =>
+{
+    try { var environment = await environments.CreateAsync(request, token); return Results.Created($"/api/environments/{environment.Id}", environment); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapPut("/api/environments/{id}", async (string id, UpdateEnvironmentRequest request, EnvironmentService environments, CancellationToken token) =>
+{
+    try { var environment = await environments.UpdateAsync(id, request, token); return environment is null ? Results.NotFound() : Results.Ok(environment); }
+    catch (EnvironmentConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapDelete("/api/environments/{id}", async (string id, int expectedRevision, EnvironmentService environments, CancellationToken token) =>
+{
+    try { return await environments.DeleteAsync(id, expectedRevision, token) ? Results.NoContent() : Results.NotFound(); }
+    catch (EnvironmentConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapGet("/api/custom-tasks", async (CustomTaskService tasks, CancellationToken token) => Results.Ok(await tasks.ListAsync(token)))
     .RequireAuthorization(ManagementAuthorization.WorkflowView);
 app.MapGet("/api/custom-tasks/{id}", async (string id, CustomTaskService tasks, CancellationToken token) =>

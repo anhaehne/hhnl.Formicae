@@ -20,6 +20,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<WorkflowDefinitionVersion> WorkflowDefinitionVersions => Set<WorkflowDefinitionVersion>();
     public DbSet<Persona> Personas => Set<Persona>();
     public DbSet<CustomTaskDefinition> CustomTasks => Set<CustomTaskDefinition>();
+    public DbSet<ExecutionEnvironmentProfile> ExecutionEnvironments => Set<ExecutionEnvironmentProfile>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
@@ -155,6 +156,16 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(log => log.Message).IsRequired();
             entity.Property(log => log.Level).IsRequired();
             entity.HasIndex(log => log.WorkflowId);
+        });
+
+        modelBuilder.Entity<ExecutionEnvironmentProfile>(entity =>
+        {
+            entity.ToTable("execution_environments");
+            entity.HasKey(environment => environment.Id);
+            entity.Property(environment => environment.Name).IsRequired().HasMaxLength(120);
+            entity.Property(environment => environment.Description).IsRequired().HasMaxLength(2000);
+            entity.Property(environment => environment.ConfigurationJson).IsRequired();
+            entity.Property(environment => environment.Revision).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<CustomTaskDefinition>(entity =>

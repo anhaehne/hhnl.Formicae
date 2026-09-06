@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
+import type { EnvironmentSnapshot } from "../api";
 import type { Edge } from "@xyflow/react";
 import type { WorkflowStepNode } from "../workflowGraph";
 
-export type EditorDraft = { name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
-const comparable = (draft: EditorDraft) => ({ ...draft, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
+export type EditorDraft = { defaultEnvironmentId?: string | null; defaultEnvironmentSnapshot?: EnvironmentSnapshot | null; name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
+const comparable = (draft: EditorDraft) => ({ ...draft, defaultEnvironmentSnapshot: undefined, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
 const equal = (a: EditorDraft, b: EditorDraft) => JSON.stringify(comparable(a)) === JSON.stringify(comparable(b));
 export function useEditorState(initial: EditorDraft) {
   const [draft, render] = useState(initial);
@@ -23,7 +24,7 @@ export function useEditorState(initial: EditorDraft) {
       commit(); baseline.current = authoritative;
       // Only the submitted draft was saved. Later edits keep their own dirty state.
       if (equal(value.current, submitted)) publish(authoritative);
-      else publish({ ...value.current, nodes: value.current.nodes.map(node => {
+      else publish({ ...value.current, defaultEnvironmentSnapshot: value.current.defaultEnvironmentId === submitted.defaultEnvironmentId ? authoritative.defaultEnvironmentSnapshot : value.current.defaultEnvironmentSnapshot, nodes: value.current.nodes.map(node => {
         const before = submitted.nodes.find(item => item.id === node.id), saved = authoritative.nodes.find(item => item.id === node.id);
         if (!before || !saved || node.data.uses !== before.data.uses) return node;
         const personaUnchanged = node.data.personaId === before.data.personaId && value.current.defaultPersonaId === submitted.defaultPersonaId;

@@ -1,3 +1,5 @@
+import EnvironmentsPage from "./EnvironmentsPage";
+import { EnvironmentHistory } from "./EnvironmentHistory";
 import CustomTasksPage from "./CustomTasksPage";
 import PersonasPage from "./PersonasPage";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -94,9 +96,9 @@ type AiSettingsFormState = {
   subscriptionCredentialMountPath: string;
 };
 
-type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "custom-tasks" | "settings";
+type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "custom-tasks" | "environments" | "settings";
 
-const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "custom-tasks", "settings"];
+const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "custom-tasks", "environments", "settings"];
 
 const pageDescriptions: Record<Page, string> = {
   workflows: "Follow execution and manage your workflow runs.",
@@ -104,6 +106,7 @@ const pageDescriptions: Record<Page, string> = {
   integrations: "Connect the services your workflows use.",
   repositories: "Manage repositories available to your workflows.",
   users: "Manage workspace access and permissions.",
+  environments: "Manage reusable runtime profiles for agent tasks.",
   "custom-tasks": "Define reusable agent tasks with typed inputs and recorded outputs.",
   personas: "Define reusable instructions and operating styles for agents.",
   settings: "Configure agents and AI providers."
@@ -117,6 +120,7 @@ const pagePaths: Record<Page, string> = {
   "users": "/users",
   "personas": "/personas",
   "custom-tasks": "/custom-tasks",
+  environments: "/environments",
   "settings": "/settings"
 };
 
@@ -269,6 +273,7 @@ export default function App() {
     { page: "users", label: "Users", disabled: false },
     { page: "personas", label: "Personas", disabled: !canViewWorkflows },
     { page: "custom-tasks", label: "Custom tasks", disabled: !canViewWorkflows },
+    { page: "environments", label: "Environments", disabled: !canViewWorkflows },
     { page: "settings", label: "Settings", disabled: !canAdminister }
   ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
@@ -1200,7 +1205,7 @@ export default function App() {
       );
     }
 
-    if (activePage === "workflow-definitions" || activePage === "personas" || activePage === "custom-tasks") return null;
+    if (activePage === "workflow-definitions" || activePage === "personas" || activePage === "custom-tasks" || activePage === "environments") return null;
 
     if (activePage === "integrations") {
       return (
@@ -1268,7 +1273,7 @@ export default function App() {
   }
 
   function renderActivePage() {
-    return activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
+    return activePage === "environments" ? (canViewWorkflows ? <EnvironmentsPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect environments.</p>) : activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -1427,7 +1432,7 @@ export default function App() {
                           <time>{formatDate(event.createdAt)}</time>
                           <StatusBadge value={event.type} />
                         </div>
-                        <p>{event.message}</p>
+                        <p>{event.message}</p><EnvironmentHistory detailsJson={event.detailsJson} />
                         <Expandable title="Stack Trace" content={formatFailureDetails(event.detailsJson ?? "")} pre />
                       </article>
                     ))}
@@ -1459,7 +1464,7 @@ export default function App() {
                         <StatusBadge value={event.type} />
                         <span>{event.level}</span>
                       </div>
-                      <p>{event.message}</p>
+                      <p>{event.message}</p><EnvironmentHistory detailsJson={event.detailsJson} />
                       {event.detailsJson ? <Expandable title="Event Details" content={formatJson(event.detailsJson)} pre /> : null}
                     </article>
                   ))}
@@ -2704,6 +2709,8 @@ function pageTitle(page: Page) {
       return "Repositories";
     case "users":
       return "Users";
+    case "environments":
+      return "Environments";
     case "custom-tasks":
       return "Custom tasks";
     case "personas":
