@@ -69,15 +69,48 @@ public sealed class ContainerJobRuntime(
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
         var externalId = string.IsNullOrWhiteSpace(spec.Name) ? $"formicae-job-{Guid.NewGuid():N}" : spec.Name;
+        if (spec.ReuseExisting && await TryAttachExistingAsync(externalId, cancellationToken))
+        {
+            StartCompletionSignalWatcher(externalId);
+            return new RuntimeJobStartResult(externalId);
+        }
         var arguments = BuildRunArguments(spec with { Name = externalId });
         var result = await cli.RunAsync(Executable(), arguments, cancellationToken);
         if (result.ExitCode != 0)
         {
+            // Another scheduler may have launched the same durable attempt after our inspection.
+            if (spec.ReuseExisting && await TryAttachExistingAsync(externalId, cancellationToken))
+            {
+                StartCompletionSignalWatcher(externalId);
+                return new RuntimeJobStartResult(externalId);
+            }
             throw new InvalidOperationException($"Container runtime failed to start '{externalId}': {TrimProcessError(result)}");
         }
 
         StartCompletionSignalWatcher(externalId);
         return new RuntimeJobStartResult(externalId);
+    }
+
+    private async Task<bool> TryAttachExistingAsync(string externalId, CancellationToken cancellationToken)
+    {
+        var inspect = await cli.RunAsync(Executable(), ["inspect", externalId], cancellationToken);
+        if (inspect.ExitCode != 0) return false;
+        using var document = JsonDocument.Parse(inspect.StandardOutput);
+        var container = document.RootElement.ValueKind == JsonValueKind.Array
+            ? document.RootElement.EnumerateArray().First() : document.RootElement;
+        if (!container.TryGetProperty("Config", out var config)
+            || !config.TryGetProperty("Labels", out var labels)
+            || !labels.TryGetProperty(ManagedByLabel, out var managedBy) || managedBy.GetString() != ManagedByValue
+            || !labels.TryGetProperty(JobLabel, out var job) || job.GetString() != externalId)
+            throw new InvalidOperationException($"Container '{externalId}' already exists but is not owned by this Formicae job.");
+        if (container.TryGetProperty("State", out var state)
+            && state.TryGetProperty("Status", out var status) && status.GetString() == "created")
+        {
+            var started = await cli.RunAsync(Executable(), ["start", externalId], cancellationToken);
+            if (started.ExitCode != 0)
+                throw new InvalidOperationException($"Container runtime failed to start existing '{externalId}': {TrimProcessError(started)}");
+        }
+        return true;
     }
 
     public async Task<RuntimeJobResult?> TryGetJobResultAsync(string externalId, CancellationToken cancellationToken)
@@ -179,7 +212,7 @@ public sealed class ContainerJobRuntime(
         {
             var path = SafeChildPath(contextRoot, file.FileName);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, file.Content);
+            WriteJobFile(path, file.Content, spec.ReuseExisting);
         }
 
         arguments.Add("--volume");
@@ -201,7 +234,7 @@ public sealed class ContainerJobRuntime(
             {
                 var path = SafeChildPath(secretRoot, fileName);
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.WriteAllText(path, content);
+                WriteJobFile(path, content, spec.ReuseExisting);
             }
 
             arguments.Add("--volume");
@@ -310,6 +343,21 @@ public sealed class ContainerJobRuntime(
         }
 
         return fullPath;
+    }
+
+    private static void WriteJobFile(string path, string content, bool reuseExisting)
+    {
+        if (!reuseExisting)
+        {
+            File.WriteAllText(path, content);
+            return;
+        }
+        // A durable attempt owns immutable inputs, even if another launcher wins after inspection.
+        FileStream stream;
+        try { stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read); }
+        catch (IOException) when (File.Exists(path)) { return; }
+        using (stream)
+        using (var writer = new StreamWriter(stream)) writer.Write(content);
     }
 
     private static ContainerState ParseState(string json)

@@ -125,17 +125,30 @@ public sealed class WorkflowService
             throw new InvalidOperationException("Only failed task runs can be retried.");
         }
 
+        var parallel = await GetCurrentParallelExecutionAsync(workflow, cancellationToken);
+        if (parallel is not null && !parallel.Value.StepIds.Contains(run.DefinitionStepId))
+        {
+            throw new InvalidOperationException("Only tasks in the active parallel group can be retried while that group is active.");
+        }
         var retryState = GetRetryWorkflowState(run.Kind);
         var now = clock.UtcNow;
 
         run.Status = TaskRunStatus.Queued;
         run.ExternalId = null;
+        run.ExecutionAttemptId = Guid.NewGuid();
         run.Output = null;
         run.FailureReason = null;
         run.StartedAt = null;
         run.CompletedAt = null;
         run.UpdatedAt = now;
         await store.UpsertTaskRunAsync(run, cancellationToken);
+
+        if (parallel is not null)
+        {
+            parallel.Value.Execution.Outcome = WorkflowParallelExecutionOutcome.Running;
+            parallel.Value.Execution.CompletedAt = null;
+            await store.UpsertParallelExecutionAsync(parallel.Value.Execution, cancellationToken);
+        }
 
         workflow.Status = retryState.Status;
         workflow.CurrentStep = retryState.Step;
@@ -182,6 +195,35 @@ public sealed class WorkflowService
         }
 
         var runs = await store.ListTaskRunsAsync(workflowId, cancellationToken);
+        var parallel = await GetCurrentParallelExecutionAsync(workflow, cancellationToken);
+        if (parallel is not null)
+        {
+            var failedBranches = runs.Where(run => run.Status == TaskRunStatus.Failed
+                && parallel.Value.StepIds.Contains(run.DefinitionStepId)).ToArray();
+            foreach (var branchRun in failedBranches)
+            {
+                await RetryTaskRunAsync(workflowId, branchRun.Id, cancellationToken);
+            }
+            if (failedBranches.Length > 0)
+            {
+                return workflow.ToSummary();
+            }
+            // A provider/join failure can leave no failed task. Resume the barrier,
+            // rather than retrying an unrelated historical task elsewhere in the graph.
+            workflow.Status = WorkflowStatus.Planning;
+            workflow.CurrentStep = WorkflowStep.Plan;
+            workflow.FailureReason = null;
+            workflow.UpdatedAt = clock.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await store.AddEventAsync(new WorkflowEvent
+            {
+                WorkflowId = workflow.Id,
+                Type = WorkflowEventTypes.WorkflowTransitioned,
+                Message = "Parallel group queued for recovery.",
+                CreatedAt = clock.UtcNow
+            }, cancellationToken);
+            return workflow.ToSummary();
+        }
         var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed);
         if (failedRun is not null)
         {
@@ -224,6 +266,28 @@ public sealed class WorkflowService
         => (await store.ListEventsAsync(workflowId, cancellationToken))
             .Select(evt => evt.ToResponse())
             .ToArray();
+
+    private async Task<(WorkflowParallelExecution Execution, HashSet<string> StepIds)?> GetCurrentParallelExecutionAsync(
+        Workflow workflow, CancellationToken cancellationToken)
+    {
+        if (workflow.CurrentDefinitionStepId is null || workflow.WorkflowDefinitionVersionId is not { } versionId)
+        {
+            return null;
+        }
+        var execution = await store.GetParallelExecutionAsync(workflow.Id, workflow.CurrentDefinitionStepId, cancellationToken);
+        if (execution is null)
+        {
+            return null;
+        }
+        var version = await store.GetWorkflowDefinitionVersionAsync(versionId, cancellationToken)
+            ?? throw new InvalidOperationException("The parallel workflow definition version is missing.");
+        var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson)
+            ?? throw new InvalidOperationException("The parallel workflow definition is missing.");
+        var group = document.Steps.Single(step => step.Id == execution.NodeId);
+        var stepIds = WorkflowParallelDefinitions.Branches(document, group)
+            .SelectMany(branch => branch).Select(step => step.Id).ToHashSet(StringComparer.Ordinal);
+        return (execution, stepIds);
+    }
 
     public async Task<WorkflowChatMessageResponse[]> ListChatMessagesAsync(Guid workflowId, CancellationToken cancellationToken)
     {

@@ -11,6 +11,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<WorkflowLoopIteration> WorkflowLoopIterations => Set<WorkflowLoopIteration>();
+    public DbSet<WorkflowParallelExecution> WorkflowParallelExecutions => Set<WorkflowParallelExecution>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<WorkflowTriggerEvent> WorkflowTriggerEvents => Set<WorkflowTriggerEvent>();
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
@@ -81,6 +82,16 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(iteration => iteration.Outcome).HasConversion<string>();
             entity.HasIndex(iteration => new { iteration.WorkflowId, iteration.LoopId, iteration.IterationNumber }).IsUnique();
             entity.HasOne<Workflow>().WithMany().HasForeignKey(iteration => iteration.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkflowParallelExecution>(entity =>
+        {
+            entity.ToTable("workflow_parallel_executions");
+            entity.HasKey(execution => execution.Id);
+            entity.Property(execution => execution.NodeId).IsRequired();
+            entity.Property(execution => execution.Outcome).HasConversion<string>();
+            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId }).IsUnique();
+            entity.HasOne<Workflow>().WithMany().HasForeignKey(execution => execution.WorkflowId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WorkflowEvent>(entity =>

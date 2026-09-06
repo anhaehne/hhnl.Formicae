@@ -127,7 +127,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("model")] string? Model = null,
     [property: JsonPropertyName("trigger")] WorkflowTriggerNodeSettings? Trigger = null,
     [property: JsonPropertyName("loop")] WorkflowLoopNodeSettings? Loop = null,
-    [property: JsonPropertyName("nextStepPort")] string? NextStepPort = null);
+    [property: JsonPropertyName("nextStepPort")] string? NextStepPort = null,
+    [property: JsonPropertyName("parallel")] WorkflowParallelNodeSettings? Parallel = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -136,6 +137,26 @@ public sealed record WorkflowTriggerNodeSettings(
 public sealed record WorkflowLoopNodeSettings(
     string BodyStepId, int RepeatCount, int MaxIterations, int? TimeoutSeconds = null);
 
+public sealed record WorkflowParallelNodeSettings(IReadOnlyList<string> BranchStepIds);
+
+public enum WorkflowParallelExecutionOutcome
+{
+    Running,
+    Succeeded,
+    Failed
+}
+
+public sealed class WorkflowParallelExecution
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid WorkflowId { get; init; }
+    public required string NodeId { get; init; }
+    public string? EntryPlanArtifact { get; init; }
+    public WorkflowParallelExecutionOutcome Outcome { get; set; } = WorkflowParallelExecutionOutcome.Running;
+    public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? CompletedAt { get; set; }
+}
+
 public sealed class TaskRun
 {
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -143,6 +164,7 @@ public sealed class TaskRun
     public TaskRunKind Kind { get; init; }
     public string DefinitionStepId { get; init; } = string.Empty;
     public int? LoopIteration { get; init; }
+    public Guid? ExecutionAttemptId { get; set; }
     public TaskRunStatus Status { get; set; } = TaskRunStatus.Queued;
     public string? ExternalId { get; set; }
     public string? Output { get; set; }
@@ -573,7 +595,8 @@ public sealed record AgentTask(
     string BranchName,
     string? Model,
     IReadOnlyList<AgentTaskContextFile>? ContextFiles = null,
-    string? AiSettingsId = null);
+    string? AiSettingsId = null,
+    Guid? ExecutionAttemptId = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 

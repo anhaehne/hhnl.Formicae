@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.11.2**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.12.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -391,3 +391,17 @@ New and duplicated nodes are selected immediately, but viewport focus waits for 
 
 Confirmation dialogs use compact horizontal actions, clear headings, and explanatory text. Reconnecting uses Cancel/Replace; unsaved-change warnings retain Stay/Discard and distinguish the destructive action.
 `npm run test:smoke -- --workers=1`: 23 passed. Two existing frontend tests updated for dialog labels, layout, keyboard focus, and Escape cancellation; 0 added, 0 removed. `npm run build` and the managed development harness passed. Both dialog screenshots were inspected.
+
+## 0.12.0 parallel planning
+
+Add a Parallel node and connect its 2–8 numbered branch outputs to separate Plan task chains. Connect each chain's last task to that node's Join input, then connect Next to the continuation. Branches run concurrently in separate worker jobs. The join waits for every branch, then combines terminal outputs in configured branch order. Each branch receives the group's saved entry plan or its own preceding task's output.
+
+This release supports Plan tasks inside parallel branches. Implementation, pull-request creation and comment-addressing tasks remain sequential because they write to a shared Git branch. Nested parallel groups, groups inside loops, shared branch tasks and outside entry into a branch are rejected. Loops and triggers can precede or follow a group. Existing v1alpha1–3 definitions remain compatible; parallel settings are optional v1alpha3 fields.
+
+Automatic plan revision from issue feedback remains available for sequential Plan steps. Start a new workflow run to revise a completed parallel group with changed inputs.
+
+A failed branch stops its own remaining tasks while unaffected branches finish. The workflow reports the failing branch/task after all branches settle. Retry workflow retries every failed branch task; retry task retries only that task. Successful tasks remain intact. Retries preserve the group's cursor and entry snapshot and use fresh job identities; an interrupted launch reuses its saved identity to attach to the existing job.
+
+The generated `AddWorkflowParallelExecutions` migration adds durable group activations and nullable task attempt IDs. Existing task rows retain null attempt IDs. Deploy matching API and worker images. For rollback, deploy the previous application/chart version and disable definitions containing Parallel nodes before starting new runs; the additive database columns/table may remain.
+
+Verification: 375 backend tests, 26 browser tests, and 5 local Kubernetes E2E tests passed. The final three Parallel browser cases passed again after the layout correction. Frontend build, Helm lint and managed development lifecycle passed. Added 82 backend and 3 browser cases; edited 2 migration cases and 6 browser selectors; removed none.

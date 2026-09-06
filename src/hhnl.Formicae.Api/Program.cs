@@ -895,9 +895,15 @@ app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", asyn
     Guid workflowId,
     Guid taskRunId,
     WorkflowService workflowService,
+    IWorkflowOrchestrationLock orchestrationLock,
     WorkflowTickNotifier notifier,
     CancellationToken cancellationToken) =>
 {
+    await using var lockHandle = await orchestrationLock.TryAcquireAsync(cancellationToken);
+    if (lockHandle is null)
+    {
+        return Results.Conflict(new { error = "Workflow scheduling is in progress. Retry shortly." });
+    }
     try
     {
         var workflow = await workflowService.RetryTaskRunAsync(workflowId, taskRunId, cancellationToken);
@@ -918,9 +924,15 @@ app.MapPost("/api/workflows/{workflowId:guid}/runs/{taskRunId:guid}/retry", asyn
 app.MapPost("/api/workflows/{workflowId:guid}/retry", async (
     Guid workflowId,
     WorkflowService workflowService,
+    IWorkflowOrchestrationLock orchestrationLock,
     WorkflowTickNotifier notifier,
     CancellationToken cancellationToken) =>
 {
+    await using var lockHandle = await orchestrationLock.TryAcquireAsync(cancellationToken);
+    if (lockHandle is null)
+    {
+        return Results.Conflict(new { error = "Workflow scheduling is in progress. Retry shortly." });
+    }
     try
     {
         var workflow = await workflowService.RetryWorkflowAsync(workflowId, cancellationToken);

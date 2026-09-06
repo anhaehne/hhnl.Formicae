@@ -212,7 +212,7 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
 
-for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop"]) {
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel"]) {
   test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
     const item = await seed(request, 4);
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -228,7 +228,7 @@ for (const title of ["Plan", "Implement", "Create pull request", "Address commen
     await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
     await page.getByLabel("Search step types").fill(title);
     const validation = page.waitForResponse(response => response.url().endsWith("/workflow-definitions/validate") && response.request().postData()?.includes('"step5"') === true);
-    await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: new RegExp(title) }).click();
+    await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: new RegExp(`^${title} `) }).click();
     await validation;
     await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue(title);
     await expect(page.locator('.react-flow__node[data-id="step5"]')).toBeInViewport();
@@ -267,3 +267,75 @@ for (const title of ["Plan", "Implement", "Create pull request", "Address commen
     expect(crashes).toEqual([]);
   });
 }
+
+
+test("parallel branches connect through the inspector and persist named joins", async ({ page, request }, testInfo) => {
+  const item = await seed(request); await open(page, item.name);
+  await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /Parallel/ }).click();
+  await expect(page.getByRole("button", { name: "Duplicate task", exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Branch count", { exact: true })).toHaveValue("2");
+  await page.getByRole("button", { name: "Set as Start Step", exact: true }).click();
+  await page.getByLabel("Branch 1", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
+  await page.getByLabel("Branch 2", { exact: true }).selectOption(JSON.stringify(["n1", "input"]));
+  await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["n2", "input"]));
+  for (const id of ["n0", "n1"]) {
+    await find(page, id);
+    await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["step4", "join"]));
+    await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  const saved = await persisted(request, item.id);
+  expect(saved.startStepId).toBe("step4");
+  expect(saved.steps.find((step: { id: string }) => step.id === "step4").parallel.branchStepIds).toEqual(["n0", "n1"]);
+  expect(saved.steps.find((step: { id: string }) => step.id === "step4").nextStepId).toBe("n2");
+  expect(saved.steps.filter((step: { nextStepPort?: string }) => step.nextStepPort === "join")).toHaveLength(2);
+  await open(page, item.name); await find(page, "step4");
+  await expect(page.getByLabel("Branch 1", { exact: true })).toHaveValue(JSON.stringify(["n0", "input"]));
+  await expect(page.locator('.react-flow__node[data-id="step4"] [data-handleid="join"]')).toBeVisible();
+  await page.getByRole("button", { name: "Arrange", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Arrange", exact: true })).toBeEnabled();
+  await expect(page.locator(".react-flow__viewport")).not.toHaveAttribute("style", /NaN|Infinity/);
+  await page.getByRole("button", { name: "Fit All", exact: true }).click();
+  const groupBox = await page.locator('.react-flow__node[data-id="step4"]').boundingBox();
+  for (const id of ["n0", "n1"]) expect((await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox())!.x).toBeGreaterThan(groupBox!.x + groupBox!.width);
+  for (const id of ["n0", "n1", "n2", "step4"]) await expect(page.locator(`.react-flow__node[data-id="${id}"]`)).toBeInViewport();
+  for (const width of [1600, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole("button", { name: "Fit All", exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath(`parallel-editor-${width}.png`) });
+    await expect(page.getByLabel("Branch 1", { exact: true })).toBeVisible();
+  }
+});
+
+test("parallel branch resizing and contextual Plan insertion remain undoable", async ({ page, request }) => {
+  const item = await seed(request); await open(page, item.name);
+  await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /Parallel/ }).click();
+  await page.getByLabel("Branch count", { exact: true }).selectOption("3");
+  await page.getByLabel("Branch 3", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
+  await page.getByLabel("Branch count", { exact: true }).selectOption("2");
+  await expect(page.getByLabel("Branch 3", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByLabel("Branch count", { exact: true })).toHaveValue("3");
+  await expect(page.getByLabel("Branch 3", { exact: true })).toHaveValue(JSON.stringify(["n0", "input"]));
+  await page.getByLabel("Branch count", { exact: true }).selectOption("8");
+  await expect(page.locator('.react-flow__node[data-id="step4"] [data-handleid="branch:7"]')).toBeAttached();
+  await page.getByLabel("Branch count", { exact: true }).selectOption("3");
+  await find(page, "step4");
+  await page.getByRole("button", { name: "Add after Parallel Branch 3", exact: true }).click();
+  const menu = page.getByRole("complementary", { name: "Add step menu" });
+  await expect(menu.getByRole("button", { name: /Implement/ })).toBeDisabled();
+  await expect(menu.getByRole("button", { name: /Loop/ })).toBeDisabled();
+  await expect(menu.getByRole("button", { name: /Parallel/ })).toBeDisabled();
+  await menu.getByRole("button", { name: /^Plan / }).click();
+  await expect(page.getByLabel("Next step", { exact: true })).toHaveValue(JSON.stringify(["n0", "input"]));
+  await page.getByRole("button", { name: "Workflow settings", exact: true }).click();
+  await page.getByLabel("Enabled", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  const saved = await persisted(request, item.id);
+  expect(saved.steps.find((step: { id: string }) => step.id === "step4").parallel.branchStepIds).toEqual(["", "", "step5"]);
+  expect(saved.steps.find((step: { id: string }) => step.id === "step5").nextStepId).toBe("n0");
+});

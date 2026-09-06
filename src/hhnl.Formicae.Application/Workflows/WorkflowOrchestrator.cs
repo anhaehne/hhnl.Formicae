@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace hhnl.Formicae.Application.Workflows;
 
-public sealed class WorkflowOrchestrator(
+public sealed partial class WorkflowOrchestrator(
     IWorkflowStore store,
     IWorkItemProvider workItems,
     ISourceControlProvider sourceControl,
@@ -38,6 +38,20 @@ public sealed class WorkflowOrchestrator(
 
         try
         {
+            var definition = await ResolveDefinitionAsync(workflow, cancellationToken);
+            var current = definition.Steps.SingleOrDefault(step => step.Id == (workflow.CurrentDefinitionStepId ?? definition.StartStepId));
+            if (current?.Uses == WorkflowParallelDefinitions.Uses)
+            {
+                try { return await AdvanceParallelAsync(workflow, definition, current, cancellationToken); }
+                catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    // Store/provider failures cannot abandon siblings whose jobs may still be running.
+                    try { await store.AddLogAsync(new WorkflowLog { WorkflowId = workflow.Id, Level = "Warning",
+                        Message = $"Parallel group '{current.Id}' will resume after an orchestration error: {exception.Message}", CreatedAt = clock.UtcNow }, cancellationToken); }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+                    return false;
+                }
+            }
             var context = await ResolveExecutionContextAsync(workflow, cancellationToken);
             if (context is null)
             {
@@ -57,6 +71,10 @@ public sealed class WorkflowOrchestrator(
                 case TaskRunKind.AddressComments:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (WorkItemProviderUnavailableException exception)
         {
@@ -247,7 +265,9 @@ public sealed class WorkflowOrchestrator(
         if (feedbackComments.Count > 0)
         {
             var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-            workflow.CurrentDefinitionStepId = document.Steps.First(step => step.Uses == WorkflowDefinitionValidator.UsesFor(TaskRunKind.Plan)).Id;
+            var latestPlan = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
+            workflow.CurrentDefinitionStepId = document.Steps.First(step => step.Uses == WorkflowDefinitionValidator.UsesFor(TaskRunKind.Plan)
+                && (string.IsNullOrEmpty(latestPlan?.DefinitionStepId) || step.Id == latestPlan.DefinitionStepId)).Id;
             return await RunPlanningAsync(workflow, issue, cancellationToken, forceRefresh: true, feedbackComments: feedbackComments);
         }
 
@@ -261,6 +281,14 @@ public sealed class WorkflowOrchestrator(
     private async Task<IReadOnlyList<WorkItemComment>> GetNewIssueFeedbackForPlanAsync(Workflow workflow, WorkItem issue, CancellationToken cancellationToken)
     {
         var planRun = await store.GetTaskRunAsync(workflow.Id, TaskRunKind.Plan, cancellationToken);
+        if (planRun is not null)
+        {
+            var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+            if (document.Steps.Where(step => step.Parallel is not null)
+                .SelectMany(group => WorkflowParallelDefinitions.Branches(document, group)).SelectMany(branch => branch)
+                .Any(step => step.Id == planRun.DefinitionStepId))
+                return []; // Parallel plans are immutable group results; never rewind into a branch through the legacy cursor.
+        }
         if (planRun?.Status == TaskRunStatus.Running)
         {
             await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning resumed for new issue feedback.", cancellationToken);
@@ -883,7 +911,9 @@ public sealed class WorkflowOrchestrator(
         }
         workflow.CurrentDefinitionStepId = nextStepId;
         var next = document.Steps.Single(item => item.Id == nextStepId);
-        WorkflowDefinitionValidator.TryMapUsesToTaskKind(next.Uses, out var nextKind);
+        var nextKind = TaskRunKind.Plan;
+        if (next.Uses != WorkflowParallelDefinitions.Uses)
+            WorkflowDefinitionValidator.TryMapUsesToTaskKind(next.Uses, out nextKind);
         await TransitionWorkflowAsync(workflow, StatusFor(nextKind), StepFor(nextKind), message, cancellationToken);
     }
 

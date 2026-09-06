@@ -93,6 +93,20 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
         => await dbContext.WorkflowLoopIterations.Where(item => item.WorkflowId == workflowId)
             .OrderBy(item => item.StartedAt).ThenBy(item => item.IterationNumber).ToListAsync(cancellationToken);
 
+    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+        => dbContext.WorkflowParallelExecutions.SingleOrDefaultAsync(execution => execution.WorkflowId == workflowId
+            && execution.NodeId == nodeId, cancellationToken);
+
+    public async Task<WorkflowParallelExecution> UpsertParallelExecutionAsync(WorkflowParallelExecution execution, CancellationToken cancellationToken)
+    {
+        if (await dbContext.WorkflowParallelExecutions.AnyAsync(item => item.Id == execution.Id, cancellationToken))
+            dbContext.WorkflowParallelExecutions.Update(execution);
+        else
+            dbContext.WorkflowParallelExecutions.Add(execution);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return execution;
+    }
+
     public async Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)
     {
         dbContext.WorkflowEvents.Add(evt);

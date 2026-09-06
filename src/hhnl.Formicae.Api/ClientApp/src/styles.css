@@ -1688,3 +1688,9 @@ pre.collapsed-content::after {
 .workflow-editor .editor-confirm-actions button { width: auto; min-width: 80px; min-height: 36px; padding: 8px 14px; margin: 0; }
 .workflow-editor .editor-confirm-actions .editor-discard-button { background: #9b443c; border-color: #9b443c; }
 .editor-confirm-actions button:focus-visible { outline: 2px solid #12625d; outline-offset: 3px; }
+
+.editor-node.parallel { border-color: #8675b5; }
+.editor-node.parallel .editor-node-kind { color: #62509b; }
+.editor-inspector-icon.is-parallel { color: #62509b; background: #eeeaf7; }
+
+.editor-node.parallel .editor-return { top: 3px; left: 54%; color: #62509b; background: white; padding: 1px 4px; }

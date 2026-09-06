@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useBlocker, useBeforeUnload } from "react-router-dom";
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, useNodesInitialized, MarkerType, type Connection, type Edge } from "@xyflow/react";
 import { ApiError, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
-import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, loopUses, triggerUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
+import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, loopUses, triggerUses, parallelUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
 import { useEditorState, type EditorDraft } from "./workflowEditor/state";
 import { catalog } from "./workflowEditor/catalog";
 import { arrange } from "./workflowEditor/layout";
@@ -14,7 +14,7 @@ import { NodeActions, WorkflowNode } from "./workflowEditor/Node";
 type Props = { definitions: WorkflowDefinitionResponse[]; loading: boolean; error?: string; saved?: string; canAdminister: boolean; onRefresh: (definitionId?: string, versionId?: string) => Promise<void>; onSaved: (message: string) => void; onError: (message: string) => void };
 const nodeTypes = { workflowStep: WorkflowNode };
 const initial: EditorDraft = { name: "Custom workflow", version: "", enabled: true, isDefault: false, start: "plan", ...definitionToGraph(createDefaultDefinitionDocument()) };
-const makeEdge = (source: string, sourceHandle: string, target: string, targetHandle = "input"): Edge => ({ id: `${source}:${sourceHandle}`, source, sourceHandle, target, targetHandle, markerEnd: { type: MarkerType.ArrowClosed }, label: targetHandle === "return" ? "Return" : sourceHandle === "body" ? "Body" : sourceHandle === "exit" ? "Exit" : undefined, style: targetHandle === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined });
+const makeEdge = (source: string, sourceHandle: string, target: string, targetHandle = "input"): Edge => ({ id: `${source}:${sourceHandle}`, source, sourceHandle, target, targetHandle, markerEnd: { type: MarkerType.ArrowClosed }, label: targetHandle === "join" ? "Join" : sourceHandle.startsWith("branch:") ? `Branch ${Number(sourceHandle.slice(7)) + 1}` : targetHandle === "return" ? "Return" : sourceHandle === "body" ? "Body" : sourceHandle === "exit" ? "Exit" : undefined, style: targetHandle === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : targetHandle === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined });
 export default function WorkflowDefinitionsPage(props: Props) { return <ReactFlowProvider><Editor {...props} /></ReactFlowProvider>; }
 
 function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved, onError }: Props) {
@@ -89,7 +89,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   });
   const validConnection = (connection: Connection | Edge) => {
     const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
-    return !!source && !!target && source.id !== target.id && target.data.uses !== triggerUses && !(connection.sourceHandle === "body" && target.data.uses === loopUses) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && source.data.uses !== triggerUses && source.data.uses !== loopUses));
+    return !!source && !!target && source.id !== target.id && target.data.uses !== triggerUses && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && source.data.uses !== triggerUses && source.data.uses !== loopUses && source.data.uses !== parallelUses));
   };
   function connect(source: string, port: string, target?: string, targetPort = "input") {
     if (!editable) return;
@@ -99,15 +99,23 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     const action = () => { state.commit(); state.update(current => ({ ...current, edges: [...current.edges.filter(edge => !(edge.source === source && edge.sourceHandle === port)), ...(target ? [makeEdge(source, port, target, targetPort)] : [])] })); };
     if (existing && target) setPending({ message: "Replace this output's existing connection?", label: "Replace", action }); else action();
   }
+  function canAdd(uses: string) {
+    if (!context) return true;
+    const existing = draft.edges.find(edge => edge.source === context.source && edge.sourceHandle === context.port);
+    if (uses === triggerUses) return false;
+    if (context.port.startsWith("branch:") || existing?.targetHandle === "join") return uses === "builtins.plan";
+    return !((uses === loopUses || uses === parallelUses) && (context.port === "body" || !!existing));
+  }
   function add(uses: string) {
     if (!editable) return;
     const existing = context && draft.edges.find(edge => edge.source === context.source && edge.sourceHandle === context.port);
-    if (context && (uses === triggerUses || (context.port === "body" && uses === loopUses) || (existing && uses === loopUses))) return;
+    if (!canAdd(uses)) return;
     let id = `step${draft.nodes.length + 1}`; let suffix = 2;
     while (draft.nodes.some(node => node.id === id)) id = `step${draft.nodes.length + 1}-${suffix++}`;
     const bounds = canvas.current!.getBoundingClientRect();
     const source = draft.nodes.find(node => node.id === context?.source);
     const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
+      parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
       trigger: uses === triggerUses ? { type: "DevOpsIssueLabel", enabled: true, repositoryIds: [], label: "" } : undefined } };
     state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
@@ -155,7 +163,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <button type="button" className="editor-add-step" disabled={!editable} onClick={() => { setContext(undefined); setQuery(""); setMenu(!menu); }}>+ Add Step</button>
       <button type="button" disabled={!editable || !state.canUndo} onClick={state.undo} className="editor-icon-button" aria-label="Undo" title="Undo (Ctrl+Z)"><ToolbarIcon name="undo" /></button><button type="button" disabled={!editable || !state.canRedo} onClick={state.redo} className="editor-icon-button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><ToolbarIcon name="redo" /></button>
       <button type="button" disabled={!editable || (!selected.length && !selectedEdges.length)} onClick={remove} className="editor-icon-button" aria-label="Delete" title="Delete selection"><ToolbarIcon name="delete" /></button>
-      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }] })); reveal(id); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
+      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses || selectedNode.data.uses === parallelUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }] })); reveal(id); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
       </div>
       <div className="editor-tool-group" role="group" aria-label="Canvas view">
       <button type="button" disabled={!editable} onClick={() => void layout()}><ToolbarIcon name="arrange" />{arranging ? "Arranging…" : "Arrange"}</button>
@@ -205,10 +213,17 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         <details className="optional-settings"><summary>Advanced</summary><label><span>Schema</span><input readOnly value={workflowSchema} /></label><label><span>Version number</span><input type="number" min="1" disabled={!editable} placeholder="Automatic" value={draft.version} onChange={event => update(current => ({ ...current, version: event.target.value }))} /></label></details>
       </aside> : inspector && selectedNode ? <Inspector key={selectedNode.id} node={selectedNode} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
         update={values => update(current => ({ ...current, nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node) }))}
+        resizeBranches={count => {
+          if (count < 2 || count > 8) return;
+          state.commit(); update(current => ({ ...current,
+            nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, parallel: { branchStepIds: Array.from({ length: count }, (_, index) => node.data.parallel?.branchStepIds[index] ?? "") } } } : node),
+            edges: current.edges.filter(edge => edge.source !== selectedNode.id || !edge.sourceHandle?.startsWith("branch:") || Number(edge.sourceHandle.slice(7)) < count)
+          }));
+        }}
         move={(axis, value) => { if (Number.isFinite(value)) update(current => ({ ...current, nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, position: { ...node.position, [axis]: value } } : node) })); }}
         rename={id => { if (!editable || id === selectedNode.id) return; if (!id || draft.nodes.some(node => node.id === id)) { setNotice("Step IDs must be nonempty and unique."); return; } update(current => ({ ...current, start: current.start === selectedNode.id ? id : current.start, nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, id, data: { ...node.data, stepId: id } } : node), edges: current.edges.map(edge => makeEdge(edge.source === selectedNode.id ? id : edge.source, edge.sourceHandle || "next", edge.target === selectedNode.id ? id : edge.target, edge.targetHandle || "input")) })); setSelected([id]); }}
         start={() => update(current => ({ ...current, start: selectedNode.id }))} connect={(port, target, targetPort) => connect(selectedNode.id, port, target, targetPort)} /> : null}
-      {menu && <aside className="editor-popover editor-catalog" aria-label="Add step menu"><div className="editor-panel-heading"><h3>{context ? contextualEdge ? "Insert task" : "Add connected step" : "Add Step"}</h3><button type="button" aria-label="Close add menu" onClick={() => setMenu(false)}>×</button></div><input autoFocus aria-label="Search step types" placeholder="Search steps…" value={query} onChange={event => setQuery(event.target.value)} />{contextualEdge && <p>The new task will keep the existing downstream connection.</p>}{catalog.filter(item => `${item.title} ${item.description}`.toLowerCase().includes(query.toLowerCase())).map(item => <button type="button" key={item.uses} disabled={!editable || (!!context && (item.uses === triggerUses || (item.uses === loopUses && (!!contextualEdge || context.port === "body"))))} onClick={() => add(item.uses)}><strong><StepIcon uses={item.uses} /> {item.title}</strong><span>{item.description}</span></button>)}</aside>}
+      {menu && <aside className="editor-popover editor-catalog" aria-label="Add step menu"><div className="editor-panel-heading"><h3>{context ? contextualEdge ? "Insert task" : "Add connected step" : "Add Step"}</h3><button type="button" aria-label="Close add menu" onClick={() => setMenu(false)}>×</button></div><input autoFocus aria-label="Search step types" placeholder="Search steps…" value={query} onChange={event => setQuery(event.target.value)} />{contextualEdge && <p>The new task will keep the existing downstream connection.</p>}{catalog.filter(item => `${item.title} ${item.description}`.toLowerCase().includes(query.toLowerCase())).map(item => <button type="button" key={item.uses} disabled={!editable || !canAdd(item.uses)} onClick={() => add(item.uses)}><strong><StepIcon uses={item.uses} /> {item.title}</strong><span>{item.description}</span></button>)}</aside>}
       {switcher && <aside className="editor-popover editor-switcher" aria-label="Choose workflow"><div className="editor-panel-heading"><h3>Workflows</h3><button type="button" aria-label="Close workflow switcher" onClick={() => setSwitcher(false)}>×</button></div><input autoFocus aria-label="Search workflows" value={workflowQuery} onChange={event => setWorkflowQuery(event.target.value)} /><button type="button" disabled={!editable} onClick={newDefinition}>New Definition</button>{definitions.filter(item => item.name.toLowerCase().includes(workflowQuery.toLowerCase())).map(item => <button type="button" key={item.id} onClick={() => guard(() => void openVersion(item, item.versions[0]))}>{item.name}</button>)}</aside>}
     </div>
     {problems && <section className="editor-problems" aria-label="Workflow problems"><div className="editor-panel-heading"><h3>Problems ({errors.length})</h3><button type="button" onClick={() => setProblems(false)}>Close</button></div>{errors.length === 0 && <p>No problems found.</p>}{errors.map((error, index) => <button type="button" key={index} onClick={() => { if (error.nodeId) { reveal(error.nodeId); setSettings(false); } else setSettings(true); }}>{error.message}</button>)}</section>}

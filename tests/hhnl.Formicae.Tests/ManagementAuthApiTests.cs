@@ -23,6 +23,25 @@ public sealed class ManagementAuthApiTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Retry_returns_conflict_without_mutation_while_scheduler_holds_lock(bool taskRetry)
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: false);
+        var workflow = await factory.CreateFailedWorkflowAsync();
+        using var scope = factory.Services.CreateScope();
+        var orchestrationLock = scope.ServiceProvider.GetRequiredService<IWorkflowOrchestrationLock>();
+        await using var handle = await orchestrationLock.TryAcquireAsync(default);
+        Assert.NotNull(handle);
+        var url = taskRetry
+            ? $"/api/workflows/{workflow.WorkflowId}/runs/{workflow.TaskRunId}/retry"
+            : $"/api/workflows/{workflow.WorkflowId}/retry";
+        Assert.Equal(HttpStatusCode.Conflict, (await factory.CreateClient().PostAsync(url, null)).StatusCode);
+        var stored = await scope.ServiceProvider.GetRequiredService<IWorkflowStore>().GetWorkflowAsync(workflow.WorkflowId, default);
+        Assert.Equal(WorkflowStatus.Failed, stored!.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ModelDiscovery_requires_management_admin(bool authenticated)
     {
         await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);

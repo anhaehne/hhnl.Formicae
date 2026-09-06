@@ -20,7 +20,8 @@ public sealed record RuntimeJobSpec(
     IReadOnlyList<RuntimeJobSecretFile>? SecretFiles = null,
     RuntimeJobSecretEnvironment? SecretEnvironment = null,
     RuntimeJobExecutionRequirements? ExecutionRequirements = null,
-    RuntimeJobExecutionPolicy? ExecutionPolicy = null);
+    RuntimeJobExecutionPolicy? ExecutionPolicy = null,
+    bool ReuseExisting = false);
 
 public sealed record RuntimeJobExecutionRequirements(
     bool RequiresBrowser = false,

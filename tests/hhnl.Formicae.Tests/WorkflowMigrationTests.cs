@@ -61,6 +61,8 @@ public sealed class WorkflowMigrationTests(MigrationPostgresFixture fixture) : I
         var runs = await db.TaskRuns.AsNoTracking().OrderBy(run => run.Id).ToListAsync();
         Assert.Equal(4, runs.Count);
         Assert.All(runs, run => Assert.Null(run.LoopIteration));
+        Assert.All(runs, run => Assert.Null(run.ExecutionAttemptId));
+        Assert.Empty(await db.WorkflowParallelExecutions.AsNoTracking().ToListAsync());
         Assert.Equal(customDefinition ? ["draft", "code", "pr", "review"] :
             new[] { "plan", "implement", "createPullRequest", "addressComments" }, runs.Select(run => run.DefinitionStepId));
         var workflow = await db.Workflows.SingleAsync();
@@ -176,7 +178,7 @@ public sealed class WorkflowMigrationTests(MigrationPostgresFixture fixture) : I
     private static Task<string> HistoryAsync(FormicaeDbContext db)
         => db.Database.SqlQueryRaw<string>("""
             SELECT jsonb_build_object(
-                'runs', (SELECT jsonb_agg(to_jsonb(r) - 'DefinitionStepId' - 'LoopIteration' ORDER BY "Id") FROM task_runs r),
+                'runs', (SELECT jsonb_agg(to_jsonb(r) - 'DefinitionStepId' - 'LoopIteration' - 'ExecutionAttemptId' ORDER BY "Id") FROM task_runs r),
                 'workflows', (SELECT jsonb_agg(to_jsonb(w) - 'CurrentDefinitionStepId' ORDER BY "Id") FROM workflows w),
                 'logs', (SELECT jsonb_agg(to_jsonb(l) ORDER BY "Id") FROM workflow_logs l),
                 'events', (SELECT jsonb_agg(to_jsonb(e) ORDER BY "Id") FROM workflow_events e)

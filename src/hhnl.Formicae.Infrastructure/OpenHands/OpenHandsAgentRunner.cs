@@ -44,8 +44,30 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             throw new InvalidOperationException("ACP agent execution is not supported by this worker.");
         var gitAccessToken = await CreateGitAccessTokenAsync(task, cancellationToken);
         var spec = BuildSpec(task, settings, gitAccessToken);
-        var start = await jobRuntime.StartJobAsync(spec, cancellationToken);
+        RuntimeJobStartResult start;
+        try
+        {
+            start = await jobRuntime.StartJobAsync(spec, cancellationToken);
+        }
+        catch (Exception exception) when (task.ExecutionAttemptId is not null
+            && !cancellationToken.IsCancellationRequested && IsUncertainLaunch(exception))
+        {
+            throw new AgentLaunchUncertainException("The runtime launch outcome is unknown; the same execution attempt can be resumed.", exception);
+        }
         return new AgentRunStartResult(start.ExternalId, AiSettingsId: settings.Id, Model: TrimToNull(ResolveModel(task, settings, ResolveAuthMethod(settings.AuthMethod))));
+    }
+
+    private static bool IsUncertainLaunch(Exception exception)
+    {
+        static bool Transient(int? status) => status is 408 or 429 or >= 500;
+        return exception switch
+        {
+            k8s.Autorest.HttpOperationException operation => Transient((int?)operation.Response?.StatusCode),
+            k8s.KubernetesException kubernetes => Transient(kubernetes.Status?.Code),
+            HttpRequestException http => http.StatusCode is null || Transient((int)http.StatusCode),
+            TimeoutException or OperationCanceledException or System.Net.Sockets.SocketException => true,
+            _ => false
+        };
     }
 
     internal static bool UsesCodexCli(ResolvedAiSettings settings)
@@ -79,7 +101,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             SecretFiles: secretFiles,
             SecretEnvironment: secretEnvironment,
             ExecutionRequirements: BuildExecutionRequirements(task.Kind),
-            ExecutionPolicy: BuildExecutionPolicy(task.Kind, jobOptions.Value));
+            ExecutionPolicy: BuildExecutionPolicy(task.Kind, jobOptions.Value),
+            ReuseExisting: task.ExecutionAttemptId is not null);
     }
 
     private static RuntimeJobExecutionRequirements BuildExecutionRequirements(TaskRunKind taskKind)
@@ -105,6 +128,13 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private static string BuildJobName(AgentTask task)
     {
+        if (task.ExecutionAttemptId is { } attempt)
+        {
+            // The durable attempt, not prompt content or a per-call nonce, owns the external Job.
+            var identity = $"{task.WorkflowId:N}:{task.Kind}:{attempt:N}";
+            var attemptHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..32].ToLowerInvariant();
+            return $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{attemptHash}";
+        }
         var prefix = $"formicae-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}";
         var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(task.Prompt)))[..8].ToLowerInvariant();
         var nonce = Guid.NewGuid().ToString("N")[..8];

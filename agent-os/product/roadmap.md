@@ -28,7 +28,9 @@ This skill is project-local to this repository. When this workflow requires user
 - Configure AI model/API settings through the UI.
 - Support customizable workflows.
 - Add a workflow editor.
-- Support loops, parallel execution, decisions, scripts, and triggers.
+- Support loops and triggers as configurable workflow nodes (available).
+- Support parallel planning branches with an explicit join (available in 0.12.0); parallel shared-branch writes remain deferred.
+- Add workflow decisions and scripts.
 - Support customizable personas.
 - Support customizable tasks.
 - Support per-workflow-step capabilities, environments, and secrets.

@@ -8,6 +8,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     private readonly Dictionary<Guid, Workflow> workflows = [];
     private readonly Dictionary<Guid, TaskRun> runs = [];
     private readonly Dictionary<Guid, WorkflowLoopIteration> loopIterations = [];
+    private readonly Dictionary<Guid, WorkflowParallelExecution> parallelExecutions = [];
     private readonly List<WorkflowEvent> events = [];
     private readonly List<WorkflowTriggerEvent> triggerEvents = [];
     private readonly List<WorkflowLog> logs = [];
@@ -143,6 +144,25 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
                 .Where(item => item.WorkflowId == workflowId)
                 .OrderBy(item => item.StartedAt).ThenBy(item => item.IterationNumber).ToArray());
         }
+    }
+
+    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(parallelExecutions.Values.SingleOrDefault(item => item.WorkflowId == workflowId && item.NodeId == nodeId));
+        }
+    }
+
+    public Task<WorkflowParallelExecution> UpsertParallelExecutionAsync(WorkflowParallelExecution execution, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            if (parallelExecutions.Values.Any(item => item.Id != execution.Id && item.WorkflowId == execution.WorkflowId && item.NodeId == execution.NodeId))
+                throw new InvalidOperationException("A parallel execution already exists for this workflow and node.");
+            parallelExecutions[execution.Id] = execution;
+        }
+        return Task.FromResult(execution);
     }
 
     public Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken)

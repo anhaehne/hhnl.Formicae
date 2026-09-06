@@ -1,0 +1,1 @@
+Apply agent-os/standards/database/ef-migrations.md: generate all EF migrations with dotnet ef; never hand-edit migrations or snapshots. Follow repository testing, main fetch, version alignment, and deployment verification requirements.

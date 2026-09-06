@@ -1,0 +1,46 @@
+# Issue #11: deterministic workflow decisions (0.13.0)
+
+Status: independently reviewed implementation plan. Issue acceptance requires deterministic branch selection, visible decision history, and rejection of invalid or ambiguous definitions. This plan builds on the implemented 0.12.0 parallel scheduler without changing its planning-only scope.
+
+## Node and condition contract
+
+Add first-class `builtins.decision` with exactly two required, different targets: True and False. Decision settings contain the condition and targets; do not add a redundant ordinary Next connection. Neither target can use Loop Return or Parallel Join. Decisions have no AI/model/persona settings. Labels and directional ports identify outcomes without relying on color.
+
+A condition has a source (`literal`, `workflowField`, or `taskOutput`), an explicit scalar type (`string`, `number`, `boolean`), an operator, and a typed comparison literal where required. Workflow field allowlist: `issueUrl`, `repositoryUrl`, `baseBranch`, `model`, `planArtifact`, `pullRequestUrl`. No reflection/property traversal, expression language, dynamic clock, regex, interpolation, arbitrary JavaScript, or external requests. Literal values are JSON scalars; task outputs are the complete text of one explicitly named succeeded task execution. JSON-path extraction is deferred.
+
+Operators: `equals` and `notEquals` for matching scalar types; `contains` for strings; `exists` for every type; `greaterThan`, `greaterThanOrEqual`, `lessThan`, `lessThanOrEqual` for numbers. String matching is ordinal and case-sensitive. Numeric conversion uses invariant decimal parsing, rejects nonfinite/overflow/invalid values, and never falls back to culture-specific or lexicographic comparison. Boolean parsing accepts true/false only. No implicit type coercion. `exists` means a source is present (an empty string is present); it does not perform numeric conversion. Missing data for other operators uses explicit `missingValue: error|false` with default error; invalid typed data is an execution error. Unknown operators, sources, fields, types, and incompatible literals are validation errors.
+
+## Graph semantics and limits
+
+True and False are mutually exclusive outgoing edges. The selected route executes; the other route launches no tasks and needs no synthetic skipped TaskRun rows. Outer graph edges may diverge and converge, including nested Decision nodes in an acyclic outer DAG. A shared downstream task executes once because only one cursor exists; require no join/barrier for exclusive convergence. Terminal tasks may end either path independently.
+
+Decisions cannot occur inside Loop bodies or Parallel branches in this release. Existing control groups may occur before a Decision, after convergence, or on one exclusive arm, provided every entry targets the group's own input and each body retains existing ownership rules. A loop or parallel group is an atomic outer-graph vertex for DAG analysis. Existing trigger entries can target decisions, with the same validation as manual start. Reject outer cycles, body entry/escape edges, nested parallel groups, loop/parallel crossings, unknown references, disconnected nodes, and unreachable decision arms. Existing loop Return and parallel Join edges remain the only permitted execution cycles and are excluded from outer-DAG cycle analysis.
+
+Replace linear-only validation of decision-containing documents with explicit graph analysis, not enumeration of all paths and not unconditional serial flattening of exclusive arms. Reuse current control-region validators, named edge roles, and normalization for Loop/Trigger metadata. Validate outer reachability and acyclicity in O(V+E) and compute dominators over the outer DAG with a synthetic root for manual and trigger entries.
+
+Task-output sources must refer to a succeeded task guaranteed to execute on every entry path to the decision. Ordinary task sources must dominate the decision. Tasks in conditional-only sibling arms do not dominate; reject these even with missingValue=false. A completed Parallel group may expose its aggregate via planArtifact; referencing a task inside a Parallel branch is initially rejected. Loop-body task output references are initially rejected because task ID alone does not identify an iteration. These restrictions are shown inline in the editor. Loop-scoped output and decision nodes inside repeated/concurrent regions are deferred explicitly.
+
+## Durable evaluation and restart
+
+Add WorkflowDecisionExecution with Id, WorkflowId, NodeId, BooleanResult, SelectedTargetId, EvaluatedAt, and an input audit snapshot containing the source kind/reference, resolved scalar type/value (or missing marker), and optional source TaskRunId. A unique index on WorkflowId+NodeId enforces one evaluation per immutable acyclic run. Keep persisted fields sufficient to explain the selection even if workflow state later changes. Do not persist arbitrary additional workflow fields or credentials.
+
+Introduce a store operation that inserts the decision outcome and advances Workflow.CurrentDefinitionStepId/status in one PostgreSQL transaction (and one in-memory gate). A stored outcome wins on retry/recovery; never reevaluate it or create a new branch after restart. Repeated calls return the existing outcome and do not rewind a cursor already downstream. Reject conflicting selected targets instead of overwriting them. Do not hold a database transaction over external operations; evaluation is local, deterministic, and bounded.
+
+Decisions produce no external job and no TaskRun. Expose decision outcomes through a dedicated read-only history API/response and combine them with task/loop history in the run page. Render Decision node label/ID, True or False, chosen target, evaluation time, and concise input/source summary. Durable outcome rows are authoritative; WorkflowEvents can supplement them but must not be the only history source. Evaluation errors leave no selected branch, fail the workflow with node-specific diagnostics, and are visible through existing error history. Retrying a committed decision reuses its outcome; retrying an evaluation error may reevaluate the current allowed inputs because no branch outcome was committed; the pinned condition definition remains unchanged.
+
+Integrate dispatch before built-in task resolution, and make transitions to decision nodes explicit. Preserve legacy sequential feedback rules and the parallel feedback guard; never rewind into an unselected branch. Runtime output lookup uses DefinitionStepId and the exact persisted execution identity, never TaskRunKind.
+
+## Persistence and editor integration
+
+Generate the EF migration using dotnet ef: new decision table, unique workflow/node index, workflow cascade FK, and task-source reference if represented relationally. Review generated migration/snapshot and test upgrade from 0.12.0 with existing task attempts and parallel activations. Definition JSON remains backward-compatible with v1alpha1-3; optional decision settings and new control kind require no definition-row rewrite.
+
+Update WorkflowModels/Interfaces, EF and in-memory stores, WorkflowNodeDefinitions/parallel validator integration, dedicated decision validator/evaluator, orchestrator decision partial, history mapping/API and UI. Editor work covers catalog, icon, True/False handles, contextual addition/reconnection, task insertion preserving the selected output, inspector typed source/operator/value controls, validation focus, graph adapters, ELK named ports, layout persistence, undo/redo, duplication restrictions and read-only permissions. The current selector must offer only valid source kinds/operators; show missing/invalid data behavior visibly.
+
+## Acceptance and delivery
+
+Add deterministic evaluator tests for each operator/type, ordinal matching, missing/empty values, invalid numeric/boolean data and culture independence. Add graph tests for both routes, convergence, nested decisions, control groups on an arm, multiple entry dominators, invalid output references, invalid body crossings and cycles. Add execution tests proving only the selected branch launches, convergence executes once, restart does not reevaluate changed workflow state, duplicate decision persistence cannot fork execution, and failed evaluation launches neither branch. Cover preserved loop/parallel execution and feedback guards.
+
+Add real PostgreSQL migration/transaction/reload/unique-outcome tests and history/API permission tests. Browser tests cover create/connect/edit/save/reload, contextual insertion on both outputs, node visibility while moving, clickable validation, undo, read-only mode and visible decision history. Review screenshots at desktop and narrow widths.
+
+Obtain independent implementation review, then run targeted and full backend tests, frontend build, deterministic browser smoke, managed harness and required migration/startup Kubernetes E2E. Align version files/docs to 0.13.0 once. Commit main, push, wait for healthy deployment, then close #11 with the solution, explicit initial limits, test counts, and deployed version.
+

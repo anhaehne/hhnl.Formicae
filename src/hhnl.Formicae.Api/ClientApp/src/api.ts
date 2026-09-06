@@ -51,6 +51,8 @@ export type WorkflowDefinitionTrigger = {
 };
 
 export type WorkflowTriggerNodeSettings = Omit<WorkflowDefinitionTrigger, "id">;
+export type WorkflowParallelNodeSettings = { branchStepIds: string[] };
+
 export type WorkflowLoopNodeSettings = { bodyStepId: string; repeatCount: number; maxIterations: number; timeoutSeconds?: number | null };
 
 export type WorkflowDefinitionStep = {
@@ -62,7 +64,8 @@ export type WorkflowDefinitionStep = {
   model?: string | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
-  nextStepPort?: "return" | null;
+  parallel?: WorkflowParallelNodeSettings | null;
+  nextStepPort?: "return" | "join" | null;
 };
 
 export type ModelDiscoveryStatus = {
