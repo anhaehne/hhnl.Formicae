@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<WorkerAgentMessageService>();
         services.AddScoped<WorkerAgentAuthRefreshService>();
         services.AddScoped<AiSettingsService>();
+        services.AddScoped<PersonaService>();
         services.AddScoped<DevOpsIntegrationService>();
         services.AddScoped<ManagementUserService>();
         services.AddScoped<InviteService>();
@@ -75,6 +76,7 @@ public static class DependencyInjection
             services.AddDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase("Formicae"));
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
@@ -88,6 +90,7 @@ public static class DependencyInjection
             services.AddDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase("Formicae"));
             services.AddSingleton<IWorkflowStore, InMemoryWorkflowStore>();
             services.AddSingleton<IAiSettingsStore, InMemoryAiSettingsStore>();
+            services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
@@ -96,6 +99,7 @@ public static class DependencyInjection
             services.AddDbContext<FormicaeDbContext>(options => options.UseNpgsql(configuration.GetConnectionString("Formicae")));
             services.AddScoped<IWorkflowStore, EfWorkflowStore>();
             services.AddScoped<IAiSettingsStore, EfAiSettingsStore>();
+            services.AddScoped<IPersonaStore, EfPersonaStore>();
             services.AddScoped<IDevOpsIntegrationStore, EfDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }

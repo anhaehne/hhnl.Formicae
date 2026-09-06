@@ -32,7 +32,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support parallel planning branches with an explicit join (available in 0.12.0); parallel shared-branch writes remain deferred.
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Add workflow scripts.
-- Support customizable personas.
+- Support customizable personas with immutable per-version task context (available in 0.14.0).
 - Support customizable tasks.
 - Support per-workflow-step capabilities, environments, and secrets.
 - Support customizable environments.

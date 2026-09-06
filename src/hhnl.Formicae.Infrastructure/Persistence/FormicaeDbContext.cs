@@ -18,6 +18,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<WorkflowLog> WorkflowLogs => Set<WorkflowLog>();
     public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
     public DbSet<WorkflowDefinitionVersion> WorkflowDefinitionVersions => Set<WorkflowDefinitionVersion>();
+    public DbSet<Persona> Personas => Set<Persona>();
     public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<DevOpsIntegration> DevOpsIntegrations => Set<DevOpsIntegration>();
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
@@ -153,6 +154,17 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(log => log.Message).IsRequired();
             entity.Property(log => log.Level).IsRequired();
             entity.HasIndex(log => log.WorkflowId);
+        });
+
+        modelBuilder.Entity<Persona>(entity =>
+        {
+            entity.ToTable("personas");
+            entity.HasKey(persona => persona.Id);
+            entity.Property(persona => persona.Name).IsRequired().HasMaxLength(120);
+            entity.Property(persona => persona.Instructions).IsRequired().HasMaxLength(16000);
+            entity.Property(persona => persona.Tone).IsRequired().HasMaxLength(1000);
+            entity.Property(persona => persona.OperatingConstraints).IsRequired().HasMaxLength(8000);
+            entity.Property(persona => persona.Revision).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<AiSettings>(entity =>

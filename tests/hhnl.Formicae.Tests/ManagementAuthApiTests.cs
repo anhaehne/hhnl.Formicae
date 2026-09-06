@@ -416,9 +416,9 @@ public sealed class ManagementAuthApiTests
         bool CanViewWorkflows,
         bool CanTriggerWorkflows,
         bool CanAdminister);
-    private sealed record FailedWorkflow(Guid WorkflowId, Guid TaskRunId);
+    public sealed record FailedWorkflow(Guid WorkflowId, Guid TaskRunId);
 
-    private sealed class FormicaeApiFactory(bool managementAuthEnabled) : WebApplicationFactory<Program>
+    public sealed class FormicaeApiFactory(bool managementAuthEnabled) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {

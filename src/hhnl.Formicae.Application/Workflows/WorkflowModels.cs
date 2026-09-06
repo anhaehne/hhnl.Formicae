@@ -95,7 +95,8 @@ public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps,
     [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null,
     [property: JsonPropertyName("loops")] IReadOnlyList<WorkflowDefinitionLoop>? Loops = null,
-    [property: JsonPropertyName("editor")] WorkflowEditorMetadata? Editor = null);
+    [property: JsonPropertyName("editor")] WorkflowEditorMetadata? Editor = null,
+    [property: JsonPropertyName("defaultPersonaId")] string? DefaultPersonaId = null);
 
 public sealed record WorkflowEditorPosition(double X, double Y);
 public sealed record WorkflowEditorViewport(double X, double Y, double Zoom);
@@ -130,7 +131,9 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("loop")] WorkflowLoopNodeSettings? Loop = null,
     [property: JsonPropertyName("nextStepPort")] string? NextStepPort = null,
     [property: JsonPropertyName("parallel")] WorkflowParallelNodeSettings? Parallel = null,
-    [property: JsonPropertyName("decision")] WorkflowDecisionNodeSettings? Decision = null);
+    [property: JsonPropertyName("decision")] WorkflowDecisionNodeSettings? Decision = null,
+    [property: JsonPropertyName("personaId")] string? PersonaId = null,
+    [property: JsonPropertyName("personaSnapshot")] PersonaSnapshot? PersonaSnapshot = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,

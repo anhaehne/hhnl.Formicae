@@ -1,6 +1,6 @@
 # Issue #14: customizable agent personas (0.14.0)
 
-Status: independently reviewed plan, approved for implementation after #11 deploys. Actual issue criteria: selectable step personas, operator-visible/editable persona configuration, and persona-specific prompt context. No new execution types, permissions, model discovery behavior, or infrastructure changes are required.
+Status: implemented and independently reviewed; local verification complete (see verification.md). Actual issue criteria: selectable step personas, operator-visible/editable persona configuration, and persona-specific prompt context. No new execution types, permissions, model discovery behavior, or infrastructure changes are required.
 
 ## Catalog and API
 

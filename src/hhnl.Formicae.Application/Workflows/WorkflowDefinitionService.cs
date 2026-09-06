@@ -6,7 +6,8 @@ public sealed class WorkflowDefinitionService(
     IWorkflowStore store,
     WorkflowDefinitionValidator validator,
     IDevOpsIntegrationStore? integrationStore = null,
-    IClock? clock = null)
+    IClock? clock = null,
+    PersonaService? personas = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
 
@@ -84,9 +85,14 @@ public sealed class WorkflowDefinitionService(
             throw new WorkflowDefinitionNotFoundException($"Workflow definition '{definitionId}' was not found.");
         }
 
+        if (request.Definition is null)
+            throw new WorkflowDefinitionValidationException([new("definition.required", "Workflow definition is required.")]);
+        var resolution = await PersonaDefinitions.ResolveAsync(request.Definition, personas, cancellationToken);
+        var document = resolution.Document;
         if (request.IsEnabled)
         {
-            var validation = await ValidateAsync(request.Definition, cancellationToken);
+            var graphValidation = await ValidateGraphAndRepositoriesAsync(document, cancellationToken);
+            var validation = new WorkflowDefinitionValidationResult([.. graphValidation.Errors, .. resolution.Validation.Errors]);
             if (!validation.IsValid)
             {
                 throw new WorkflowDefinitionValidationException(validation.Errors);
@@ -100,10 +106,10 @@ public sealed class WorkflowDefinitionService(
         {
             WorkflowDefinitionId = definitionId,
             Version = versionNumber,
-            DslSchemaVersion = request.Definition.Schema,
+            DslSchemaVersion = document.Schema,
             IsEnabled = request.IsEnabled,
             IsDefault = request.IsDefault,
-            DefinitionJson = WorkflowDefinitionJson.Serialize(request.Definition),
+            DefinitionJson = WorkflowDefinitionJson.Serialize(document),
             CreatedAt = clock.UtcNow
         };
 
@@ -157,7 +163,9 @@ public sealed class WorkflowDefinitionService(
             ]);
         }
 
-        var validation = validator.Validate(WorkflowDefinitionJson.Deserialize(version.DefinitionJson));
+        var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
+        var validation = validator.Validate(document);
+        if (validation.IsValid && document is not null) validation = PersonaDefinitions.ValidateRuntime(document);
         if (!validation.IsValid)
         {
             throw new WorkflowDefinitionValidationException(validation.Errors);
@@ -167,6 +175,14 @@ public sealed class WorkflowDefinitionService(
     }
 
     public async Task<WorkflowDefinitionValidationResult> ValidateAsync(WorkflowDefinitionDocument? definition, CancellationToken cancellationToken)
+    {
+        var graphValidation = await ValidateGraphAndRepositoriesAsync(definition, cancellationToken);
+        if (definition is null) return graphValidation;
+        var resolution = await PersonaDefinitions.ResolveAsync(definition, personas, cancellationToken);
+        return new([.. graphValidation.Errors, .. resolution.Validation.Errors]);
+    }
+
+    private async Task<WorkflowDefinitionValidationResult> ValidateGraphAndRepositoriesAsync(WorkflowDefinitionDocument? definition, CancellationToken cancellationToken)
     {
         var validation = validator.Validate(definition);
         if (!validation.IsValid || definition is null) return validation;

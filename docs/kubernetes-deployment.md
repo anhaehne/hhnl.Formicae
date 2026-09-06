@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.13.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.14.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -417,3 +417,11 @@ The generated `AddWorkflowDecisionExecutions` migration adds durable outcomes. O
 Deploy matching 0.13.0 API and worker images. Earlier definitions remain compatible. Rollback may retain the additive table, but definitions using Decision nodes require 0.13.0 or later and should not start under an older application.
 
 Verification: 516 backend tests, 31 browser tests and 5 local Kubernetes E2E tests passed. Frontend build, Helm lint and managed API/UI lifecycle passed. Added 141 backend and 5 browser cases; no existing cases edited or removed.
+
+## 0.14.0 agent personas
+
+Operators can manage reusable personas and select a workflow default or an override for each Plan, Implement, and Address comments step. Default behavior preserves existing prompts. Persona instructions, tone, and operating constraints add prompt context without changing tool permissions, model selection, or execution types.
+
+Each new workflow version records the current persona revision for its AI steps. Existing versions and retries retain that snapshot after catalog edits or deletion. The editor previews the saved and next-save revisions; disabled drafts can retain unresolved selections, while enabled versions require valid active selections when saved.
+
+The generated AddPersonas migration adds the persona catalog table. Deploy matching 0.14.0 API and worker images. The additive table can remain during rollback, but workflows using custom persona snapshots should not start under an older application that cannot apply their instructions.

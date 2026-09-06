@@ -118,12 +118,16 @@ public sealed partial class WorkflowOrchestrator
             var task = new AgentTask(workflow.Id, TaskRunKind.Plan, prompt, workflow.RepositoryUrl, workflow.BaseBranch,
                 string.IsNullOrWhiteSpace(step.Model) ? workflow.Model : step.Model.Trim(),
                 AiSettingsId: string.IsNullOrWhiteSpace(step.AiSettingsId) ? null : step.AiSettingsId.Trim(), ExecutionAttemptId: run.ExecutionAttemptId);
+            var prepared = await PrepareAgentTaskAsync(workflow, run, task, cancellationToken);
+            task = prepared.Task;
             var started = await agentRunner.StartAsync(task, cancellationToken);
             launchAccepted = true;
             await AssignExternalJobAsync(workflow, run, started.ExternalId, cancellationToken);
             await AddEventAsync(workflow.Id, run.Id, "AgentSettingsResolved", "Information",
                 $"Parallel task '{step.Id}': model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
-                new { nodeId = step.Id, aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model, started.ExternalId }, cancellationToken);
+                new { nodeId = step.Id, aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
+                    personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
+                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId }, cancellationToken);
             if (started.CompletedResult is not null)
             {
                 var result = ValidatePlanningResult(started.CompletedResult);

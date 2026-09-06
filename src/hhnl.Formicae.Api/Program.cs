@@ -470,6 +470,31 @@ app.MapPost("/api/webhooks/gitea", async (
     GiteaWebhookHandler handler,
     CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
 
+app.MapGet("/api/personas", async (PersonaService personas, CancellationToken token) => Results.Ok(await personas.ListAsync(token)))
+    .RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapGet("/api/personas/{id}", async (string id, PersonaService personas, CancellationToken token) =>
+{
+    var persona = await personas.GetAsync(id, token);
+    return persona is null ? Results.NotFound() : Results.Ok(persona);
+}).RequireAuthorization(ManagementAuthorization.WorkflowView);
+app.MapPost("/api/personas", async (CreatePersonaRequest request, PersonaService personas, CancellationToken token) =>
+{
+    try { var persona = await personas.CreateAsync(request, token); return Results.Created($"/api/personas/{persona.Id}", persona); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapPut("/api/personas/{id}", async (string id, UpdatePersonaRequest request, PersonaService personas, CancellationToken token) =>
+{
+    try { var persona = await personas.UpdateAsync(id, request, token); return persona is null ? Results.NotFound() : Results.Ok(persona); }
+    catch (PersonaConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+app.MapDelete("/api/personas/{id}", async (string id, int expectedRevision, PersonaService personas, CancellationToken token) =>
+{
+    try { return await personas.DeleteAsync(id, expectedRevision, token) ? Results.NoContent() : Results.NotFound(); }
+    catch (PersonaConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
     CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));

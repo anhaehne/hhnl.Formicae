@@ -637,17 +637,14 @@ public sealed partial class WorkflowOrchestrator(
     {
         try
         {
-            var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-            var step = document.Steps.SingleOrDefault(step => step.Id == run.DefinitionStepId);
-            task = task with
-            {
-                AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
-                Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim()
-            };
+            var prepared = await PrepareAgentTaskAsync(workflow, run, task, cancellationToken);
+            task = prepared.Task;
             var started = await agentRunner.StartAsync(task, cancellationToken);
             await AddEventAsync(workflow.Id, run.Id, "AgentSettingsResolved", "Information",
                 $"AI configuration: {started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId}; model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
-                new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model, started.ExternalId }, cancellationToken);
+                new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
+                    personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
+                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId }, cancellationToken);
             return started;
         }
         catch (Exception exception)
@@ -655,6 +652,21 @@ public sealed partial class WorkflowOrchestrator(
             await CompleteTaskRunAsync(workflow, run, string.Empty, false, exception.Message, cancellationToken);
             throw;
         }
+    }
+
+    private sealed record PreparedAgentTask(AgentTask Task, PersonaSnapshot? Persona);
+
+    private async Task<PreparedAgentTask> PrepareAgentTaskAsync(Workflow workflow, TaskRun run, AgentTask task, CancellationToken cancellationToken)
+    {
+        var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+        var step = document.Steps.SingleOrDefault(step => step.Id == run.DefinitionStepId);
+        var persona = step?.PersonaSnapshot;
+        return new(task with
+        {
+            AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
+            Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim(),
+            Prompt = PersonaPromptComposer.Compose(task.Prompt, persona)
+        }, persona);
     }
 
     private Task CompleteTaskRunAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)
@@ -867,6 +879,8 @@ public sealed partial class WorkflowOrchestrator(
         var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
         var validation = new WorkflowDefinitionValidator().Validate(document);
         if (document is null || !validation.IsValid) throw new InvalidOperationException("Workflow definition version is invalid.");
+        var personaValidation = PersonaDefinitions.ValidateRuntime(document);
+        if (!personaValidation.IsValid) throw new InvalidOperationException(string.Join(" ", personaValidation.Errors.Select(error => error.Message)));
         return WorkflowNodeDefinitions.Normalize(document);
     }
 

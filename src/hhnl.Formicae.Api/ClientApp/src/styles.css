@@ -1679,14 +1679,14 @@ pre.collapsed-content::after {
   .app-content .panel-heading { margin: -16px -16px 16px; padding: 14px 16px; flex-wrap: wrap; }
 }
 
-.workflow-editor .editor-confirm { width: min(420px, calc(100vw - 32px)); max-width: none; padding: 0; border: 1px solid #d1dcc9; border-radius: 12px; box-shadow: 0 18px 60px #17251f33; color: #293d31; }
+.editor-confirm { width: min(420px, calc(100vw - 32px)); max-width: none; padding: 0; border: 1px solid #d1dcc9; border-radius: 12px; box-shadow: 0 18px 60px #17251f33; color: #293d31; }
 .editor-confirm-content { padding: 24px 24px 20px; }
 .editor-confirm-kicker { display: block; margin-bottom: 8px; font-size: .65rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #77876c; }
 .editor-confirm h2 { margin: 0 0 10px; font-size: 1.1rem; letter-spacing: -.02em; }
 .editor-confirm p { margin: 0; font-size: .84rem; line-height: 1.55; color: #63705b; }
 .editor-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; background: #f6f8f2; border-top: 1px solid #e0e6d9; }
-.workflow-editor .editor-confirm-actions button { width: auto; min-width: 80px; min-height: 36px; padding: 8px 14px; margin: 0; }
-.workflow-editor .editor-confirm-actions .editor-discard-button { background: #9b443c; border-color: #9b443c; }
+.editor-confirm-actions button { width: auto; min-width: 80px; min-height: 36px; padding: 8px 14px; margin: 0; }
+.editor-confirm-actions button.editor-discard-button { background: #9b443c; border-color: #9b443c; }
 .editor-confirm-actions button:focus-visible { outline: 2px solid #12625d; outline-offset: 3px; }
 
 .editor-node.parallel { border-color: #8675b5; }
@@ -1698,3 +1698,15 @@ pre.collapsed-content::after {
 .editor-node.decision { border-color: #bd984c; }
 .editor-node.decision .editor-node-kind { color: #86601a; }
 .editor-inspector-icon.is-decision { color: #86601a; background: #f7efdc; }
+
+.personas-workspace { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.persona-list { display: grid; gap: 6px; margin-top: 16px; }
+.persona-list button { display: flex; flex-direction: column; gap: 5px; text-align: left; padding: 12px; background: #fff; border: 1px solid #d6dfd2; border-radius: 8px; }
+.persona-list button[aria-pressed=true] { background: #e5f1ea; border-color: #12625d; }
+.persona-list span { font-size: .8rem; color: #626d61; }
+.persona-form-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.persona-form-actions .primary-button { width: auto; }
+.persona-preview p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.persona-revision-notice, .persona-conflict { background: #fff4df; color: #755618; padding: 10px; border-radius: 6px; font-size: .85rem; }
+.persona-picker { margin-top: 16px; }
+@media(max-width: 800px) { .personas-workspace { grid-template-columns: 1fr; } .persona-list { max-height: 260px; overflow-y: auto; } }

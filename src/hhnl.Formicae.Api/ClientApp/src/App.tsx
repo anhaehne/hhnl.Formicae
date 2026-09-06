@@ -1,3 +1,4 @@
+import PersonasPage from "./PersonasPage";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -92,9 +93,9 @@ type AiSettingsFormState = {
   subscriptionCredentialMountPath: string;
 };
 
-type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "settings";
+type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "settings";
 
-const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "settings"];
+const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "settings"];
 
 const pageDescriptions: Record<Page, string> = {
   workflows: "Follow execution and manage your workflow runs.",
@@ -102,6 +103,7 @@ const pageDescriptions: Record<Page, string> = {
   integrations: "Connect the services your workflows use.",
   repositories: "Manage repositories available to your workflows.",
   users: "Manage workspace access and permissions.",
+  personas: "Define reusable instructions and operating styles for agents.",
   settings: "Configure agents and AI providers."
 };
 
@@ -111,6 +113,7 @@ const pagePaths: Record<Page, string> = {
   "integrations": "/integrations",
   "repositories": "/repositories",
   "users": "/users",
+  "personas": "/personas",
   "settings": "/settings"
 };
 
@@ -261,6 +264,7 @@ export default function App() {
     { page: "integrations", label: "Integrations", disabled: !canAdminister },
     { page: "repositories", label: "Repositories", disabled: !canAdminister },
     { page: "users", label: "Users", disabled: false },
+    { page: "personas", label: "Personas", disabled: !canViewWorkflows },
     { page: "settings", label: "Settings", disabled: !canAdminister }
   ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
@@ -1192,7 +1196,7 @@ export default function App() {
       );
     }
 
-    if (activePage === "workflow-definitions") return null;
+    if (activePage === "workflow-definitions" || activePage === "personas") return null;
 
     if (activePage === "integrations") {
       return (
@@ -1260,7 +1264,7 @@ export default function App() {
   }
 
   function renderActivePage() {
-    return activePage === "workflows" ? (
+    return activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -2695,6 +2699,8 @@ function pageTitle(page: Page) {
       return "Repositories";
     case "users":
       return "Users";
+    case "personas":
+      return "Personas";
     case "settings":
       return "Settings";
   }

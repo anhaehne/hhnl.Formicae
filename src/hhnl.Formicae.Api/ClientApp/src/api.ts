@@ -22,6 +22,7 @@ export type WorkflowSummary = {
 
 export type WorkflowDefinitionDocument = {
   schema: string;
+  defaultPersonaId?: string | null;
   startStepId: string;
   steps: WorkflowDefinitionStep[];
   triggers?: WorkflowDefinitionTrigger[] | null;
@@ -71,6 +72,8 @@ export type WorkflowDefinitionStep = {
   displayName?: string | null;
   aiSettingsId?: string | null;
   model?: string | null;
+  personaId?: string | null;
+  personaSnapshot?: PersonaSnapshot | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
@@ -627,3 +630,12 @@ export function validateWorkflowDefinition(definition: WorkflowDefinitionDocumen
 export async function listDecisionExecutions(workflowId: string): Promise<WorkflowDecisionExecution[]> {
   return send<WorkflowDecisionExecution[]>(`/api/workflows/${encodeURIComponent(workflowId)}/decisions`);
 }
+
+export type PersonaSnapshot = { id: string; revision: number; name: string; instructions: string; tone: string; operatingConstraints: string };
+export type Persona = PersonaSnapshot & { builtIn: boolean; createdAt: string; updatedAt: string };
+export type PersonaInput = Pick<Persona, "name" | "instructions" | "tone" | "operatingConstraints">;
+export const listPersonas = () => send<Persona[]>("/api/personas");
+export const getPersona = (id: string) => send<Persona>(`/api/personas/${encodeURIComponent(id)}`);
+export const createPersona = (input: PersonaInput) => send<Persona>("/api/personas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+export const updatePersona = (id: string, input: PersonaInput, expectedRevision: number) => send<Persona>(`/api/personas/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
+export const deletePersona = (id: string, expectedRevision: number) => sendNoContent(`/api/personas/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });

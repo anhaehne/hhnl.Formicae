@@ -42,6 +42,8 @@ public sealed class WorkflowDefinitionValidator
         }
 
         if (document.Steps is null) return new([new("definition.steps.required", "At least one step is required.", "steps")]);
+        if (document.Steps.Any(step => step is null))
+            return new([new("definition.step.required", "Each step must be a node object.", "steps")]);
 
         if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
             return WorkflowNodeDefinitions.Validate(document);

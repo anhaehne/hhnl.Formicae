@@ -18,7 +18,8 @@ public sealed class WorkflowEditorTests
         var saved = WorkflowDefinitionJson.Deserialize((await store.GetWorkflowDefinitionVersionAsync(original.Id, default))!.DefinitionJson)!;
         Assert.Equal(new WorkflowEditorPosition(234, 567), saved.Editor!.Positions["plan"]);
         Assert.Equal(0.75, saved.Editor.Viewport!.Zoom);
-        Assert.Equal(WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(Document() with { Editor = null })), WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(saved)));
+        Assert.Equal(PersonaService.DefaultSnapshot, saved.Steps[0].PersonaSnapshot);
+        Assert.Equal(WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(saved with { Editor = null })), WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(saved)));
     }
 
     [Fact]
