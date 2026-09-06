@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.9.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.9.1**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -365,3 +365,7 @@ Agent steps can select a saved AI configuration and a Codex model discovered thr
 Model discovery runs a bounded worker job using the selected Codex credentials and the CLI app-server model/list protocol. It requires the same worker image and subscription authentication setup as execution. Other CLIs report discovery as unsupported; ACP execution is rejected explicitly. Discovery jobs do not check out repositories or request browser/nested-container capabilities. Refreshed Codex credentials use the existing authenticated worker callback.
 
 In the workflow editor, select an agent step, choose its AI configuration, and use Discover / refresh models. Saved models remain visible when discovery fails or a model disappears from the catalog. The AgentSettingsResolved workflow event records the configuration and model passed to the CLI; an unspecified model is labeled CLI default.
+
+## 0.9.1 Codex profile compatibility
+
+Codex subscription profiles labeled ACP / Codex remain supported by the existing native Codex CLI execution path and CLI model discovery. Other ACP providers remain unsupported. This fixes the 0.9.0 filter that disabled existing Codex profiles in the step picker. No saved configuration or credential changes are required.

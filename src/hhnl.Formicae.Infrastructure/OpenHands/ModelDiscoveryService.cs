@@ -16,7 +16,7 @@ public sealed class ModelDiscoveryService(IJobRuntime runtime, IOptions<RuntimeJ
     {
         var settings = await settingsService.ResolveAsync(settingsId, cancellationToken)
             ?? throw new ArgumentException("AI configuration was not found.");
-        if (settings.AgentKind == AgentKinds.Acp || settings.AuthMethod != OpenHandsAuthMethods.CodexSubscription)
+        if (!OpenHandsAgentRunner.UsesCodexCli(settings))
             return new(settingsId, null, "Unsupported", [], "CLI model discovery currently supports Codex subscription execution only.");
         var name = Prefix(settingsId) + Guid.NewGuid().ToString("N")[..12];
         var env = new Dictionary<string, string>

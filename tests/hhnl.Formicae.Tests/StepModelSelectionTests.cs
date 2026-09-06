@@ -10,6 +10,25 @@ namespace hhnl.Formicae.Tests;
 
 public sealed class StepModelSelectionTests
 {
+    [Fact]
+    public async Task Acp_codex_subscription_profile_supports_existing_CLI_execution_and_discovery()
+    {
+        var store = new InMemoryAiSettingsStore();
+        await store.UpsertAsync(new AiSettings { Id = "codex", Name = "Codex Default", AgentKind = AgentKinds.Acp,
+            AcpProvider = AcpProviders.Codex, AcpCommand = "codex", AuthMethod = OpenHandsAuthMethods.CodexSubscription,
+            CodexAuthJson = "{\"tokens\":\"fixture\"}" }, default);
+        var settings = new AiSettingsService(store, Options.Create(new OpenHandsOptions()), new SystemClock());
+        var runtime = new Runtime();
+        var runner = new OpenHandsAgentRunner(runtime, Options.Create(new RuntimeJobOptions()), Options.Create(new OpenHandsOptions()), settings);
+        await runner.StartAsync(new(Guid.NewGuid(), TaskRunKind.Plan, "plan", "https://example.com", "main", "chosen-model", AiSettingsId: "codex"), default);
+        Assert.Equal("chosen-model", runtime.Spec!.Environment["FORMICAE_MODEL"]);
+        Assert.Equal(RuntimeJobAuthMethods.CodexSubscription, runtime.Spec.AuthMethod);
+        var discovery = new ModelDiscoveryService(runtime, Options.Create(new RuntimeJobOptions()), settings);
+        Assert.Equal("Running", (await discovery.StartAsync("codex", default)).Status);
+        Assert.Equal("ModelDiscovery", runtime.Spec!.Environment["FORMICAE_TASK_KIND"]);
+        Assert.Equal("{\"tokens\":\"fixture\"}", Assert.Single(runtime.Spec.SecretFiles!).Data["auth.json"]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

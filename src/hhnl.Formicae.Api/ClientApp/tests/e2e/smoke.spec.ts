@@ -14,7 +14,7 @@ test("step model picker discovers through CLI jobs and preserves saved selection
   } });
   expect(created.ok()).toBe(true);
   await page.route("**/api/ai-settings", route => route.fulfill({ json: [
-    { id: "codex", name: "Codex profile", agentKind: "OpenHands", authMethod: "CodexSubscription" },
+    { id: "codex", name: "Codex profile", agentKind: "Acp", acpProvider: "Codex", acpCommand: "codex", authMethod: "CodexSubscription" },
     { id: "other", name: "Other profile", agentKind: "OpenHands", authMethod: "ApiKey" }
   ] }));
   let fail = false;
@@ -28,6 +28,7 @@ test("step model picker discovers through CLI jobs and preserves saved selection
   await page.getByRole("button", { name: new RegExp(name) }).click();
   await page.locator('.react-flow__node[data-id="plan"]').click();
   await expect(page.getByRole("combobox", { name: "Step model", exact: true })).toHaveValue("saved-model");
+  await expect(page.getByRole("option", { name: "Codex profile", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Discover / refresh models" }).click();
   await expect(page.getByRole("button", { name: "Discovering models…" })).toBeVisible();
   await expect(page.getByRole("option", { name: "Discovered model (CLI default)", exact: true })).toBeAttached();

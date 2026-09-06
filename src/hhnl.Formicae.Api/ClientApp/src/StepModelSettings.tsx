@@ -14,7 +14,8 @@ export function StepModelSettings({ aiSettingsId, model, disabled, onChange }: {
   const generation = useRef(0);
   const effectiveId = aiSettingsId || settings[0]?.id || "default";
   const selected = settings.find(item => item.id === effectiveId);
-  const supported = selected?.agentKind !== "Acp" && selected?.authMethod === "CodexSubscription";
+  const usesCodexCli = (item: AiSettings) => item.authMethod === "CodexSubscription" && (item.agentKind !== "Acp" || item.acpProvider === "Codex");
+  const supported = selected !== undefined && usesCodexCli(selected);
 
   useEffect(() => {
     let active = true;
@@ -57,7 +58,7 @@ export function StepModelSettings({ aiSettingsId, model, disabled, onChange }: {
       <select value={aiSettingsId || ""} disabled={disabled} onChange={event => onChange({ aiSettingsId: event.target.value || undefined, model: undefined })}>
         <option value="">Default AI configuration</option>
         {aiSettingsId && !settings.some(item => item.id === aiSettingsId) ? <option value={aiSettingsId}>{aiSettingsId} (unavailable)</option> : null}
-        {settings.map(item => <option key={item.id} value={item.id} disabled={item.agentKind === "Acp"}>{item.name}{item.agentKind === "Acp" ? " (execution unsupported)" : ""}</option>)}
+        {settings.map(item => <option key={item.id} value={item.id} disabled={item.agentKind === "Acp" && !usesCodexCli(item)}>{item.name}{item.agentKind === "Acp" && !usesCodexCli(item) ? " (execution unsupported)" : ""}</option>)}
       </select>
     </label>
     <label><span>Step model</span>

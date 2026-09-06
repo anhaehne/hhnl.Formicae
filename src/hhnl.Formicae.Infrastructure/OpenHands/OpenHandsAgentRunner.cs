@@ -40,13 +40,17 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
                 ? await aiSettingsService.ResolveAsync(cancellationToken)
                 : await aiSettingsService.ResolveAsync(task.AiSettingsId, cancellationToken)
                     ?? throw new InvalidOperationException($"AI configuration '{task.AiSettingsId}' was not found.");
-        if (settings.AgentKind == AgentKinds.Acp)
+        if (settings.AgentKind == AgentKinds.Acp && !UsesCodexCli(settings))
             throw new InvalidOperationException("ACP agent execution is not supported by this worker.");
         var gitAccessToken = await CreateGitAccessTokenAsync(task, cancellationToken);
         var spec = BuildSpec(task, settings, gitAccessToken);
         var start = await jobRuntime.StartJobAsync(spec, cancellationToken);
         return new AgentRunStartResult(start.ExternalId, AiSettingsId: settings.Id, Model: TrimToNull(ResolveModel(task, settings, ResolveAuthMethod(settings.AuthMethod))));
     }
+
+    internal static bool UsesCodexCli(ResolvedAiSettings settings)
+        => settings.AuthMethod == OpenHandsAuthMethods.CodexSubscription
+            && (settings.AgentKind != AgentKinds.Acp || settings.AcpProvider == AcpProviders.Codex);
 
     public async Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
     {
