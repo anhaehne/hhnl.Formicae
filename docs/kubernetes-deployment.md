@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.11.1**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.11.2**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -386,3 +386,8 @@ The validation endpoint checks definitions without saving. Problems can focus th
 
 New and duplicated nodes are selected immediately, but viewport focus waits for React Flow to finish measuring nodes instead of using a fixed timer. This prevents a delayed browser measurement from moving the canvas away from the new node. Incomplete loops and triggers still show validation problems while remaining editable. Measured dimensions are retained outside the saved draft and undo history, preventing nodes from hiding and remeasuring on each drag or validation update. Six browser regressions cover every supported node type with delayed measurements, validation, node visibility, field undo, navigation, and frame-level drag visibility checks.
 `npm run test:smoke -- --workers=1`: 23 passed, including 6 added node-type regressions (0 removed, 0 existing tests edited). `npm run build` passed with the existing bundle-size advisory. The managed `formicae-dev.sh prepare/start/status/logs/stop` harness passed in the existing local worker image; both services became healthy and stopped cleanly.
+
+## 0.11.2 editor confirmations
+
+Confirmation dialogs use compact horizontal actions, clear headings, and explanatory text. Reconnecting uses Cancel/Replace; unsaved-change warnings retain Stay/Discard and distinguish the destructive action.
+`npm run test:smoke -- --workers=1`: 23 passed. Two existing frontend tests updated for dialog labels, layout, keyboard focus, and Escape cancellation; 0 added, 0 removed. `npm run build` and the managed development harness passed. Both dialog screenshots were inspected.

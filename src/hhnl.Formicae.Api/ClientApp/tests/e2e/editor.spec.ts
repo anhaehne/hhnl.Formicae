@@ -58,7 +58,7 @@ test("task duplication deletion and keyboard undo preserve settings", async ({ p
   await expect(page.locator('.react-flow__node[data-id="n0-copy"]')).toHaveCount(0);
 });
 
-test("refresh keeps draft and navigation and version changes warn before discarding", async ({ page, request }) => {
+test("refresh keeps draft and navigation and version changes warn before discarding", async ({ page, request }, testInfo) => {
   const item = await seed(request);
   await page.goto("/workflows"); await page.getByRole("button", { name: "Definitions", exact: true }).click();
   await page.locator(".editor-workflow-name").click(); await page.getByRole("complementary", { name: "Choose workflow" }).getByRole("button", { name: item.name, exact: true }).click();
@@ -67,7 +67,10 @@ test("refresh keeps draft and navigation and version changes warn before discard
   await page.locator(".editor-header").getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue("Unsaved name");
   await page.getByRole("button", { name: "Workflows", exact: true }).click();
-  await expect(page.getByRole("dialog")).toBeVisible(); await page.getByRole("button", { name: "Stay", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Discard your changes?" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stay", exact: true })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath("discard-dialog.png") });
+  await page.getByRole("button", { name: "Stay", exact: true }).click();
   await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue("Unsaved name");
   await page.evaluate(() => history.back());
   await expect(page.getByRole("dialog")).toBeVisible(); await page.getByRole("button", { name: "Stay", exact: true }).click();
@@ -139,11 +142,21 @@ test("large workflow arranges without overlaps and remains searchable at respons
 });
 
 
-test("replacing connections is explicit and reversible", async ({ page, request }) => {
+test("replacing connections is explicit and reversible", async ({ page, request }, testInfo) => {
   const item = await seed(request); await open(page, item.name); await find(page, "n0");
   const next = page.getByLabel("Next step", { exact: true });
   await next.selectOption(JSON.stringify(["n2", "input"]));
-  await page.getByRole("button", { name: "Stay", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Replace connection?" });
+  await expect(dialog.getByRole("button", { name: "Stay", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await expect.poll(async () => {
+    const cancel = await dialog.getByRole("button", { name: "Cancel", exact: true }).boundingBox();
+    const replace = await dialog.getByRole("button", { name: "Replace", exact: true }).boundingBox();
+    return !!cancel && !!replace && Math.abs(cancel.y - replace.y) < 2 && cancel.x + cancel.width <= replace.x;
+  }).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("replace-dialog.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
   await expect(next).toHaveValue(JSON.stringify(["n1", "input"]));
   await next.selectOption(JSON.stringify(["n2", "input"]));
   await page.getByRole("button", { name: "Replace", exact: true }).click();

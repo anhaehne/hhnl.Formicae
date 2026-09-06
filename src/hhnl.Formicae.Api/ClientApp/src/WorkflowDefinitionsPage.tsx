@@ -1,5 +1,5 @@
 import { StepIcon } from "./workflowEditor/StepIcon";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useBlocker, useBeforeUnload } from "react-router-dom";
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, useNodesInitialized, MarkerType, type Connection, type Edge } from "@xyflow/react";
 import { ApiError, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
@@ -218,5 +218,13 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
 function Confirm({ message, label, cancel, confirm }: { message: string; label: string; cancel: () => void; confirm: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
-  return <dialog ref={ref} className="editor-confirm" onCancel={event => { event.preventDefault(); cancel(); }} aria-label={message}><p>{message}</p><div className="button-row"><button type="button" autoFocus onClick={cancel}>Stay</button><button type="button" className="primary-button" onClick={confirm}>{label}</button></div></dialog>;
+  const titleId = useId(), descriptionId = useId();
+  const replacing = label === "Replace";
+  return <dialog ref={ref} className="editor-confirm" onCancel={event => { event.preventDefault(); cancel(); }} aria-labelledby={titleId} aria-describedby={descriptionId}>
+    <div className="editor-confirm-content"><span className="editor-confirm-kicker">{replacing ? "Connection change" : "Unsaved changes"}</span>
+      <h2 id={titleId}>{replacing ? "Replace connection?" : "Discard your changes?"}</h2>
+      <p id={descriptionId}>{replacing ? "This output is already connected. Replacing it will disconnect the current target and connect the selected step." : `${message} Your edits since the last save will be lost.`}</p>
+    </div>
+    <div className="editor-confirm-actions"><button type="button" autoFocus onClick={cancel}>{replacing ? "Cancel" : "Stay"}</button><button type="button" className={`primary-button${replacing ? "" : " editor-discard-button"}`} onClick={confirm}>{label}</button></div>
+  </dialog>;
 }
