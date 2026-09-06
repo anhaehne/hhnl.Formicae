@@ -1,4 +1,4 @@
-import type { Edge, Node } from "@xyflow/react";
+import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings } from "./api";
 
 export const triggerUses = "builtins.trigger";
@@ -50,23 +50,24 @@ export function toNodeDefinition(document: WorkflowDefinitionDocument): Workflow
 export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes: WorkflowStepNode[]; edges: Edge[] } {
   const document = toNodeDefinition(original);
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
-    id: step.id, type: "workflowStep", position: { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
+    id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
       aiSettingsId: step.aiSettingsId, model: step.model, trigger: step.trigger, loop: step.loop }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
     if (step.nextStepId) edges.push({ id: `${step.id}:next`, source: step.id, target: step.nextStepId,
+      markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
       label: step.nextStepPort === "return" ? "Return" : step.uses === loopUses ? "Exit" : undefined });
     if (step.loop?.bodyStepId) edges.push({ id: `${step.id}:body`, source: step.id, sourceHandle: "body",
-      target: step.loop.bodyStepId, targetHandle: "input", label: "Body" });
+      markerEnd: { type: MarkerType.ArrowClosed }, target: step.loop.bodyStepId, targetHandle: "input", label: "Body" });
   }
   return { nodes, edges };
 }
 
 export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string): WorkflowDefinitionDocument {
-  return { schema: workflowSchema, startStepId, steps: nodes.map(node => {
+  return { schema: workflowSchema, startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
     const next = edges.find(edge => edge.source === node.id && edge.sourceHandle !== "body");
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,

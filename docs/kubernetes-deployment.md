@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.10.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.11.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -375,3 +375,9 @@ Codex subscription profiles labeled ACP / Codex remain supported by the existing
 The editor saves formicae.workflow/v1alpha3 definitions. Add Step offers Task, Trigger and Loop nodes. Select a node to configure it; separate trigger/loop lists have been removed. Triggers start at their outgoing connection. Loop Body connects to its first task, the last task connects to Return, and Exit leads to the next task or loop. Manual start can reference a task or loop. Loop count, maximum iterations and timeout are configured on the loop node.
 
 The API validates and normalizes control nodes into the existing task/iteration execution plan. Legacy v1alpha1/v1alpha2 versions remain readable and executable; editing converts only a draft and Save Version creates a new immutable v1alpha3 version. Task IDs and model overrides are retained. No migration is required. Nested loops, event waits, conditional looping and parallel execution are not part of this release.
+
+## 0.11.0 workflow editor usability
+
+The editor uses a viewport canvas with searchable workflow and version selection, contextual node creation, an inspector, undo/redo and explicit Save Version. Unsaved edits are protected when navigating away and preserved during refresh or failed saves; there is no autosave or crash recovery. Layout positions and viewport are stored as optional editor metadata in immutable definition JSON. Execution ignores this metadata, and no database migration is required.
+
+The validation endpoint checks definitions without saving. Problems can focus their affected nodes. Arrange uses a separately loaded ELK layout engine; loading older definitions arranges them only when saved positions are missing. Existing task models, loops and triggers retain their behavior.

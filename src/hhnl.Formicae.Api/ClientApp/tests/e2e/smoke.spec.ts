@@ -1,5 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
+async function openWorkflow(page: Page, name: string) {
+  await page.locator(".editor-workflow-name").click();
+  await page.getByRole("complementary", { name: "Choose workflow" }).getByRole("button", { name, exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save Version", exact: true })).toBeEnabled();
+}
+async function addStep(page: Page, type: string) {
+  await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+  await page.getByLabel("Search step types").fill(type);
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: new RegExp(type) }).click();
+}
 const apiUrl = "http://127.0.0.1:5000";
 
 test("step model picker discovers through CLI jobs and preserves saved selections", async ({ page, request }) => {
@@ -25,7 +35,7 @@ test("step model picker discovers through CLI jobs and preserves saved selection
     models: fail ? [] : [{ id: "discovered-model", displayName: "Discovered model", isDefault: true }]
   } }));
   await page.goto("/workflow-definitions");
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await openWorkflow(page, name);
   await page.locator('.react-flow__node[data-id="plan"]').click();
   await expect(page.getByRole("combobox", { name: "Step model", exact: true })).toHaveValue("saved-model");
   await expect(page.getByRole("option", { name: "Codex profile", exact: true })).toBeEnabled();
@@ -37,7 +47,7 @@ test("step model picker discovers through CLI jobs and preserves saved selection
   await page.getByRole("button", { name: "Save Version" }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await openWorkflow(page, name);
   await page.locator('.react-flow__node[data-id="plan"]').click();
   await expect(page.getByRole("combobox", { name: "AI configuration", exact: true })).toHaveValue("codex");
   await expect(page.getByRole("combobox", { name: "Step model", exact: true })).toHaveValue("discovered-model");
@@ -63,10 +73,17 @@ test("API health and version endpoints respond", async ({ request }) => {
   });
 });
 
-test("UI loads and navigates between primary pages", async ({ page }) => {
+test("UI loads and navigates between primary pages", async ({ page }, testInfo) => {
   await page.goto("/workflows");
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Management" })).toBeVisible();
 
+  await page.screenshot({ path: testInfo.outputPath("content-workflows.png"), fullPage: true });
+  for (const [label, route] of [["Integrations", "integrations"], ["Repositories", "repositories"], ["Users", "users"], ["Settings", "settings"]]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/${route}$`));
+    await expect(page.locator(".content-header h1")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`content-${route}.png`), fullPage: true });
+  }
   await page.getByRole("button", { name: "Definitions", exact: true }).click();
   await expect(page).toHaveURL(/\/workflow-definitions$/);
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Definitions" })).toBeVisible();
@@ -112,7 +129,7 @@ test("workflow editor round-trips loop settings", async ({ page, request }) => {
   expect(versionResponse.ok()).toBe(true);
 
   await page.goto("/workflow-definitions");
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await openWorkflow(page, name);
   await page.locator('.react-flow__node[data-id="loop-planning"]').click();
   await expect(page.getByRole("combobox", { name: "Loop body", exact: true })).toHaveValue(JSON.stringify(["plan", "input"]));
   await expect(page.getByLabel("Repeat count")).toHaveValue("2");
@@ -124,7 +141,7 @@ test("workflow editor round-trips loop settings", async ({ page, request }) => {
   await page.getByRole("button", { name: "Save Version" }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await openWorkflow(page, name);
   await page.locator('.react-flow__node[data-id="loop-planning"]').click();
   await expect(page.getByLabel("Repeat count")).toHaveValue("3");
   const persisted = await (await request.get(`${apiUrl}/api/workflow-definitions/${definition.id}`)).json();
@@ -143,19 +160,20 @@ test("trigger and loop nodes can be created configured connected and deleted", a
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   const name = `Control nodes ${Date.now()}`;
   await page.goto("/workflow-definitions");
+  await page.locator(".editor-workflow-name").click();
   await page.getByRole("button", { name: "New Definition", exact: true }).click();
   await page.getByLabel("Definition Name", { exact: true }).fill(name);
-  await page.getByLabel("New step type").selectOption("builtins.loop");
-  await page.getByRole("button", { name: "Add Step", exact: true }).click();
+  await addStep(page, "Loop");
   await page.locator('.react-flow__node[data-id="step5"]').click();
   await page.getByLabel("Display Name", { exact: true }).fill("Repeat planning");
   await page.getByRole("combobox", { name: "Loop body", exact: true }).selectOption(JSON.stringify(["plan", "input"]));
   await page.getByRole("combobox", { name: "Loop exit", exact: true }).selectOption(JSON.stringify(["implement", "input"]));
   await page.getByRole("button", { name: "Set as Start Step" }).click();
+  await page.getByRole("button", { name: "Fit All", exact: true }).click();
   await page.locator('.react-flow__node[data-id="plan"]').click();
   await page.getByRole("combobox", { name: "Next step", exact: true }).selectOption(JSON.stringify(["step5", "return"]));
-  await page.getByLabel("New step type").selectOption("builtins.trigger");
-  await page.getByRole("button", { name: "Add Step", exact: true }).click();
+  await page.getByRole("button", { name: "Replace", exact: true }).click();
+  await addStep(page, "Trigger");
   await page.locator('.react-flow__node[data-id="step6"]').click();
   await page.getByLabel("Display Name", { exact: true }).fill("Issue ready");
   await page.getByLabel("Trigger enabled", { exact: true }).uncheck();
@@ -165,13 +183,13 @@ test("trigger and loop nodes can be created configured connected and deleted", a
   await page.getByRole("button", { name: "Save Version", exact: true }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await openWorkflow(page, name);
   await page.locator('.react-flow__node[data-id="step6"]').click();
   await expect(page.getByLabel("Label", { exact: true })).toHaveValue("ready");
   await expect(page.getByRole("combobox", { name: "Next step", exact: true })).toHaveValue(JSON.stringify(["step5", "input"]));
-  await page.locator('.workflow-canvas').scrollIntoViewIfNeeded();
+  await page.locator('.editor-canvas').scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath("control-nodes.png"), fullPage: true });
-  await page.getByRole("button", { name: "Delete Step", exact: true }).click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.locator('.react-flow__node[data-id="step6"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Save Version", exact: true }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();

@@ -93,7 +93,12 @@ public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("startStepId")] string StartStepId,
     [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowDefinitionStep> Steps,
     [property: JsonPropertyName("triggers")] IReadOnlyList<WorkflowDefinitionTrigger>? Triggers = null,
-    [property: JsonPropertyName("loops")] IReadOnlyList<WorkflowDefinitionLoop>? Loops = null);
+    [property: JsonPropertyName("loops")] IReadOnlyList<WorkflowDefinitionLoop>? Loops = null,
+    [property: JsonPropertyName("editor")] WorkflowEditorMetadata? Editor = null);
+
+public sealed record WorkflowEditorPosition(double X, double Y);
+public sealed record WorkflowEditorViewport(double X, double Y, double Zoom);
+public sealed record WorkflowEditorMetadata(IReadOnlyDictionary<string, WorkflowEditorPosition> Positions, WorkflowEditorViewport? Viewport = null);
 
 public sealed record WorkflowDefinitionLoop(
     [property: JsonPropertyName("id")] string Id,
@@ -273,7 +278,7 @@ public sealed record WorkflowDefinitionVersionResponse(
     WorkflowDefinitionDocument Definition,
     DateTimeOffset CreatedAt);
 
-public sealed record WorkflowDefinitionValidationError(string Code, string Message, string? Path = null);
+public sealed record WorkflowDefinitionValidationError(string Code, string Message, string? Path = null, string? NodeId = null, string? ConnectionId = null);
 
 public sealed record WorkflowDefinitionValidationResult(IReadOnlyList<WorkflowDefinitionValidationError> Errors)
 {

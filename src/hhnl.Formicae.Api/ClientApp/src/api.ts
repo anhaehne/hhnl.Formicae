@@ -26,6 +26,7 @@ export type WorkflowDefinitionDocument = {
   steps: WorkflowDefinitionStep[];
   triggers?: WorkflowDefinitionTrigger[] | null;
   loops?: WorkflowDefinitionLoop[] | null;
+  editor?: { positions: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null } | null;
 };
 
 export type WorkflowDefinitionLoop = {
@@ -84,6 +85,8 @@ export type WorkflowDefinitionValidationError = {
   code: string;
   message: string;
   path?: string | null;
+  nodeId?: string | null;
+  connectionId?: string | null;
 };
 
 export type WorkflowDefinitionResponse = {
@@ -602,4 +605,8 @@ function formatValidationErrors(errors: WorkflowDefinitionValidationError[]) {
   return errors
     .map(error => error.path ? `${error.path}: ${error.message}` : error.message)
     .join("\n");
+}
+
+export function validateWorkflowDefinition(definition: WorkflowDefinitionDocument) {
+  return send<{ isValid: boolean; errors: WorkflowDefinitionValidationError[] }>("/api/workflow-definitions/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(definition) });
 }
