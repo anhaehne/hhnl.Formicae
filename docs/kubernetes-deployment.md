@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.16.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.17.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -444,3 +444,11 @@ The first supported setting is an optional maximum task runtime of 1–3600 seco
 History records selected profile constraints, not inferred image or actual runtime settings. Custom images, tool installation, secrets, MCP and per-step overrides are separate features; this release rejects unsupported environment configuration instead of silently ignoring it.
 
 Deploy matching 0.16.0 API and worker images. The generated environment-catalog migration is additive and leaves workflow histories untouched. Before rolling back to an older application, stop starting workflows that rely on environment timeout caps: older applications do not enforce these settings. The additive table may remain during rollback.
+
+## 0.17.0 per-step environments
+
+AI workflow steps can inherit the workflow environment, select another profile, or explicitly choose Default environment to use platform settings. An override replaces the workflow profile; timeout caps are not combined. Direct pull-request actions and control nodes cannot select an environment.
+
+Saving a workflow captures each selected profile revision once and pins the resolved configuration on its AI nodes. Runtime selection and task history use those snapshots, including parallel branches, loop iterations and retries. Catalog edits or deletion do not change existing versions. Invalid references produce node-specific validation errors; disabled drafts retain unresolved selections. The inspector shows saved/current profile revisions and preserves later edits during delayed saves and undo.
+
+Definitions from 0.16.0 and earlier keep their existing inheritance behavior. These fields use existing definition JSON storage, so no database migration or backfill is required. Deploy matching 0.17.0 API and worker images. Before rollback, stop starting workflows that rely on per-step overrides; older applications ignore those overrides.

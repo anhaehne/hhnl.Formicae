@@ -76,6 +76,8 @@ export type WorkflowDefinitionStep = {
   model?: string | null;
   personaId?: string | null;
   personaSnapshot?: PersonaSnapshot | null;
+  environmentId?: string | null;
+  environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;

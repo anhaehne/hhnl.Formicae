@@ -34,7 +34,8 @@ This skill is project-local to this repository. When this workflow requires user
 - Add workflow scripts.
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
 - Support reusable custom agent tasks with typed inputs and persisted outputs (available in 0.15.0).
-- Support per-workflow-step capabilities, environments, and secrets.
+- Support per-step environment selection, inheritance and immutable profile history (available in 0.17.0).
+- Support per-workflow-step capabilities and secrets.
 - Support reusable environment profiles with immutable workflow-default selection and a runtime timeout cap (available in 0.16.0).
   - MCP server integration.
   - Custom Docker base image.

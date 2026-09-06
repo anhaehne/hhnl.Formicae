@@ -139,7 +139,9 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("decision")] WorkflowDecisionNodeSettings? Decision = null,
     [property: JsonPropertyName("personaId")] string? PersonaId = null,
     [property: JsonPropertyName("personaSnapshot")] PersonaSnapshot? PersonaSnapshot = null,
-    [property: JsonPropertyName("customTask")] WorkflowCustomTaskSettings? CustomTask = null);
+    [property: JsonPropertyName("customTask")] WorkflowCustomTaskSettings? CustomTask = null,
+    [property: JsonPropertyName("environmentId")] string? EnvironmentId = null,
+    [property: JsonPropertyName("environmentSnapshot")] EnvironmentSnapshot? EnvironmentSnapshot = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,

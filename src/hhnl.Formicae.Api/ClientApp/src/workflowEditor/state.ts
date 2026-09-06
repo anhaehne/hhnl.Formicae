@@ -4,7 +4,7 @@ import type { Edge } from "@xyflow/react";
 import type { WorkflowStepNode } from "../workflowGraph";
 
 export type EditorDraft = { defaultEnvironmentId?: string | null; defaultEnvironmentSnapshot?: EnvironmentSnapshot | null; name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
-const comparable = (draft: EditorDraft) => ({ ...draft, defaultEnvironmentSnapshot: undefined, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
+const comparable = (draft: EditorDraft) => ({ ...draft, defaultEnvironmentSnapshot: undefined, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, environmentSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
 const equal = (a: EditorDraft, b: EditorDraft) => JSON.stringify(comparable(a)) === JSON.stringify(comparable(b));
 export function useEditorState(initial: EditorDraft) {
   const [draft, render] = useState(initial);
@@ -28,8 +28,10 @@ export function useEditorState(initial: EditorDraft) {
         const before = submitted.nodes.find(item => item.id === node.id), saved = authoritative.nodes.find(item => item.id === node.id);
         if (!before || !saved || node.data.uses !== before.data.uses) return node;
         const personaUnchanged = node.data.personaId === before.data.personaId && value.current.defaultPersonaId === submitted.defaultPersonaId;
+        const environmentUnchanged = node.data.environmentId === before.data.environmentId && (node.data.environmentId != null || value.current.defaultEnvironmentId === submitted.defaultEnvironmentId);
         const taskUnchanged = node.data.customTask?.taskId === before.data.customTask?.taskId;
         return { ...node, data: { ...node.data,
+          environmentSnapshot: environmentUnchanged ? saved.data.environmentSnapshot : node.data.environmentSnapshot,
           personaSnapshot: personaUnchanged ? saved.data.personaSnapshot : node.data.personaSnapshot,
           customTask: node.data.customTask && taskUnchanged ? { ...node.data.customTask, snapshot: saved.data.customTask?.snapshot } : node.data.customTask
         } };

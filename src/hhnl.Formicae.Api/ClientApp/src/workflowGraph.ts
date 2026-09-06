@@ -1,5 +1,5 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot } from "./api";
 
 export const customTaskUses = "builtins.custom-task";
 export const triggerUses = "builtins.trigger";
@@ -10,7 +10,7 @@ export const workflowSchema = "formicae.workflow/v1alpha3";
 export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses] as const;
 export type WorkflowStepNodeData = {
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
-  personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
+  personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
   trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
   [key: string]: unknown;
 };
@@ -56,7 +56,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
-      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, customTask: step.customTask, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
+      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
@@ -82,7 +82,7 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
       nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
-      personaId: node.data.personaId || undefined, personaSnapshot: node.data.personaSnapshot, customTask: node.data.uses === customTaskUses ? node.data.customTask : undefined,
+      personaId: node.data.personaId || undefined, personaSnapshot: node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? node.data.customTask : undefined,
       aiSettingsId: node.data.aiSettingsId || undefined, model: node.data.model || undefined,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
         trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",

@@ -31,29 +31,89 @@ public static class EnvironmentDefinitions
         WorkflowDefinitionDocument document, EnvironmentService? environments, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        var id = document.DefaultEnvironmentId ?? EnvironmentService.DefaultEnvironmentId;
-        EnvironmentSnapshot? snapshot = null;
-        if (id == EnvironmentService.DefaultEnvironmentId) snapshot = EnvironmentService.DefaultSnapshot;
-        else if (!string.IsNullOrWhiteSpace(id) && environments is not null)
+        var errors = new List<WorkflowDefinitionValidationError>();
+        var cache = new Dictionary<string, EnvironmentSnapshot?>(StringComparer.Ordinal)
+        { [EnvironmentService.DefaultEnvironmentId] = EnvironmentService.DefaultSnapshot };
+        async Task<EnvironmentSnapshot?> Resolve(string id)
         {
-            var environment = await environments.GetAsync(id, token);
-            if (environment is not null)
-                snapshot = new(environment.Id, environment.Revision, environment.Name, environment.Description, environment.Configuration);
+            if (cache.TryGetValue(id, out var cached)) return cached;
+            var environment = string.IsNullOrWhiteSpace(id) || environments is null ? null : await environments.GetAsync(id, token);
+            var snapshot = environment is null ? null : new EnvironmentSnapshot(environment.Id, environment.Revision,
+                environment.Name, environment.Description, environment.Configuration);
+            cache[id] = snapshot;
+            return snapshot;
         }
-        var enriched = document with { DefaultEnvironmentSnapshot = snapshot };
-        if (snapshot is null)
-            return new(enriched, new([new("definition.environment.missing", $"Workflow environment '{id}' is unavailable.", "defaultEnvironmentId")]));
-        return new(enriched, ValidateRuntime(enriched));
+        var defaultId = document.DefaultEnvironmentId ?? EnvironmentService.DefaultEnvironmentId;
+        var defaultSnapshot = await Resolve(defaultId);
+        if (defaultSnapshot is null)
+            errors.Add(new("definition.environment.missing", $"Workflow environment '{defaultId}' is unavailable.", "defaultEnvironmentId"));
+        var enriched = document with { DefaultEnvironmentSnapshot = defaultSnapshot };
+        if (document.Steps is null || document.Steps.Any(step => step is null))
+            return new(enriched, new([.. errors, new("definition.steps.required", "Workflow steps must contain non-null entries.", "steps")]));
+        var steps = new List<WorkflowDefinitionStep>(document.Steps.Count);
+        foreach (var step in document.Steps)
+        {
+            var resolved = step with { EnvironmentSnapshot = null };
+            if (!PersonaDefinitions.IsAiTask(step.Uses))
+            {
+                if (step.EnvironmentId is not null)
+                    errors.Add(new("definition.environment.unsupported", "Only AI tasks can select an environment.", "steps[].environmentId", step.Id));
+            }
+            else
+            {
+                var id = step.EnvironmentId ?? defaultId;
+                var snapshot = await Resolve(id);
+                if (snapshot is null)
+                    errors.Add(new("definition.environment.missing", $"Environment '{id}' is unavailable.", "steps[].environmentId", step.Id));
+                resolved = resolved with { EnvironmentSnapshot = snapshot };
+            }
+            steps.Add(resolved);
+        }
+        enriched = enriched with { Steps = steps };
+        return new(enriched, errors.Count == 0 ? ValidateRuntime(enriched) : new(errors));
     }
 
     public static WorkflowDefinitionValidationResult ValidateRuntime(WorkflowDefinitionDocument document)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
-        void Error(string message) => errors.Add(new("definition.environment.snapshot.invalid", message, "defaultEnvironmentSnapshot"));
-        var id = document.DefaultEnvironmentId ?? EnvironmentService.DefaultEnvironmentId;
+        var defaultId = document.DefaultEnvironmentId ?? EnvironmentService.DefaultEnvironmentId;
+        var snapshots = new Dictionary<string, EnvironmentSnapshot>(StringComparer.Ordinal);
+        EnvironmentSnapshot? Check(string id, EnvironmentSnapshot? snapshot, string path, string? nodeId = null)
+        {
+            var validation = ValidateSnapshot(id, snapshot, path, nodeId);
+            errors.AddRange(validation.Errors);
+            if (!validation.IsValid) return null;
+            snapshot ??= EnvironmentService.DefaultSnapshot;
+            if (snapshots.TryGetValue(id, out var existing) && !Equivalent(existing, snapshot))
+                errors.Add(new("definition.environment.snapshot.conflict", $"Environment '{id}' has conflicting pinned profile configurations.", path, nodeId));
+            else snapshots[id] = snapshot;
+            return snapshot;
+        }
+        var defaultSnapshot = Check(defaultId, document.DefaultEnvironmentSnapshot, "defaultEnvironmentSnapshot");
+        if (document.Steps is null || document.Steps.Any(step => step is null))
+            return new([.. errors, new("definition.steps.required", "Workflow steps must contain non-null entries.", "steps")]);
+        foreach (var step in document.Steps)
+        {
+            if (!PersonaDefinitions.IsAiTask(step.Uses))
+            {
+                if (step.EnvironmentId is not null || step.EnvironmentSnapshot is not null)
+                    errors.Add(new("definition.environment.unsupported", "Only AI tasks may have an environment selection or snapshot.", "steps[].environmentId", step.Id));
+                continue;
+            }
+            var id = step.EnvironmentId ?? defaultId;
+            // Metadata-free nodes from 0.16.0 inherit the document's immutable snapshot.
+            var snapshot = step.EnvironmentSnapshot ?? (step.EnvironmentId is null ? defaultSnapshot : null);
+            Check(id, snapshot, "steps[].environmentSnapshot", step.Id);
+        }
+        return new(errors);
+    }
+
+    private static WorkflowDefinitionValidationResult ValidateSnapshot(string id, EnvironmentSnapshot? snapshot, string path, string? nodeId)
+    {
+        var errors = new List<WorkflowDefinitionValidationError>();
+        void Error(string message) => errors.Add(new("definition.environment.snapshot.invalid", message, path, nodeId));
         if (string.IsNullOrWhiteSpace(id))
-            return new([new("definition.environment.invalid", "Workflow environment ID cannot be empty.", "defaultEnvironmentId")]);
-        var snapshot = document.DefaultEnvironmentSnapshot;
+            return new([new("definition.environment.invalid", "Environment ID cannot be empty.", nodeId is null ? "defaultEnvironmentId" : "steps[].environmentId", nodeId)]);
         if (snapshot is null)
         {
             if (id != EnvironmentService.DefaultEnvironmentId) Error($"Environment '{id}' has no pinned snapshot.");
@@ -63,7 +123,7 @@ public static class EnvironmentDefinitions
             || snapshot.Description is null || snapshot.Description.Length > 2000)
             Error("Pinned environment snapshot is malformed or does not match the selected environment.");
         var configuration = ValidateConfiguration(snapshot.Configuration);
-        errors.AddRange(configuration.Errors.Select(error => error with { Path = $"defaultEnvironmentSnapshot.configuration.{error.Path}" }));
+        errors.AddRange(configuration.Errors.Select(error => error with { Path = $"{path}.configuration.{error.Path}", NodeId = nodeId }));
         if (id == EnvironmentService.DefaultEnvironmentId &&
             (snapshot.Revision != 1 || snapshot.Name != EnvironmentService.DefaultSnapshot.Name
              || snapshot.Description != EnvironmentService.DefaultSnapshot.Description || snapshot.Configuration?.Runtime?.TimeoutLimitSeconds is not null))
@@ -71,11 +131,18 @@ public static class EnvironmentDefinitions
         return new(errors);
     }
 
+    // Configuration is already validated: schema 1 supports only an optional timeout cap.
+    private static bool Equivalent(EnvironmentSnapshot left, EnvironmentSnapshot right) =>
+        left.Id == right.Id && left.Revision == right.Revision && left.Name == right.Name && left.Description == right.Description
+        && left.Configuration.SchemaVersion == right.Configuration.SchemaVersion
+        && left.Configuration.Runtime?.TimeoutLimitSeconds == right.Configuration.Runtime?.TimeoutLimitSeconds;
+
     public static EnvironmentSnapshot? ResolveForTask(WorkflowDefinitionDocument document, WorkflowDefinitionStep step)
     {
         if (!PersonaDefinitions.IsAiTask(step.Uses)) return null;
         var validation = ValidateRuntime(document);
         if (!validation.IsValid) throw new InvalidOperationException(string.Join(" ", validation.Errors.Select(error => error.Message)));
-        return document.DefaultEnvironmentSnapshot ?? EnvironmentService.DefaultSnapshot;
+        return step.EnvironmentSnapshot ?? (step.EnvironmentId == EnvironmentService.DefaultEnvironmentId
+            ? EnvironmentService.DefaultSnapshot : document.DefaultEnvironmentSnapshot ?? EnvironmentService.DefaultSnapshot);
     }
 }

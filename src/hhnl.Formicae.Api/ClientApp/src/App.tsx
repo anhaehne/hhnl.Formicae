@@ -1525,6 +1525,7 @@ export default function App() {
                           </button>
                         ) : null}
                       </div>
+                      <EnvironmentHistory detailsJson={detail.events.filter(event => event.taskRunId === run.id && event.type === "AgentSettingsResolved").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.detailsJson} />
                       {run.failureReason ? <p className="error-text">{run.failureReason}</p> : null}
                       {run.agentMessages.length > 0 ? (
                         <div className="agent-message-list">
