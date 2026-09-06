@@ -119,6 +119,12 @@ internal static class WorkerCommand
         TimeProvider? timeProvider = null)
     {
         Directory.CreateDirectory(WorkspaceDirectory);
+        if (environment.TaskKind == "ModelDiscovery")
+        {
+            var discoveryExit = await CodexModelDiscovery.RunAsync(cancellationToken);
+            await reporter.ReportCodexAuthAsync(environment.AiSettingsId, ReadCodexAuth(), cancellationToken);
+            return discoveryExit;
+        }
         if (environment.IsCodexAuthSetup)
         {
             return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);

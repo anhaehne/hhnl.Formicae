@@ -136,6 +136,7 @@ public static class DependencyInjection
             }
 
             services.AddScoped<CodexAuthSetupService>();
+            services.AddScoped<ModelDiscoveryService>();
             services.AddScoped<IAgentRunner>(serviceProvider => new OpenHandsAgentRunner(
                 serviceProvider.GetRequiredService<IJobRuntime>(),
                 serviceProvider.GetRequiredService<IOptions<RuntimeJobOptions>>(),

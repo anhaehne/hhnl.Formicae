@@ -2499,7 +2499,7 @@ function SettingsPage({
                   onClick={() => onSelectAiSettings(settings.id)}
                 >
                   <strong>{settings.name}</strong>
-                  <span>{index === 0 ? "Used by agents" : settings.model || settings.agentKind}</span>
+                  <span>{index === 0 ? "Default for steps without a configuration" : settings.model || settings.agentKind}</span>
                 </button>
               ))}
               {aiSettingsList.length === 0 ? <p className="muted">No AI configured yet.</p> : null}

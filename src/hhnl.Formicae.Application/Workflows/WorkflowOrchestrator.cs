@@ -605,7 +605,18 @@ public sealed class WorkflowOrchestrator(
     {
         try
         {
-            return await agentRunner.StartAsync(task, cancellationToken);
+            var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+            var step = document.Steps.SingleOrDefault(step => step.Id == run.DefinitionStepId);
+            task = task with
+            {
+                AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
+                Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim()
+            };
+            var started = await agentRunner.StartAsync(task, cancellationToken);
+            await AddEventAsync(workflow.Id, run.Id, "AgentSettingsResolved", "Information",
+                $"AI configuration: {started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId}; model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
+                new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model, started.ExternalId }, cancellationToken);
+            return started;
         }
         catch (Exception exception)
         {

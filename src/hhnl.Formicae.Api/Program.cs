@@ -474,6 +474,24 @@ app.MapGet("/api/ai-settings", async (
     AiSettingsService aiSettingsService,
     CancellationToken cancellationToken) => Results.Ok(await aiSettingsService.ListAsync(cancellationToken)));
 
+app.MapPost("/api/ai-settings/{settingsId}/models/discover", async (
+    string settingsId, [FromServices] ModelDiscoveryService discovery, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var result = await discovery.StartAsync(settingsId, cancellationToken);
+        return result.JobName is null ? Results.Ok(result) : Results.Accepted($"/api/ai-settings/{Uri.EscapeDataString(settingsId)}/models/discover/{result.JobName}", result);
+    }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapGet("/api/ai-settings/{settingsId}/models/discover/{jobName}", async (
+    string settingsId, string jobName, [FromServices] ModelDiscoveryService discovery, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await discovery.GetStatusAsync(settingsId, jobName, cancellationToken)); }
+    catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapPost("/api/ai-settings/{settingsId}/codex-auth/connect", async (
     string settingsId,
     [FromServices] CodexAuthSetupService codexAuthSetup,

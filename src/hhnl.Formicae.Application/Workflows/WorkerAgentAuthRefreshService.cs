@@ -30,7 +30,8 @@ public sealed class WorkerAgentAuthRefreshService(IWorkflowStore workflowStore, 
             return false;
         }
 
-        if (string.Equals(request.TaskKind, "CodexAuthSetup", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(request.TaskKind, "CodexAuthSetup", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.TaskKind, "ModelDiscovery", StringComparison.Ordinal))
         {
             return await aiSettingsService.UpdateCodexAuthAsync(request.AiSettingsId, request.CodexAuthJson, cancellationToken);
         }

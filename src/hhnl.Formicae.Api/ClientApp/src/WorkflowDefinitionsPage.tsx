@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { StepModelSettings } from "./StepModelSettings";
 import {
   addEdge,
   Background,
@@ -486,6 +487,13 @@ function WorkflowDefinitionsEditor({
                     {supportedUses.map(uses => <option key={uses} value={uses}>{uses}</option>)}
                   </select>
                 </label>
+                {selectedNode.data.uses !== "builtins.create-pull-request" ? <StepModelSettings
+                  key={selectedNode.id}
+                  aiSettingsId={selectedNode.data.aiSettingsId}
+                  model={selectedNode.data.model}
+                  disabled={!canAdminister}
+                  onChange={updateSelectedNodeData}
+                /> : null}
                 <button type="button" className="secondary-button" onClick={() => setStartStepId(selectedNode.id)} disabled={!canAdminister}>
                   Set as Start Step
                 </button>

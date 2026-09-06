@@ -116,7 +116,9 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("uses")] string Uses,
     [property: JsonPropertyName("nextStepId")] string? NextStepId = null,
-    [property: JsonPropertyName("displayName")] string? DisplayName = null);
+    [property: JsonPropertyName("displayName")] string? DisplayName = null,
+    [property: JsonPropertyName("aiSettingsId")] string? AiSettingsId = null,
+    [property: JsonPropertyName("model")] string? Model = null);
 
 public sealed class TaskRun
 {
@@ -554,11 +556,12 @@ public sealed record AgentTask(
     string RepositoryUrl,
     string BranchName,
     string? Model,
-    IReadOnlyList<AgentTaskContextFile>? ContextFiles = null);
+    IReadOnlyList<AgentTaskContextFile>? ContextFiles = null,
+    string? AiSettingsId = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 
-public sealed record AgentRunStartResult(string ExternalId, AgentRunResult? CompletedResult = null);
+public sealed record AgentRunStartResult(string ExternalId, AgentRunResult? CompletedResult = null, string? AiSettingsId = null, string? Model = null);
 
 public sealed record AgentRunResult(
     bool Succeeded,

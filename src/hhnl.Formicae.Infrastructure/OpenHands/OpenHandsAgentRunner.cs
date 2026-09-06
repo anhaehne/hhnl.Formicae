@@ -34,11 +34,18 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     public async Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        var settings = aiSettingsService is null ? ResolveSettingsFromOptions(openHandsOptions.Value) : await aiSettingsService.ResolveAsync(cancellationToken);
+        var settings = aiSettingsService is null
+            ? string.IsNullOrWhiteSpace(task.AiSettingsId) ? ResolveSettingsFromOptions(openHandsOptions.Value) : throw new InvalidOperationException("Named AI configurations require the AI settings service.")
+            : string.IsNullOrWhiteSpace(task.AiSettingsId)
+                ? await aiSettingsService.ResolveAsync(cancellationToken)
+                : await aiSettingsService.ResolveAsync(task.AiSettingsId, cancellationToken)
+                    ?? throw new InvalidOperationException($"AI configuration '{task.AiSettingsId}' was not found.");
+        if (settings.AgentKind == AgentKinds.Acp)
+            throw new InvalidOperationException("ACP agent execution is not supported by this worker.");
         var gitAccessToken = await CreateGitAccessTokenAsync(task, cancellationToken);
         var spec = BuildSpec(task, settings, gitAccessToken);
         var start = await jobRuntime.StartJobAsync(spec, cancellationToken);
-        return new AgentRunStartResult(start.ExternalId);
+        return new AgentRunStartResult(start.ExternalId, AiSettingsId: settings.Id, Model: TrimToNull(ResolveModel(task, settings, ResolveAuthMethod(settings.AuthMethod))));
     }
 
     public async Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken)
@@ -240,7 +247,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         return environment;
     }
 
-    private static IReadOnlyList<RuntimeJobSecretFile>? BuildSecretFiles(string jobName, ResolvedAiSettings settings, string authMethod, RuntimeJobOptions options)
+    internal static IReadOnlyList<RuntimeJobSecretFile>? BuildSecretFiles(string jobName, ResolvedAiSettings settings, string authMethod, RuntimeJobOptions options)
     {
         var credentialJson = settings.CodexAuthJson ?? settings.SubscriptionCredentialJson;
         if (!IsAuthMethod(authMethod, OpenHandsAuthMethods.CodexSubscription) || string.IsNullOrWhiteSpace(credentialJson)) return null;

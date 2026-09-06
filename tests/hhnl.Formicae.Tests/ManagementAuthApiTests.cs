@@ -20,6 +20,18 @@ namespace hhnl.Formicae.Tests;
 
 public sealed class ManagementAuthApiTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModelDiscovery_requires_management_admin(bool authenticated)
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var client = authenticated ? factory.CreateAuthenticatedClient((await factory.CreateUserAsync("model-reader")).Id) : factory.CreateClient();
+        var expected = authenticated ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized;
+        Assert.Equal(expected, (await client.PostAsync("/api/ai-settings/default/models/discover", null)).StatusCode);
+        Assert.Equal(expected, (await client.GetAsync("/api/ai-settings/default/models/discover/job")).StatusCode);
+    }
+
     [Fact]
     public async Task AnonymousMutatingRequest_Returns401_WhenAuthEnabled()
     {

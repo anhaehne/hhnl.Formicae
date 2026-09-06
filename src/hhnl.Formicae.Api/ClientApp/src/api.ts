@@ -54,7 +54,25 @@ export type WorkflowDefinitionStep = {
   uses: string;
   nextStepId?: string | null;
   displayName?: string | null;
+  aiSettingsId?: string | null;
+  model?: string | null;
 };
+
+export type ModelDiscoveryStatus = {
+  aiSettingsId: string;
+  jobName?: string | null;
+  status: "Running" | "Succeeded" | "Failed" | "Unsupported";
+  models: Array<{ id: string; displayName: string; isDefault: boolean }>;
+  failureReason?: string | null;
+};
+
+export function startModelDiscovery(settingsId: string) {
+  return send<ModelDiscoveryStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/models/discover`, { method: "POST" });
+}
+
+export function getModelDiscovery(settingsId: string, jobName: string) {
+  return send<ModelDiscoveryStatus>(`/api/ai-settings/${encodeURIComponent(settingsId)}/models/discover/${encodeURIComponent(jobName)}`);
+}
 
 export type WorkflowDefinitionValidationError = {
   code: string;

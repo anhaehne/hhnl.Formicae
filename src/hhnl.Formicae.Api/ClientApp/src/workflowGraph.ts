@@ -5,6 +5,8 @@ export type WorkflowStepNodeData = {
   stepId: string;
   displayName: string;
   uses: string;
+  aiSettingsId?: string | null;
+  model?: string | null;
   [key: string]: unknown;
 };
 
@@ -40,7 +42,9 @@ export function definitionToGraph(document: WorkflowDefinitionDocument): { nodes
     data: {
       stepId: step.id,
       displayName: step.displayName || step.id,
-      uses: step.uses
+      uses: step.uses,
+      aiSettingsId: step.aiSettingsId,
+      model: step.model
     }
   }));
 
@@ -83,7 +87,9 @@ export function graphToDefinition(
       id: node.data.stepId || node.id,
       uses: node.data.uses || "builtins.plan",
       nextStepId: outgoingBySource.get(node.id)?.target ?? null,
-      displayName: node.data.displayName || node.data.stepId || node.id
+      displayName: node.data.displayName || node.data.stepId || node.id,
+      aiSettingsId: node.data.aiSettingsId || undefined,
+      model: node.data.model || undefined
     }))
   };
 }
