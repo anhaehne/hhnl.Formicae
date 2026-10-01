@@ -147,6 +147,7 @@ public sealed class WorkflowService
         run.ExternalId = null;
         run.ExecutionAttemptId = Guid.NewGuid();
         run.Output = null;
+        run.StructuredOutputsJson = null;
         run.FailureReason = null;
         run.StartedAt = null;
         run.CompletedAt = null;

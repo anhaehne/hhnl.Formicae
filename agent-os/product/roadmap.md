@@ -33,6 +33,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Add workflow scripts.
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
+- Support named scalar custom-task outputs and explicit input bindings with frozen producer provenance (available in 0.18.0).
 - Support reusable custom agent tasks with typed inputs and persisted outputs (available in 0.15.0).
 - Support per-step environment selection, inheritance and immutable profile history (available in 0.17.0).
 - Support per-workflow-step capabilities and secrets.

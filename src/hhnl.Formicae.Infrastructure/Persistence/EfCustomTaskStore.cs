@@ -17,7 +17,7 @@ public sealed class EfCustomTaskStore(FormicaeDbContext db) : ICustomTaskStore
         return await db.CustomTasks.Where(task => task.Id == replacement.Id && !task.IsDeleted && task.Revision == expectedRevision)
             .ExecuteUpdateAsync(setters => setters.SetProperty(task => task.Name, replacement.Name)
                 .SetProperty(task => task.Description, replacement.Description).SetProperty(task => task.PromptTemplate, replacement.PromptTemplate)
-                .SetProperty(task => task.InputsJson, replacement.InputsJson).SetProperty(task => task.RunnerJson, replacement.RunnerJson)
+                .SetProperty(task => task.OutputsJson, replacement.OutputsJson).SetProperty(task => task.InputsJson, replacement.InputsJson).SetProperty(task => task.RunnerJson, replacement.RunnerJson)
                 .SetProperty(task => task.Revision, replacement.Revision).SetProperty(task => task.IsDeleted, replacement.IsDeleted)
                 .SetProperty(task => task.UpdatedAt, replacement.UpdatedAt), token) == 1;
     }

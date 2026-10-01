@@ -64,3 +64,63 @@ test("custom history displays captured inputs final output and missing metadata"
   await page.route("**/api/workflows**",route=>{const path=new URL(route.request().url()).pathname;const json=path.endsWith("/runs")?[{id:"run1",kind:4,status:"Succeeded",definitionStepId:"summary",updatedAt:timestamp,agentMessages:[],output:"Final summary",customTaskExecution:{taskId:"deleted",revision:3,name:"Recorded summarizer",inputs:{topic:"Captured"},workflowFields:{model:"saved-model"},timeoutSeconds:90,prompt:"Prepared once",formatVersion:1}},{id:"run2",kind:4,status:"Succeeded",updatedAt:timestamp,agentMessages:[],output:"",customTaskExecution:null}]:path==="/api/workflows"?[workflow]:path===`/api/workflows/${id}`?workflow:[];return route.fulfill({json});});
   await page.goto("/workflows");await expect(page.getByText("Recorded summarizer · revision 3",{exact:true})).toBeVisible();await page.getByRole("button",{name:"Expand Prepared inputs",exact:true}).click();await expect(page.locator("pre").filter({hasText:'"topic": "Captured"'})).toBeVisible();await page.getByRole("button",{name:"Expand Task output",exact:true}).first().click();await expect(page.getByText("Final summary",{exact:true})).toBeVisible();await expect(page.getByText("Custom task metadata unavailable",{exact:true})).toBeVisible();await page.screenshot({path:testInfo.outputPath("custom-task-history.png"),fullPage:true});
 });
+
+test("output schema editing and data connections support undo save reload deletion and stale errors", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
+  const name = `Output producer ${Date.now()}`;
+  await page.goto("/custom-tasks"); await page.getByRole("button", { name: "New custom task", exact: true }).click();
+  await page.getByLabel("Task name", { exact: true }).fill(name); await page.getByLabel("Prompt template", { exact: true }).fill("Return a summary containing ready.");
+  await page.getByRole("button", { name: "Add output", exact: true }).click(); await page.getByLabel("Output 1 name", { exact: true }).fill("summary"); await page.getByLabel("Output 1 required", { exact: true }).check();
+  await page.getByRole("button", { name: "Save custom task", exact: true }).click(); await expect(page.getByText("Custom task saved.", { exact: true })).toBeVisible();
+  const producer = (await (await request.get(`${api}/api/custom-tasks`)).json()).find((item: { name: string }) => item.name === name);
+  expect(producer.outputs).toEqual([{ name: "summary", valueType: "string", required: true }]);
+  const consumer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Output consumer ${Date.now()}`, promptTemplate: "Use {{input.summary}}", inputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
+  const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Data connections ${Date.now()}` } })).json();
+  const saved = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "producer", steps: [
+    { id: "producer", uses: "builtins.custom-task", displayName: "Producer", nextStepId: "producer2", customTask: { taskId: producer.id } },
+    { id: "producer2", uses: "builtins.custom-task", displayName: "Producer 2", nextStepId: "custom", customTask: { taskId: producer.id } },
+    { id: "custom", uses: "builtins.custom-task", displayName: "Consumer", customTask: { taskId: consumer.id, inputs: { summary: "literal" } } }
+  ] } } }); expect(saved.ok(), await saved.text()).toBeTruthy();
+  await open(page, item.name);
+  const source = page.getByLabel("Source for summary", { exact: true });
+  await source.selectOption({ label: "Producer · summary" }); await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  await expect(page.locator('.react-flow__edge[data-id="data:custom:summary"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Undo", exact: true }).click(); await expect(source).toHaveValue(""); await expect(page.getByLabel("Value for summary", { exact: true })).toHaveValue("literal");
+  await page.getByRole("button", { name: "Redo", exact: true }).click(); await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  let doc = await latest(request, item.id); expect(doc.steps[0].nextStepId).toBe("producer2"); expect(doc.steps[1].nextStepId).toBe("custom"); expect(doc.steps[2].customTask.bindings.summary).toEqual({ stepId: "producer", outputName: "summary" }); expect(doc.steps[2].customTask.inputs).toEqual({});
+  await page.reload(); await open(page, item.name); await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  await source.selectOption(""); await expect(page.locator('.react-flow__edge[data-id="data:custom:summary"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Fit All", exact: true }).click();
+  await page.locator('.react-flow__node[data-id="producer2"] [data-handleid="output:summary"]').click();
+  await page.locator('.react-flow__node[data-id="custom"] [data-handleid="data:summary"]').click();
+  await find(page, "custom"); await expect(source).toHaveValue(JSON.stringify(["producer2", "summary"]));
+  await page.getByRole("button", { name: "Fit All", exact: true }).click();
+  await page.locator('.react-flow__node[data-id="producer"] [data-handleid="output:summary"]').click();
+  await page.locator('.react-flow__node[data-id="custom"] [data-handleid="data:summary"]').click();
+  await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click();
+  await find(page, "custom"); await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  await find(page, "producer"); await page.getByRole("button", { name: "Delete", exact: true }).click(); await expect(page.locator('.react-flow__edge[data-id="data:custom:summary"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click(); await find(page, "custom"); await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  expect((await request.put(`${api}/api/custom-tasks/${producer.id}`, { data: { ...producer, expectedRevision: 1, outputs: [{ name: "summary", valueType: "boolean", required: true }] } })).ok()).toBeTruthy();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click(); await expect(page.getByText("Binding is stale or the producer is no longer guaranteed to execute first.", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("task-data-stale-binding.png"), fullPage: true });
+});
+
+test("producer consumer runtime exposes validated outputs and frozen input provenance", async ({ page, request }, testInfo) => {
+  const producer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Runtime producer ${Date.now()}`, promptTemplate: "Return ready", outputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
+  const consumer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Runtime consumer ${Date.now()}`, promptTemplate: "Use {{input.summary}}", inputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
+  const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Runtime data ${Date.now()}` } })).json();
+  const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "producer", steps: [
+    { id: "producer", uses: "builtins.custom-task", nextStepId: "consumer", customTask: { taskId: producer.id } },
+    { id: "consumer", uses: "builtins.custom-task", customTask: { taskId: consumer.id, bindings: { summary: { stepId: "producer", outputName: "summary" } } } }
+  ] } } }); expect(response.ok(), await response.text()).toBeTruthy(); const version = await response.json();
+  const started = await request.post(`${api}/api/workflows/github-issue`, { data: { issueUrl: `https://github.com/example/repo/issues/${Date.now()}`, repositoryUrl: "https://github.com/example/repo", workflowDefinitionVersionId: version.id } }); expect(started.ok(), await started.text()).toBeTruthy(); const workflow = await started.json();
+  await expect.poll(async () => (await (await request.get(`${api}/api/workflows/${workflow.workflowId}/runs`)).json()).filter((run: { status: string | number }) => run.status === "Succeeded" || run.status === 2).length, { timeout: 30_000 }).toBe(2);
+  const runs = await (await request.get(`${api}/api/workflows/${workflow.workflowId}/runs`)).json(); const source = runs.find((run: { definitionStepId: string }) => run.definitionStepId === "producer"), target = runs.find((run: { definitionStepId: string }) => run.definitionStepId === "consumer");
+  expect(source.structuredOutputs).toEqual({ summary: "ready" }); expect(target.customTaskExecution.prompt).toBe("Use ready"); expect(target.customTaskExecution.provenance.summary.runId).toBe(source.id);
+  await page.goto("/workflows"); await expect(page.getByText(`${consumer.name} · revision 1`, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Expand Structured outputs", exact: true }).click(); await expect(page.locator("pre").filter({ hasText: '"summary": "ready"' }).first()).toBeVisible();
+  const card = page.locator(".run-card").filter({ hasText: `${consumer.name} · revision 1` }); await card.getByRole("button", { name: "Expand Bound input provenance", exact: true }).click(); await expect(card).toContainText(source.id);
+  await page.screenshot({ path: testInfo.outputPath("task-data-history.png"), fullPage: true });
+});

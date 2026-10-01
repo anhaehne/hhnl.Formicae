@@ -121,8 +121,13 @@ public sealed class EnvironmentPersistenceTests(MigrationPostgresFixture fixture
         var prepared = JsonSerializer.Serialize(new PreparedCustomTaskExecution("task", 1, "Task", new Dictionary<string, JsonElement>(), new Dictionary<string, JsonElement>(), 1800, "Prompt"));
         var run = new TaskRun { WorkflowId = workflow.Id, DefinitionStepId = "custom", Kind = TaskRunKind.Custom,
             Status = TaskRunStatus.Running, ExecutionAttemptId = Guid.NewGuid(), CustomTaskExecutionJson = prepared };
-        db.Workflows.Add(workflow); db.WorkflowDefinitions.Add(definition); db.WorkflowDefinitionVersions.Add(version); db.TaskRuns.Add(run);
-        await db.SaveChangesAsync(); await db.Database.MigrateAsync(); db.ChangeTracker.Clear();
+        db.Workflows.Add(workflow); db.WorkflowDefinitions.Add(definition); db.WorkflowDefinitionVersions.Add(version);
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO task_runs ("Id", "WorkflowId", "DefinitionStepId", "Kind", "Status", "ExecutionAttemptId", "CustomTaskExecutionJson", "CreatedAt", "UpdatedAt")
+            VALUES ({run.Id}, {workflow.Id}, {run.DefinitionStepId}, 'Custom', 'Running', {run.ExecutionAttemptId}, {prepared}, {run.CreatedAt}, {run.UpdatedAt})
+            """);
+        await db.Database.MigrateAsync(); db.ChangeTracker.Clear();
         Assert.Equal(version.DefinitionJson, (await db.WorkflowDefinitionVersions.SingleAsync()).DefinitionJson);
         var restored = await db.TaskRuns.SingleAsync(); Assert.Equal(prepared, restored.CustomTaskExecutionJson); Assert.Equal(run.ExecutionAttemptId, restored.ExecutionAttemptId);
         Assert.Empty(await db.ExecutionEnvironments.ToListAsync()); Assert.False(db.Database.HasPendingModelChanges());

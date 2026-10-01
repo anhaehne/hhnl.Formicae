@@ -7,6 +7,29 @@ public sealed class WorkflowEditorTests
     private static WorkflowDefinitionDocument Document() => new(DefaultWorkflowDefinitions.V1Alpha3Schema, "plan", [new("plan", "builtins.plan")], Editor: new(new Dictionary<string, WorkflowEditorPosition> { ["plan"] = new(234, 567) }, new(10, 20, 0.75)));
 
     [Fact]
+    public async Task Named_bindings_round_trip_with_pinned_output_schemas_and_control_edges()
+    {
+        var tasks = new CustomTaskService(new InMemoryCustomTaskStore());
+        var producer = await tasks.CreateAsync(new("Producer", "Produce", Outputs: [new("summary", "string", true)]), default);
+        var consumer = await tasks.CreateAsync(new("Consumer", "Use {{input.summary}}", Inputs: [new("summary", "string", true)]), default);
+        var store = new InMemoryWorkflowStore(); var service = new WorkflowDefinitionService(store, new(), customTasks: tasks);
+        var definition = await service.CreateAsync(new("Data"), default);
+        var document = new WorkflowDefinitionDocument(DefaultWorkflowDefinitions.V1Alpha3Schema, "producer", [
+            new("producer", CustomTaskDefinitions.Uses, "consumer", CustomTask: new(producer.Id)),
+            new("consumer", CustomTaskDefinitions.Uses, CustomTask: new(consumer.Id, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") }))]);
+        var version = await service.CreateVersionAsync(definition.Id, new(null, true, false, document), default);
+        var saved = WorkflowDefinitionJson.Deserialize((await store.GetWorkflowDefinitionVersionAsync(version.Id, default))!.DefinitionJson)!;
+        Assert.Equal("consumer", saved.Steps[0].NextStepId); Assert.Null(saved.Steps[1].NextStepId);
+        Assert.Equal(new("summary", "string", true), Assert.Single(saved.Steps[0].CustomTask!.Snapshot!.Outputs));
+        Assert.Equal(new("producer", "summary"), saved.Steps[1].CustomTask!.Bindings!["summary"]);
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(saved).IsValid);
+        await tasks.UpdateAsync(producer.Id, new(1, "Producer", "Produce", Outputs: [new("summary", "boolean")]), default);
+        var validation = await service.ValidateAsync(saved, default);
+        Assert.Contains(validation.Errors, error => error.NodeId == "consumer");
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(saved).IsValid);
+    }
+
+    [Fact]
     public async Task Editor_layout_round_trips_with_immutable_versions_and_is_ignored_by_execution()
     {
         var store = new InMemoryWorkflowStore();

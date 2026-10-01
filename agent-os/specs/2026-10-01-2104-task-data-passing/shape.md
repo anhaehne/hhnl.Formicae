@@ -1,0 +1,3 @@
+# Task data passing
+
+Implement approved issue #66: named typed outputs and explicit input bindings for reusable custom tasks. Preserve workflows with no outputs/bindings. Supported scalar types are string, number and boolean. Data dependencies follow control execution; they do not schedule tasks. Producers must dominate consumers. Same-loop bindings use the same iteration; inputs from before loop entry are allowed. Reject sources leaving or crossing loops and retain existing parallel restrictions. Inputs accept a literal or a binding, never both. Persist validated producer outputs before advancing and freeze bound values plus producer run/attempt identity before external launch.

@@ -175,6 +175,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(task => task.Name).IsRequired().HasMaxLength(120);
             entity.Property(task => task.Description).IsRequired().HasMaxLength(2000);
             entity.Property(task => task.PromptTemplate).IsRequired().HasMaxLength(16000);
+            entity.Property(task => task.OutputsJson).IsRequired().HasDefaultValue("[]");
             entity.Property(task => task.InputsJson).IsRequired();
             entity.Property(task => task.RunnerJson).IsRequired();
             entity.Property(task => task.Revision).IsConcurrencyToken();

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using hhnl.Formicae.Application.Workflows;
 
 namespace hhnl.Formicae.Infrastructure.Fakes;
@@ -79,7 +80,21 @@ public sealed class FakeAgentRunner : IAgentRunner
 {
     public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        var result = new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", $"Fake {task.Kind} output for {task.RepositoryUrl} on {task.BranchName}.", null);
+        var output = $"Fake {task.Kind} output for {task.RepositoryUrl} on {task.BranchName}.";
+        var context = task.Kind == TaskRunKind.Custom ? task.ContextFiles?.FirstOrDefault(file => file.FileName == "custom-task-inputs.json") : null;
+        if (context is not null)
+        {
+            using var document = JsonDocument.Parse(context.Content);
+            if (document.RootElement.TryGetProperty("outputs", out var schema) && schema.GetArrayLength() > 0)
+            {
+                var values = new Dictionary<string, object>();
+                foreach (var definition in schema.EnumerateArray())
+                    values[definition.GetProperty("name").GetString()!] = definition.GetProperty("valueType").GetString() switch
+                    { "number" => 1, "boolean" => true, _ => "ready" };
+                output = JsonSerializer.Serialize(values);
+            }
+        }
+        var result = new AgentRunResult(true, $"fake-{task.Kind.ToString().ToLowerInvariant()}-{task.WorkflowId:N}", output, null);
         return Task.FromResult(new AgentRunStartResult(result.ExternalId, result));
     }
 

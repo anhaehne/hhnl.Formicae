@@ -39,7 +39,20 @@ public sealed partial class WorkflowOrchestrator
                 PreparedCustomTaskExecution execution;
                 if (run.CustomTaskExecutionJson is null)
                 {
-                    execution = CustomTaskDefinitions.Prepare(settings, workflow);
+                    var document = await ResolveDefinitionAsync(workflow, token);
+                    var provenance = new Dictionary<string, CustomTaskInputProvenance>(StringComparer.Ordinal);
+                    foreach (var (name, binding) in settings.Bindings ?? new Dictionary<string, CustomTaskInputBinding>())
+                    {
+                        var producer = document.Steps.Single(item => item.Id == binding.StepId);
+                        var inLoop = document.Loops?.Any(loop => loop.BodyStepIds.Contains(producer.Id)) == true;
+                        var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, inLoop ? run.LoopIteration : null, token);
+                        if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
+                            throw new InvalidOperationException($"Bound input '{name}' requires successful validated outputs from '{producer.Id}'.");
+                        var outputs = CustomTaskDefinitions.ParseOutputs(source.StructuredOutputsJson, producer.CustomTask!.Snapshot!.Outputs);
+                        provenance[name] = new(producer.Id, binding.OutputName, source.Id, source.ExecutionAttemptId.Value, source.LoopIteration,
+                            outputs.TryGetValue(binding.OutputName, out var value) ? value : null);
+                    }
+                    execution = CustomTaskDefinitions.Prepare(settings, workflow, provenance);
                     run.CustomTaskExecutionJson = JsonSerializer.Serialize(execution, CustomExecutionJsonOptions);
                 }
                 else
@@ -47,9 +60,16 @@ public sealed partial class WorkflowOrchestrator
                     execution = JsonSerializer.Deserialize<PreparedCustomTaskExecution>(run.CustomTaskExecutionJson, CustomExecutionJsonOptions)
                         ?? throw new InvalidOperationException("Stored custom task execution is empty.");
                     CustomTaskDefinitions.ValidatePrepared(execution, settings);
+                    var document = await ResolveDefinitionAsync(workflow, token);
+                    foreach (var source in execution.Provenance?.Values ?? [])
+                    {
+                        var producerLoop = document.Loops?.FirstOrDefault(loop => loop.BodyStepIds.Contains(source.StepId));
+                        if (source.LoopIteration != (producerLoop is null ? null : run.LoopIteration))
+                            throw new InvalidOperationException("Prepared binding provenance does not match this loop iteration.");
+                    }
                 }
                 run.ExecutionAttemptId ??= Guid.NewGuid();
-                var context = JsonSerializer.Serialize(new { execution.Inputs, execution.WorkflowFields }, CustomExecutionJsonOptions);
+                var context = JsonSerializer.Serialize(new { execution.Inputs, execution.WorkflowFields, Outputs = settings.Snapshot!.Outputs }, CustomExecutionJsonOptions);
                 prepared = await PrepareAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.Custom,
                     execution.Prompt, workflow.RepositoryUrl, workflow.BaseBranch, workflow.Model,
                     [new AgentTaskContextFile("custom-task-inputs.json", context)],
@@ -109,6 +129,21 @@ public sealed partial class WorkflowOrchestrator
             const string marker = "\n[Output truncated: custom task output limit exceeded]";
             result = result with { Succeeded = false, Output = result.Output[..(CustomOutputLimit - marker.Length)] + marker,
                 FailureReason = "Custom task output exceeded the 262144 character limit." };
+        }
+        run.StructuredOutputsJson = null;
+        if (result.Succeeded)
+        {
+            try
+            {
+                var document = await ResolveDefinitionAsync(workflow, token);
+                var schema = document.Steps.Single(step => step.Id == run.DefinitionStepId).CustomTask!.Snapshot!.Outputs;
+                if (schema.Count > 0 && !result.OutputIsFinalResponse)
+                    throw new InvalidOperationException("Custom task declared outputs but the CLI did not emit an authoritative final response.");
+                if (schema.Count > 0)
+                    run.StructuredOutputsJson = JsonSerializer.Serialize(CustomTaskDefinitions.ParseOutputs(result.Output, schema), CustomExecutionJsonOptions);
+            }
+            catch (InvalidOperationException exception)
+            { result = result with { Succeeded = false, FailureReason = exception.Message }; }
         }
         await CompleteTaskRunAsync(workflow, run, result, token);
         await AddAgentOutputLogAsync(workflow.Id, run, result, token);

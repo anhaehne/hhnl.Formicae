@@ -108,6 +108,42 @@ public sealed class CustomTaskPersistenceTests(MigrationPostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Data_passing_migration_defaults_legacy_catalog_and_persists_structured_output_and_provenance()
+    {
+        await using var db = await fixture.CreateDatabaseAsync();
+        await db.GetService<IMigrator>().MigrateAsync("20260906175629_AddExecutionEnvironments");
+        var now = DateTimeOffset.UtcNow;
+        var runner = "{\"kind\":\"agent\",\"timeoutSeconds\":30}";
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO custom_tasks ("Id", "Name", "Description", "PromptTemplate", "InputsJson", "RunnerJson", "Revision", "IsDeleted", "CreatedAt", "UpdatedAt")
+            VALUES ('legacy', 'Legacy', '', 'Prompt', '[]', {runner}, 1, false, {now}, {now})
+            """);
+        await db.Database.MigrateAsync(); db.ChangeTracker.Clear();
+        var service = new CustomTaskService(new EfCustomTaskStore(db)); Assert.Empty((await service.GetAsync("legacy", default))!.Outputs);
+        var current = (await service.UpdateAsync("legacy", new(1, "Producer", "Produce", Outputs: [new("summary", "string", true)]), default))!;
+        Assert.Equal("summary", Assert.Single(current.Outputs).Name);
+        var store = new EfWorkflowStore(db);
+        var workflow = await store.CreateWorkflowAsync(new() { IssueUrl = "issue", RepositoryUrl = "repo" }, default);
+        var source = await store.UpsertTaskRunAsync(new() { WorkflowId = workflow.Id, DefinitionStepId = "producer", Kind = TaskRunKind.Custom, Status = TaskRunStatus.Succeeded,
+            ExecutionAttemptId = Guid.NewGuid(), Output = "{\"summary\":\"ready\"}", StructuredOutputsJson = "{\"summary\":\"ready\"}" }, default);
+        var snapshot = new CustomTaskSnapshot("consumer", 1, "Consumer", "", "Use {{input.summary}}", [new("summary", "string", true)], new());
+        var settings = new WorkflowCustomTaskSettings("consumer", Snapshot: snapshot, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") });
+        var execution = CustomTaskDefinitions.Prepare(settings, workflow, new Dictionary<string, CustomTaskInputProvenance> { ["summary"] = new("producer", "summary", source.Id, source.ExecutionAttemptId!.Value, null, JsonSerializer.SerializeToElement("ready")) });
+        var consumer = await store.UpsertTaskRunAsync(new() { WorkflowId = workflow.Id, DefinitionStepId = "consumer", Kind = TaskRunKind.Custom,
+            CustomTaskExecutionJson = JsonSerializer.Serialize(execution, new JsonSerializerOptions(JsonSerializerDefaults.Web)) }, default);
+        db.ChangeTracker.Clear();
+        var restored = (await store.GetTaskRunExecutionAsync(workflow.Id, "producer", null, default))!;
+        Assert.Equal("ready", restored.ToResponse().StructuredOutputs!["summary"].GetString());
+        var frozen = (await store.GetTaskRunExecutionAsync(workflow.Id, "consumer", null, default))!.ToResponse().CustomTaskExecution!;
+        CustomTaskDefinitions.ValidatePrepared(frozen, settings); Assert.Equal(source.ExecutionAttemptId, frozen.Provenance!["summary"].ExecutionAttemptId);
+        workflow.Status = WorkflowStatus.Failed; restored.Status = TaskRunStatus.Failed;
+        await store.UpdateWorkflowAsync(workflow, default); await store.UpsertTaskRunAsync(restored, default);
+        await new WorkflowService(store).RetryTaskRunAsync(workflow.Id, restored.Id, default);
+        Assert.Null(restored.StructuredOutputsJson); Assert.NotNull(consumer.CustomTaskExecutionJson);
+        Assert.False(db.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
     public async Task Catalog_and_prepared_execution_persist_with_atomic_revision_conflicts()
     {
         await using var db = await fixture.CreateDatabaseAsync(); await db.Database.MigrateAsync();

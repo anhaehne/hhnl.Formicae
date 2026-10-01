@@ -36,3 +36,16 @@ export function CustomTaskSchema({ inputs, disabled, onChange }: { inputs: Custo
     <button type="button" className="secondary-button" disabled={disabled || inputs.length >= 32} onClick={() => onChange([...inputs, { name: `input${inputs.length + 1}`, valueType: "string", required: false }])}>Add input</button>
   </fieldset>;
 }
+
+export function CustomTaskOutputSchema({ outputs, disabled, onChange }: { outputs: CustomTaskInputDefinition[]; disabled: boolean; onChange: (outputs: CustomTaskInputDefinition[]) => void }) {
+  const update = (index: number, patch: Partial<CustomTaskInputDefinition>) => onChange(outputs.map((output, i) => i === index ? { ...output, ...patch } : output));
+  return <fieldset className="custom-task-schema"><legend>Output schema</legend><p className="muted">Tasks with outputs must return one JSON object in their final response. Names are case-sensitive; optional outputs may be omitted.</p>
+    {outputs.map((output, index) => <fieldset key={index}><legend>Output {index + 1}</legend>
+      <label><span>Name</span><input aria-label={`Output ${index + 1} name`} required pattern="[A-Za-z][A-Za-z0-9_]{0,63}" disabled={disabled} value={output.name} onChange={event => update(index, { name: event.target.value })} /></label>
+      <label><span>Type</span><select aria-label={`Output ${index + 1} type`} disabled={disabled} value={output.valueType} onChange={event => update(index, { valueType: event.target.value as CustomTaskInputDefinition["valueType"] })}><option value="string">String</option><option value="number">Number</option><option value="boolean">Boolean</option></select></label>
+      <label><input aria-label={`Output ${index + 1} required`} type="checkbox" disabled={disabled} checked={output.required} onChange={event => update(index, { required: event.target.checked })} /> Required</label>
+      <button type="button" disabled={disabled} onClick={() => onChange(outputs.filter((_, i) => i !== index))}>Remove output {index + 1}</button>
+    </fieldset>)}
+    <button type="button" disabled={disabled || outputs.length >= 32} onClick={() => onChange([...outputs, { name: `output${outputs.length + 1}`, valueType: "string", required: false }])}>Add output</button>
+  </fieldset>;
+}

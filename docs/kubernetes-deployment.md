@@ -15,7 +15,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.17.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.18.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -452,3 +452,12 @@ AI workflow steps can inherit the workflow environment, select another profile, 
 Saving a workflow captures each selected profile revision once and pins the resolved configuration on its AI nodes. Runtime selection and task history use those snapshots, including parallel branches, loop iterations and retries. Catalog edits or deletion do not change existing versions. Invalid references produce node-specific validation errors; disabled drafts retain unresolved selections. The inspector shows saved/current profile revisions and preserves later edits during delayed saves and undo.
 
 Definitions from 0.16.0 and earlier keep their existing inheritance behavior. These fields use existing definition JSON storage, so no database migration or backfill is required. Deploy matching 0.17.0 API and worker images. Before rollback, stop starting workflows that rely on per-step overrides; older applications ignore those overrides.
+
+
+## 0.18.0 task data passing
+
+Deploy matching 0.18.0 API and worker images and Helm chart. The generated `AddTaskDataPassing` migration adds `custom_tasks.OutputsJson` with the default `[]` and nullable `task_runs.StructuredOutputsJson`. Existing catalog entries, pinned snapshots and free-text history remain compatible. Input bindings and frozen producer provenance use existing definition/preparation JSON storage.
+
+Before rollback, stop creating or executing workflows using output schemas or bindings. Earlier versions ignore these new contract fields and cannot enforce their data dependencies. Retain structured output columns when rolling back application images so execution history is preserved.
+
+See [the two-task example](task-data-passing.md) for configuration and execution rules.
