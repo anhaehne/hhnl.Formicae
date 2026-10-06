@@ -56,7 +56,7 @@ public sealed class CodexWorkspaceTests
         => Assert.Equal(expected, worker::WorkerCommand.TryReadCodexThreadId(line));
 
     [Fact]
-    public void Prepare_preserves_auth_and_existing_config_while_adding_browser_mcp()
+    public void Prepare_preserves_auth_and_replaces_mounted_config_with_owned_browser_mcp()
     {
         var root = Path.Combine(Path.GetTempPath(), $"formicae-codex-{Guid.NewGuid():N}");
         var mounted = Path.Combine(root, "mounted");
@@ -77,7 +77,8 @@ public sealed class CodexWorkspaceTests
 
             Assert.Equal("{\"tokens\":\"preserved\"}", File.ReadAllText(Path.Combine(local, "auth.json")));
             var config = File.ReadAllText(Path.Combine(local, "config.toml"));
-            Assert.Contains("model = \"gpt-test\"", config);
+            Assert.DoesNotContain("gpt-test", config);
+
             Assert.Equal(1, config.Split("[mcp_servers.playwright]").Length - 1);
             Assert.Contains("playwright-mcp", config);
             Assert.Contains("test-results/agent-browser", config);

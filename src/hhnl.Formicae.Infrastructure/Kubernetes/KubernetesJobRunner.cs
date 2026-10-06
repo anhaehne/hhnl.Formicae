@@ -44,6 +44,8 @@ public interface IKubernetesJobApi
     Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task DeleteJobAsync(string name, string namespaceName, CancellationToken cancellationToken);
     Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken);
+    Task<V1Secret> ReadSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        => Task.FromException<V1Secret>(new NotSupportedException("Secret reference preflight is not supported by this Kubernetes adapter."));
 }
 
 public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
@@ -82,6 +84,9 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
 
     public Task CreateSecretAsync(V1Secret secret, string namespaceName, CancellationToken cancellationToken)
         => client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName, cancellationToken: cancellationToken);
+
+    public Task<V1Secret> ReadSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
+        => client.CoreV1.ReadNamespacedSecretAsync(name, namespaceName, cancellationToken: cancellationToken);
 
     public Task DeleteSecretAsync(string name, string namespaceName, CancellationToken cancellationToken)
         => client.CoreV1.DeleteNamespacedSecretAsync(name, namespaceName, cancellationToken: cancellationToken);
@@ -122,6 +127,8 @@ public sealed class KubernetesJobRunner(
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
         var namespaceName = ResolveNamespace();
+        RuntimeJobExtensions.Validate(spec);
+        await ValidateSecretReferencesAsync(spec, namespaceName, cancellationToken);
         var job = BuildJob(spec);
         await CreateSecretsAsync(spec, namespaceName, cancellationToken);
         V1Job createdJob;
@@ -169,13 +176,13 @@ public sealed class KubernetesJobRunner(
         if (IsComplete(current))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
-            return new RuntimeJobResult(true, jobName, logs, null);
+            return new RuntimeJobResult(true, jobName, logs, null, await ReadExitCodeAsync(jobName, namespaceName, cancellationToken));
         }
 
         if (IsFailed(current, out var failureReason))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
-            return new RuntimeJobResult(false, jobName, logs, failureReason);
+            return new RuntimeJobResult(false, jobName, logs, failureReason, await ReadExitCodeAsync(jobName, namespaceName, cancellationToken));
         }
 
         if (IsTimedOut(current, out var timeoutReason))
@@ -380,7 +387,7 @@ public sealed class KubernetesJobRunner(
             {
                 Name = ContainerName,
                 Image = spec.Image,
-                ImagePullPolicy = "IfNotPresent",
+                ImagePullPolicy = spec.ImagePullPolicy,
                 Env = BuildEnvironmentVariables(spec, enableNestedContainers, spec.ExecutionPolicy is null && spec.TimeoutLimitSeconds is null ? null : executionPolicy),
                 EnvFrom = envFrom.Count == 0 ? null : envFrom,
                 Command = spec.Command.ToList(),
@@ -438,7 +445,7 @@ public sealed class KubernetesJobRunner(
             Spec = new V1JobSpec
             {
                 BackoffLimit = 0,
-                ActiveDeadlineSeconds = executionPolicy.TimeoutSeconds,
+                ActiveDeadlineSeconds = executionPolicy.TimeoutSeconds + executionPolicy.StartupGraceSeconds,
                 Template = new V1PodTemplateSpec
                 {
                     Metadata = new V1ObjectMeta { Labels = labels },
@@ -446,6 +453,7 @@ public sealed class KubernetesJobRunner(
                     {
                         RestartPolicy = "Never",
                         AutomountServiceAccountToken = false,
+                        ImagePullSecrets = spec.ImagePullSecretNames?.Select(name => new V1LocalObjectReference { Name = name }).ToList(),
                         HostNetwork = false,
                         TerminationGracePeriodSeconds = executionPolicy.CheckpointGraceSeconds > 0
                             ? CheckpointTerminationGraceSeconds
@@ -500,7 +508,34 @@ public sealed class KubernetesJobRunner(
             }));
         }
 
+        env.AddRange((spec.SecretReferences ?? []).Select(reference => new V1EnvVar
+        {
+            Name = reference.EnvironmentName,
+            ValueFrom = new V1EnvVarSource
+            {
+                SecretKeyRef = new V1SecretKeySelector { Name = reference.SecretName, Key = reference.Key, Optional = false }
+            }
+        }));
+
         return env;
+    }
+
+    private async Task ValidateSecretReferencesAsync(RuntimeJobSpec spec, string namespaceName, CancellationToken token)
+    {
+        var names = (spec.SecretReferences ?? []).Select(reference => reference.SecretName)
+            .Concat(spec.ImagePullSecretNames ?? []).Distinct(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            V1Secret secret;
+            try { secret = await jobApi.ReadSecretAsync(name, namespaceName, token); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch { throw new InvalidOperationException($"Required runtime Secret '{name}' is missing or cannot be read in the job namespace."); }
+            foreach (var reference in (spec.SecretReferences ?? []).Where(reference => reference.SecretName == name))
+                if (secret.Data?.ContainsKey(reference.Key) != true && secret.StringData?.ContainsKey(reference.Key) != true)
+                    throw new InvalidOperationException($"Required Secret '{name}' has no key '{reference.Key}'.");
+            if ((spec.ImagePullSecretNames ?? []).Contains(name) && secret.Type is not ("kubernetes.io/dockerconfigjson" or "kubernetes.io/dockercfg"))
+                throw new InvalidOperationException($"Image pull Secret '{name}' must be a Kubernetes registry credential Secret.");
+        }
     }
 
     private RuntimeJobExecutionPolicy ResolveExecutionPolicy(RuntimeJobSpec spec)
@@ -569,13 +604,17 @@ public sealed class KubernetesJobRunner(
     }
     private async Task DeleteSecretFilesAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {
-        try
+        foreach (var name in new[] { CodexAuthSecretName(jobName), ApiKeySecretName(jobName) })
         {
-            await jobApi.DeleteSecretAsync(CodexAuthSecretName(jobName), namespaceName, cancellationToken);
-            await jobApi.DeleteSecretAsync(ApiKeySecretName(jobName), namespaceName, cancellationToken);
-        }
-        catch (Exception exception) when (IsNotFound(exception))
-        {
+            V1Secret secret;
+            try { secret = await jobApi.ReadSecretAsync(name, namespaceName, cancellationToken); }
+            catch (Exception exception) when (IsNotFound(exception) || exception is NotSupportedException) { continue; }
+            if (secret.Metadata?.Labels is { } labels && labels.TryGetValue(ManagedByLabel, out var managedBy) && managedBy == ManagedByValue
+                && labels.TryGetValue("formicae-task", out var owner) && owner == jobName)
+            {
+                try { await jobApi.DeleteSecretAsync(name, namespaceName, cancellationToken); }
+                catch (Exception exception) when (IsNotFound(exception)) { }
+            }
         }
     }
 
@@ -716,6 +755,14 @@ public sealed class KubernetesJobRunner(
         => exception.Message.Contains("waiting to start", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("ContainerCreating", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("PodInitializing", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<int?> ReadExitCodeAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
+    {
+        var pods = await jobApi.ListPodsAsync(namespaceName, $"job-name={jobName}", cancellationToken);
+        return pods.OrderByDescending(pod => pod.Metadata.CreationTimestamp)
+            .Select(pod => pod.Status?.ContainerStatuses?.FirstOrDefault(container => container.Name == ContainerName)?.State?.Terminated?.ExitCode)
+            .FirstOrDefault(exit => exit is not null);
+    }
 
     private async Task<string> ReadLogsAsync(string jobName, string namespaceName, CancellationToken cancellationToken)
     {

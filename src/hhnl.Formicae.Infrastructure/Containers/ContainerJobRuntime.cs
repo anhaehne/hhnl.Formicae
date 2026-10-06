@@ -23,11 +23,16 @@ public sealed class ContainerRuntimeOptions
     public bool DeleteFinishedContainers { get; set; } = true;
     public string WorkerCallbackUrl { get; set; } = string.Empty;
     public string WorkerCallbackSecret { get; set; } = string.Empty;
+    public Dictionary<string, Dictionary<string, string>> StepSecrets { get; set; } = new(StringComparer.Ordinal);
 }
 
 public interface IContainerCli
 {
     Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken);
+    Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken)
+        => environment.Count == 0 ? RunAsync(executable, arguments, cancellationToken)
+            : Task.FromException<ContainerCliResult>(new NotSupportedException("This container adapter does not support private child-process secret injection."));
 }
 
 public sealed record ContainerCliResult(int ExitCode, string StandardOutput, string StandardError);
@@ -35,6 +40,10 @@ public sealed record ContainerCliResult(int ExitCode, string StandardOutput, str
 public sealed class ProcessContainerCli : IContainerCli
 {
     public async Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+        => await RunAsync(executable, arguments, new Dictionary<string, string>(), cancellationToken);
+
+    public async Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -47,6 +56,7 @@ public sealed class ProcessContainerCli : IContainerCli
         {
             startInfo.ArgumentList.Add(argument);
         }
+        foreach (var (name, value) in environment) startInfo.Environment[name] = value;
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start '{executable}'.");
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -68,6 +78,12 @@ public sealed class ContainerJobRuntime(
 
     public async Task<RuntimeJobStartResult> StartJobAsync(RuntimeJobSpec spec, CancellationToken cancellationToken)
     {
+        RuntimeJobExtensions.Validate(spec);
+        if (spec.ExecutionRequirements?.RequiresNestedContainers == true)
+            throw new InvalidOperationException("Nested-container capability requires the Kubernetes runtime. Remove that capability for Docker/Podman execution.");
+        if (spec.ImagePullSecretNames is { Count: > 0 })
+            throw new InvalidOperationException("Named Kubernetes image pull Secrets cannot be used by the container runtime. Configure registry authentication on Docker/Podman instead.");
+        var privateEnvironment = ResolveSecretEnvironment(spec);
         var externalId = string.IsNullOrWhiteSpace(spec.Name) ? $"formicae-job-{Guid.NewGuid():N}" : spec.Name;
         if (spec.ReuseExisting && await TryAttachExistingAsync(externalId, cancellationToken))
         {
@@ -75,7 +91,7 @@ public sealed class ContainerJobRuntime(
             return new RuntimeJobStartResult(externalId);
         }
         var arguments = BuildRunArguments(spec with { Name = externalId });
-        var result = await cli.RunAsync(Executable(), arguments, cancellationToken);
+        var result = await cli.RunAsync(Executable(), arguments, privateEnvironment, cancellationToken);
         if (result.ExitCode != 0)
         {
             // Another scheduler may have launched the same durable attempt after our inspection.
@@ -84,7 +100,7 @@ public sealed class ContainerJobRuntime(
                 StartCompletionSignalWatcher(externalId);
                 return new RuntimeJobStartResult(externalId);
             }
-            throw new InvalidOperationException($"Container runtime failed to start '{externalId}': {TrimProcessError(result)}");
+            throw new InvalidOperationException($"Container runtime failed to start '{externalId}': {RuntimeJobExtensions.Redact(TrimProcessError(result), privateEnvironment.Values)}");
         }
 
         StartCompletionSignalWatcher(externalId);
@@ -135,8 +151,8 @@ public sealed class ContainerJobRuntime(
 
         var logs = await ReadJobLogsAsync(externalId, cancellationToken);
         return state.ExitCode == 0
-            ? new RuntimeJobResult(true, externalId, logs, null)
-            : new RuntimeJobResult(false, externalId, logs, $"Container '{externalId}' exited with code {state.ExitCode}.");
+            ? new RuntimeJobResult(true, externalId, logs, null, state.ExitCode)
+            : new RuntimeJobResult(false, externalId, logs, $"Container '{externalId}' exited with code {state.ExitCode}.", state.ExitCode);
     }
 
     public async Task<string> ReadJobLogsAsync(string externalId, CancellationToken cancellationToken)
@@ -170,8 +186,9 @@ public sealed class ContainerJobRuntime(
             "--label",
             $"{JobLabel}={spec.Name}",
             "--label",
-            $"{TimeoutLabel}={executionPolicy.TimeoutSeconds}"
+            $"{TimeoutLabel}={executionPolicy.TimeoutSeconds + executionPolicy.StartupGraceSeconds}"
         };
+        arguments.AddRange(["--pull", spec.ImagePullPolicy switch { "Always" => "always", "Never" => "never", _ => "missing" }]);
 
         if (!string.IsNullOrWhiteSpace(options.Value.Network))
         {
@@ -180,6 +197,7 @@ public sealed class ContainerJobRuntime(
         }
 
         var environment = spec.Environment.ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (spec.ExecutionRequirements?.RequiresBrowser == true) environment["FORMICAE_REQUIRES_BROWSER"] = "true";
         if (spec.ExecutionPolicy is not null || spec.TimeoutLimitSeconds is not null)
         {
             environment["FORMICAE_JOB_TIMEOUT_SECONDS"] = Math.Max(1, executionPolicy.TimeoutSeconds).ToString(CultureInfo.InvariantCulture);
@@ -190,17 +208,18 @@ public sealed class ContainerJobRuntime(
         foreach (var (key, value) in environment.OrderBy(pair => pair.Key))
         {
             arguments.Add("--env");
-            arguments.Add($"{key}={value}");
+            arguments.Add(IsPrivateRuntimeVariable(key) ? key : $"{key}={value}");
         }
 
         if (spec.SecretEnvironment is not null)
         {
-            foreach (var (key, value) in spec.SecretEnvironment.Data.OrderBy(pair => pair.Key))
+            foreach (var key in spec.SecretEnvironment.Data.Keys.OrderBy(key => key))
             {
                 arguments.Add("--env");
-                arguments.Add($"{key}={value}");
+                arguments.Add(key);
             }
         }
+        foreach (var reference in spec.SecretReferences ?? []) arguments.AddRange(["--env", reference.EnvironmentName]);
 
         AddContextMount(arguments, spec);
         AddSecretFileMounts(arguments, spec);
@@ -208,6 +227,24 @@ public sealed class ContainerJobRuntime(
         arguments.Add(spec.Image);
         arguments.AddRange(spec.Command);
         return arguments;
+    }
+
+    private static bool IsPrivateRuntimeVariable(string name)
+        => name is "FORMICAE_GIT_ACCESS_TOKEN" or "FORMICAE_WORKER_CALLBACK_SECRET" or "LLM_API_KEY" or "OPENAI_API_KEY" or "ANTHROPIC_API_KEY";
+
+    private IReadOnlyDictionary<string, string> ResolveSecretEnvironment(RuntimeJobSpec spec)
+    {
+        var values = spec.SecretEnvironment?.Data.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, value) in spec.Environment.Where(pair => IsPrivateRuntimeVariable(pair.Key))) values[name] = value;
+        foreach (var reference in spec.SecretReferences ?? [])
+        {
+            if (!options.Value.StepSecrets.TryGetValue(reference.SecretName, out var configured)
+                || !configured.TryGetValue(reference.Key, out var value))
+                throw new InvalidOperationException($"Required local Secret '{reference.SecretName}' key '{reference.Key}' is not configured.");
+            values.Add(reference.EnvironmentName, value);
+        }
+        return values;
     }
 
     private void AddContextMount(List<string> arguments, RuntimeJobSpec spec)

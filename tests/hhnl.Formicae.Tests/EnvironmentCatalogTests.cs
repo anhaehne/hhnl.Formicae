@@ -54,15 +54,15 @@ public sealed class EnvironmentCatalogTests
     [InlineData("mcp")]
     [InlineData("null-tools")]
     [InlineData("null-mcp")]
-    public async Task Invalid_or_unimplemented_configuration_cannot_be_persisted(string invalid)
+    public async Task Invalid_configuration_cannot_be_persisted(string invalid)
     {
         var configuration = invalid switch
         {
             "schema" => new EnvironmentConfiguration { SchemaVersion = 2 },
             "zero-cap" => new() { Runtime = new(0) }, "large-cap" => new() { Runtime = new(3601) },
-            "image" => new() { Image = JsonSerializer.SerializeToElement("worker:latest") },
-            "tools" => new() { Tools = [JsonSerializer.SerializeToElement("curl")] },
-            "mcp" => new() { McpServers = [JsonSerializer.SerializeToElement(new { name = "server" })] },
+            "image" => new() { Image = new("") },
+            "tools" => new() { Tools = [new("curl", "")] },
+            "mcp" => new() { McpServers = [new("server")] },
             "null-tools" => new() { Tools = null! }, "null-mcp" => new() { McpServers = null! }, _ => new()
         };
         var request = new CreateEnvironmentRequest(invalid == "empty-name" ? " " : invalid == "long-name" ? new('x', 121) : "Name",

@@ -57,9 +57,11 @@ public sealed class EnvironmentOrchestratorTests
             Assert.NotNull(item.TaskRunId);
             using var json = JsonDocument.Parse(item.DetailsJson!);
             var profile = json.RootElement.GetProperty("environment");
-            Assert.Equal(new[] { "id", "name", "revision", "timeoutLimitSeconds" }, profile.EnumerateObject().Select(property => property.Name).Order());
+            Assert.Equal(new[] { "id", "image", "mcpServers", "name", "revision", "timeoutLimitSeconds", "tools" }, profile.EnumerateObject().Select(property => property.Name).Order());
             Assert.Equal("profile", profile.GetProperty("id").GetString()); Assert.Equal(2, profile.GetProperty("revision").GetInt32());
             Assert.Equal(60, profile.GetProperty("timeoutLimitSeconds").GetInt32());
+            Assert.Equal(JsonValueKind.Null, profile.GetProperty("image").ValueKind);
+            Assert.Equal(0, profile.GetProperty("tools").GetArrayLength()); Assert.Equal(0, profile.GetProperty("mcpServers").GetArrayLength());
             Assert.DoesNotContain("worker:", item.DetailsJson!); Assert.DoesNotContain("effectiveTimeout", item.DetailsJson!);
         });
     }

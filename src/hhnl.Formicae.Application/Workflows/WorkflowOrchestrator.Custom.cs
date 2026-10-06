@@ -48,7 +48,7 @@ public sealed partial class WorkflowOrchestrator
                         var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, inLoop ? run.LoopIteration : null, token);
                         if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
                             throw new InvalidOperationException($"Bound input '{name}' requires successful validated outputs from '{producer.Id}'.");
-                        var outputs = CustomTaskDefinitions.ParseOutputs(source.StructuredOutputsJson, producer.CustomTask!.Snapshot!.Outputs);
+                        var outputs = CustomTaskDefinitions.ParseOutputs(source.StructuredOutputsJson, CustomTaskDefinitions.OutputSchemaFor(producer));
                         provenance[name] = new(producer.Id, binding.OutputName, source.Id, source.ExecutionAttemptId.Value, source.LoopIteration,
                             outputs.TryGetValue(binding.OutputName, out var value) ? value : null);
                     }
@@ -112,7 +112,7 @@ public sealed partial class WorkflowOrchestrator
                     model = started.Model ?? prepared.Task.Model, personaId = prepared.Persona?.Id ?? "default",
                     personaRevision = prepared.Persona?.Revision ?? 1, personaName = prepared.Persona?.Name ?? "Default behavior",
                     prepared.Task.TimeoutSeconds, externalId = started.ExternalId, executionAttemptId = run.ExecutionAttemptId,
-                    environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot) }, token);
+                    environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot, prepared.Task.Capabilities), capabilities = prepared.Task.Capabilities, secretReferences = prepared.Task.SecretReferences }, token);
             return true;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)
@@ -163,7 +163,7 @@ public sealed partial class WorkflowOrchestrator
         {
             await store.AddLogAsync(new WorkflowLog { WorkflowId = workflow.Id, TaskRunId = run.Id, Level = "Warning",
                 ExecutionAttemptId = run.ExecutionAttemptId, ExternalId = run.ExternalId,
-                Message = $"Custom task '{run.DefinitionStepId}' will resume its existing attempt after an orchestration error: {exception.Message}",
+                Message = $"{run.Kind} task '{run.DefinitionStepId}' will resume its existing attempt after an orchestration error: {exception.Message}",
                 CreatedAt = clock.UtcNow }, token);
         }
         catch (Exception) when (!token.IsCancellationRequested) { }

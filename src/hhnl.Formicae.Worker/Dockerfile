@@ -3,10 +3,12 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
+COPY src/hhnl.Formicae.Application/hhnl.Formicae.Application.csproj src/hhnl.Formicae.Application/
 COPY src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj src/hhnl.Formicae.Worker/
 RUN dotnet restore src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj
 
 COPY src/hhnl.Formicae.Worker/ src/hhnl.Formicae.Worker/
+COPY src/hhnl.Formicae.Application/ src/hhnl.Formicae.Application/
 RUN dotnet publish src/hhnl.Formicae.Worker/hhnl.Formicae.Worker.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS runtime

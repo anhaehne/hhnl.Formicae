@@ -144,6 +144,7 @@ public sealed partial class WorkflowOrchestrator
                 TaskRunKind.Plan => await RunPlanningAsync(workflow, null, token),
                 TaskRunKind.Implement => await RunImplementationAsync(workflow, token),
                 TaskRunKind.AddressComments => await AddressPullRequestCommentsAsync(workflow, token),
+                TaskRunKind.Script when current is not null && active.ExternalId is not null => await RunScriptTaskAsync(workflow, current, token),
                 TaskRunKind.Custom when current is not null && active.ExternalId is not null => await RunCustomTaskAsync(workflow, current, token),
                 _ => false
             };

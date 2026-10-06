@@ -518,6 +518,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ExecutionAttemptId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ExternalId")
                         .HasColumnType("text");
 
@@ -592,6 +595,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("ExecutionAttemptId")
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ExternalId")
                         .HasColumnType("text");
