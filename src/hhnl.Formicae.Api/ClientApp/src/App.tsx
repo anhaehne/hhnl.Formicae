@@ -1,5 +1,6 @@
+import WorkflowExecutionPage from "./WorkflowExecutionPage";
+import WorkflowHistory from "./WorkflowHistory";
 import EnvironmentsPage from "./EnvironmentsPage";
-import { EnvironmentHistory } from "./EnvironmentHistory";
 import CustomTasksPage from "./CustomTasksPage";
 import PersonasPage from "./PersonasPage";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,21 +22,13 @@ import {
   getCodexAuthConnectionStatus,
   getCurrentUser,
   getIntegration,
-  getWorkflow,
   GitHubUserRepository,
   IntegrationDetail,
   IntegrationSummary,
   listManagementRoles,
   listManagementUsers,
-  listChatMessages,
-  listEvents,
   listGitHubUserRepositories,
   listIntegrations,
-  listLogs,
-  listRuns,
-  listLoopIterations,
-  listDecisionExecutions,
-  listSignals,
   listWorkflows,
   listWorkflowDefinitions,
   logout,
@@ -43,33 +36,20 @@ import {
   ManagementUser,
   redeemInvite,
   restartIdentityProvider,
-  retryTaskRun,
-  retryWorkflow,
   rotateWebhookSecret,
   setIdentityProviderEnabled,
   startCodexAuthConnection,
   startWorkflow,
-  TaskRun,
-  WorkflowLoopIteration,
-  WorkflowDecisionExecution,
   updateAiSettings,
   updateManagementUserRoles,
 
-  WorkflowChatMessage,
   WorkflowDefinitionResponse,
-  WorkflowEvent,
-  WorkflowLog,
-  WorkflowSignal,
   WorkflowSummary
 } from "./api";
 import { NavigationIcon } from "./NavigationIcon";
 import WorkflowDefinitionsPage from "./WorkflowDefinitionsPage";
 import { getEnabledDefinitionVersions } from "./workflowGraph";
 
-const workflowStatuses = ["Queued", "Planning", "Implementing", "CreatingPullRequest", "Reviewing", "Completed", "Failed", "Canceled", "Running"];
-const workflowSteps = ["None", "Plan", "Implement", "CreatePullRequest", "AddressComments", "Done", "Custom"];
-const taskRunKinds = ["Plan", "Implement", "CreatePullRequest", "AddressComments", "Custom"];
-const taskRunStatuses = ["Queued", "Running", "Succeeded", "Failed"];
 
 type FormState = {
   issueUrl: string;
@@ -138,19 +118,6 @@ type GiteaIntegrationFormState = {
   webhookSecret: string;
 };
 
-type DetailState = {
-  workflow?: WorkflowSummary;
-  runs: TaskRun[];
-  loopIterations: WorkflowLoopIteration[];
-  decisions: WorkflowDecisionExecution[];
-  logs: WorkflowLog[];
-  events: WorkflowEvent[];
-  signals: WorkflowSignal[];
-  chatMessages: WorkflowChatMessage[];
-  loading: boolean;
-  error?: string;
-};
-
 const initialForm: FormState = {
   issueUrl: "",
   repositoryUrl: "",
@@ -208,13 +175,10 @@ export default function App() {
   const [startingCodexAuth, setStartingCodexAuth] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionResponse[]>([]);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>();
-  const [detail, setDetail] = useState<DetailState>({ runs: [], loopIterations: [], decisions: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | undefined>(() => new URLSearchParams(window.location.search).get("workflowId") ?? undefined);
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [loadingWorkflowDefinitions, setLoadingWorkflowDefinitions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [retryingRunId, setRetryingRunId] = useState<string>();
-  const [retryingWorkflowId, setRetryingWorkflowId] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
   const [workflowDefinitionError, setWorkflowDefinitionError] = useState<string>();
@@ -277,17 +241,9 @@ export default function App() {
     { page: "settings", label: "Settings", disabled: !canAdminister }
   ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
 
-  const selectedWorkflow = useMemo(
-    () => detail.workflow ?? workflows.find(workflow => workflow.workflowId === selectedWorkflowId),
-    [detail.workflow, selectedWorkflowId, workflows]
-  );
   const selectedAiSettings = useMemo(
     () => aiSettingsList.find(settings => settings.id === selectedAiSettingsId) ?? aiSettingsList[0],
     [aiSettingsList, selectedAiSettingsId]
-  );
-  const failureEvents = useMemo(
-    () => detail.events.filter(event => (event.type === "WorkflowFailed" || event.level === "Error") && event.detailsJson),
-    [detail.events]
   );
   const enabledDefinitionVersions = useMemo(
     () => getEnabledDefinitionVersions(workflowDefinitions),
@@ -655,111 +611,13 @@ export default function App() {
   }, [currentUser?.authenticated, location.search, navigate, refreshCurrentUser, refreshIntegrations, replaceUrlParams]);
 
   useEffect(() => {
-    if (!selectedWorkflowId) {
-      setDetail({ runs: [], loopIterations: [], decisions: [], logs: [], events: [], signals: [], chatMessages: [], loading: false });
-      return;
-    }
-
-    const workflowId = selectedWorkflowId;
-    let ignore = false;
-    async function loadDetail(showLoading = true) {
-      if (showLoading) {
-        setDetail(current => ({ ...current, loading: true, error: undefined }));
-      }
-      try {
-        const [workflow, runs, loopIterations, decisions, logs, events, signals, chatMessages] = await Promise.all([
-          getWorkflow(workflowId),
-          listRuns(workflowId),
-          listLoopIterations(workflowId),
-          listDecisionExecutions(workflowId),
-          listLogs(workflowId),
-          listEvents(workflowId),
-          listSignals(workflowId),
-          listChatMessages(workflowId)
-        ]);
-        if (!ignore) {
-          setDetail({ workflow, runs, loopIterations, decisions, logs, events, signals, chatMessages, loading: false });
-        }
-      } catch (error) {
-        if (!ignore) {
-          setDetail({
-            workflow: workflows.find(workflow => workflow.workflowId === workflowId),
-            runs: [],
-            loopIterations: [], decisions: [],
-            logs: [],
-            events: [],
-            signals: [],
-            chatMessages: [],
-            loading: false,
-            error: error instanceof Error ? error.message : "Could not load workflow details."
-          });
-        }
-      }
-    }
-
-    void loadDetail();
-    const refreshInterval = window.setInterval(() => {
-      void loadDetail(false);
-    }, 3000);
-    return () => {
-      ignore = true;
-      window.clearInterval(refreshInterval);
-    };
-  }, [selectedWorkflowId, workflows]);
-
-  async function refreshWorkflowDetail(workflowId: string) {
-    const [workflow, runs, loopIterations, decisions, logs, events, signals, chatMessages] = await Promise.all([
-      getWorkflow(workflowId),
-      listRuns(workflowId),
-      listLoopIterations(workflowId),
-      listDecisionExecutions(workflowId),
-      listLogs(workflowId),
-      listEvents(workflowId),
-      listSignals(workflowId),
-      listChatMessages(workflowId)
-    ]);
-    setDetail({ workflow, runs, loopIterations, decisions, logs, events, signals, chatMessages, loading: false });
-  }
-
-  async function handleRetryRun(run: TaskRun) {
-    const workflowId = detail.workflow?.workflowId ?? selectedWorkflowId;
-    if (!workflowId) {
-      return;
-    }
-
-    setRetryingRunId(run.id);
-    setDetail(current => ({ ...current, error: undefined }));
-    try {
-      const workflow = await retryTaskRun(workflowId, run.id);
-      setDetail(current => ({ ...current, workflow, loading: false }));
-      await refreshWorkflowDetail(workflowId);
-      await refreshWorkflows();
-    } catch (error) {
-      setDetail(current => ({
-        ...current,
-        loading: false,
-        error: error instanceof Error ? error.message : "Could not retry task run."
-      }));
-    } finally {
-      setRetryingRunId(undefined);
-    }
-  }
-
-  async function handleRetryWorkflow(workflow: WorkflowSummary) {
-    setSelectedWorkflowId(workflow.workflowId);
-    setRetryingWorkflowId(workflow.workflowId);
-    setListError(undefined);
-    setDetail(current => ({ ...current, error: undefined }));
-    try {
-      const retriedWorkflow = await retryWorkflow(workflow.workflowId);
-      setDetail(current => ({ ...current, workflow: retriedWorkflow, loading: false }));
-      await refreshWorkflowDetail(workflow.workflowId);
-      await refreshWorkflows();
-    } catch (error) {
-      setListError(error instanceof Error ? error.message : "Could not retry workflow.");
-    } finally {
-      setRetryingWorkflowId(undefined);
-    }
+    const workflowId = new URLSearchParams(location.search).get("workflowId");
+    if (workflowId) setSelectedWorkflowId(workflowId);
+  }, [location.search]);
+  function selectWorkflow(workflowId: string) {
+    setSelectedWorkflowId(workflowId);
+    const next = new URLSearchParams(location.search); next.set("workflowId", workflowId); next.delete("node"); next.delete("attempt"); next.delete("decision");
+    navigate({ pathname: "/workflows", search: next.toString() });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -796,7 +654,7 @@ export default function App() {
         workflowDefinitionId: workflowDefinition.definition.id,
         workflowDefinitionVersionId: workflowDefinition.version.id
       });
-      setSelectedWorkflowId(workflow.workflowId);
+      selectWorkflow(workflow.workflowId);
       setForm(current => ({ ...current, issueUrl: "", model: "" }));
       await refreshWorkflows();
     } catch (error) {
@@ -1344,245 +1202,9 @@ export default function App() {
           </form>
         </div>
 
-        <section className="panel recent-panel">
-          <div className="panel-heading">
-            <h2>Recent Runs</h2>
-            {listError ? <span className="error-text">{listError}</span> : null}
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Created</th>
-                  <th>Status</th>
-                  <th>Step</th>
-                  <th>Issue</th>
-                  <th>Pull Request</th>
-                  <th>Failure</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workflows.map(workflow => (
-                  <tr
-                    key={workflow.workflowId}
-                    className={workflow.workflowId === selectedWorkflowId ? "selected-row" : undefined}
-                    onClick={() => setSelectedWorkflowId(workflow.workflowId)}
-                  >
-                    <td>{formatDate(workflow.createdAt)}</td>
-                    <td><StatusBadge value={formatEnum(workflow.status, workflowStatuses)} /></td>
-                    <td>{formatEnum(workflow.currentStep, workflowSteps)}</td>
-                    <td><ExternalLink href={workflow.issueUrl}>{shortUrl(workflow.issueUrl)}</ExternalLink></td>
-                    <td>{workflow.pullRequestUrl ? <ExternalLink href={workflow.pullRequestUrl}>Open</ExternalLink> : <span className="muted">None</span>}</td>
-                    <td>{workflow.failureReason ? <span className="failure-cell">{workflow.failureReason}</span> : <span className="muted">None</span>}</td>
-                    <td>
-                      {formatEnum(workflow.status, workflowStatuses) === "Failed" ? (
-                        <button
-                          type="button"
-                          className="secondary-button table-action-button"
-                          onClick={event => {
-                            event.stopPropagation();
-                            void handleRetryWorkflow(workflow);
-                          }}
-                          disabled={retryingWorkflowId === workflow.workflowId || !canTriggerWorkflows}
-                        >
-                          {retryingWorkflowId === workflow.workflowId ? "Retrying" : "Retry"}
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-                {workflows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="empty-cell">{loadingWorkflows ? "Loading workflows" : "No workflows yet"}</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <WorkflowHistory selectedId={selectedWorkflowId} onSelect={selectWorkflow} definitions={workflowDefinitions} refreshToken={workflows} />
       </section>
-
-      <section className="panel detail-panel">
-        <div className="panel-heading">
-          <h2>Workflow Detail</h2>
-          {detail.loading ? <span className="muted">Loading</span> : null}
-        </div>
-        {selectedWorkflow ? (
-          <div className="detail-grid">
-            <div className="summary-list">
-              <SummaryItem label="Workflow ID" value={selectedWorkflow.workflowId} mono />
-              <SummaryItem label="Status" value={formatEnum(selectedWorkflow.status, workflowStatuses)} />
-              <SummaryItem label="Current Step" value={formatEnum(selectedWorkflow.currentStep, workflowSteps)} />
-              <SummaryItem label="Definition Step" value={selectedWorkflow.currentDefinitionStepId ?? "Done"} mono />
-              <SummaryItem label="Issue" value={<ExternalLink href={selectedWorkflow.issueUrl}>{selectedWorkflow.issueUrl}</ExternalLink>} />
-              <SummaryItem label="Pull Request" value={selectedWorkflow.pullRequestUrl ? <ExternalLink href={selectedWorkflow.pullRequestUrl}>{selectedWorkflow.pullRequestUrl}</ExternalLink> : "None"} />
-              <SummaryItem label="Failure" value={selectedWorkflow.failureReason ?? "None"} />
-            </div>
-
-            <div className="detail-stack">
-              {detail.error ? <p className="error-text">{detail.error}</p> : null}
-              {failureEvents.length > 0 ? (
-                <section>
-                  <h3>Failure Details</h3>
-                  <div className="failure-detail-list">
-                    {failureEvents.map(event => (
-                      <article className="failure-detail" key={event.id}>
-                        <div className="timeline-meta">
-                          <time>{formatDate(event.createdAt)}</time>
-                          <StatusBadge value={event.type} />
-                        </div>
-                        <p>{event.message}</p><EnvironmentHistory detailsJson={event.detailsJson} />
-                        <Expandable title="Stack Trace" content={formatFailureDetails(event.detailsJson ?? "")} pre />
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-              {detail.signals.length > 0 ? (
-                <section>
-                  <h3>Signals</h3>
-                  <div className="signal-list">
-                    {detail.signals.map(signal => (
-                      <div className={`signal-row signal-${signal.severity.toLowerCase()}`} key={`${signal.taskRunId ?? "workflow"}-${signal.reason}`}>
-                        <strong>{signal.severity}</strong>
-                        <span>{signal.reason}</span>
-                        <time>{formatDate(signal.observedAt)}</time>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section>
-                <h3>Timeline</h3>
-                <div className="timeline-list">
-                  {detail.events.map(event => (
-                    <article className="timeline-item" key={event.id}>
-                      <div className="timeline-meta">
-                        <time>{formatDate(event.createdAt)}</time>
-                        <StatusBadge value={event.type} />
-                        <span>{event.level}</span>
-                      </div>
-                      <p>{event.message}</p><EnvironmentHistory detailsJson={event.detailsJson} />
-                      {event.detailsJson ? <Expandable title="Event Details" content={formatJson(event.detailsJson)} pre /> : null}
-                    </article>
-                  ))}
-                  {detail.events.length === 0 ? <p className="muted">No events recorded.</p> : null}
-                </div>
-              </section>
-
-              <section aria-label="Decision history">
-                <h3>Decisions</h3>
-                <div className="run-list">{detail.decisions.map(decision => <article className="run-card" key={decision.id}>
-                  <div className="run-meta"><strong>Decision {decision.nodeId}</strong><StatusBadge value={decision.booleanResult ? "True" : "False"} /><time>{formatDate(decision.evaluatedAt)}</time></div>
-                  <p>Selected route: <span className="mono">{decision.configuredTargetId}</span>{decision.selectedTargetId !== decision.configuredTargetId ? <> · Execution entry: <span className="mono">{decision.selectedTargetId}</span></> : null}</p>
-                  <p className="muted">{decisionInputSummary(decision.inputJson)}{decision.sourceTaskRunId ? ` · Source task run: ${decision.sourceTaskRunId}` : ""}</p>
-                  <Expandable title="Evaluated input" content={formatJson(decision.inputJson)} pre />
-                </article>)}</div>
-                {detail.decisions.length === 0 ? <p className="muted">No decisions evaluated.</p> : null}
-              </section>
-
-              <section>
-                <h3>Loop Iterations</h3>
-                <div className="run-list">
-                  {detail.loopIterations.map(iteration => (
-                    <article className="run-card" key={iteration.id}>
-                      <div className="run-meta">
-                        <strong>{iteration.loopId} #{iteration.iterationNumber}</strong>
-                        <StatusBadge value={formatEnum(iteration.outcome, ["Running", "Succeeded", "Failed"])} />
-                        <span>{formatDuration(iteration.startedAt, iteration.completedAt)}</span>
-                      </div>
-                      {iteration.failureReason ? <p className="error-text">{iteration.failureReason}</p> : null}
-                    </article>
-                  ))}
-                  {detail.loopIterations.length === 0 ? <p className="muted">No loop iterations recorded.</p> : null}
-                </div>
-              </section>
-
-              <section>
-                <h3>Task Runs</h3>
-                <div className="run-list">
-                  {detail.runs.map(run => {
-                    const runStatus = formatEnum(run.status, taskRunStatuses);
-                    const retrying = retryingRunId === run.id;
-                    return (
-                    <article className="run-card" key={run.id}>
-                      <div className="run-meta">
-                        <strong>{formatEnum(run.kind, taskRunKinds)}</strong>
-                        <span className="mono">{run.definitionStepId || "legacy"}{run.loopIteration ? ` #${run.loopIteration}` : ""}</span>
-                        <StatusBadge value={runStatus} />
-                        <span>{formatDate(run.updatedAt)}</span>
-                        <span>{formatDuration(run.startedAt, run.completedAt)}</span>
-                        {runStatus === "Failed" ? (
-                          <button
-                            type="button"
-                            className="secondary-button run-action-button"
-                            onClick={() => void handleRetryRun(run)}
-                            disabled={retrying || !canTriggerWorkflows}
-                          >
-                            {retrying ? "Retrying" : "Retry"}
-                          </button>
-                        ) : null}
-                      </div>
-                      <EnvironmentHistory detailsJson={detail.events.filter(event => event.taskRunId === run.id && event.type === "AgentSettingsResolved").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.detailsJson} />
-                      {run.failureReason ? <p className="error-text">{run.failureReason}</p> : null}
-                      {run.agentMessages.length > 0 ? (
-                        <div className="agent-message-list">
-                          {run.agentMessages.map(message => (
-                            <Expandable
-                              key={message.sequence}
-                              title={`Agent Message ${message.sequence + 1}${message.role ? `: ${message.role}` : ""}`}
-                              content={message.content}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                      {formatEnum(run.kind, taskRunKinds) === "Custom" && <section aria-label="Custom task execution"><h4>{run.customTaskExecution ? `${run.customTaskExecution.name} · revision ${run.customTaskExecution.revision}` : "Custom task metadata unavailable"}</h4>{run.customTaskExecution && <><p className="muted">Task {run.customTaskExecution.taskId} · {run.customTaskExecution.timeoutSeconds}s timeout · inputs captured for this execution</p><Expandable title="Prepared inputs" content={JSON.stringify(run.customTaskExecution.inputs, null, 2)} pre /><Expandable title="Bound input provenance" content={JSON.stringify(run.customTaskExecution.provenance ?? {}, null, 2)} pre /><Expandable title="Workflow source values" content={JSON.stringify(run.customTaskExecution.workflowFields, null, 2)} pre /><Expandable title="Prepared prompt" content={run.customTaskExecution.prompt} pre /></>}{run.structuredOutputs && <Expandable title="Structured outputs" content={JSON.stringify(run.structuredOutputs, null, 2)} pre />}</section>}
-                      {run.output != null ? <Expandable title={formatEnum(run.kind, taskRunKinds) === "Custom" ? "Task output" : "Raw Output"} content={run.output} pre /> : <p className="muted">No output recorded.</p>}
-                    </article>
-                    );
-                  })}
-                  {detail.runs.length === 0 ? <p className="muted">No task runs recorded.</p> : null}
-                </div>
-              </section>
-
-              <section>
-                <h3>Chat Messages</h3>
-                <div className="chat-list">
-                  {detail.chatMessages.map(message => (
-                    <article className="chat-row" key={message.id}>
-                      <div className="chat-meta">
-                        <strong>{message.author}</strong>
-                        <time>{formatDate(message.updatedAt)}</time>
-                        <ExternalLink href={message.url}>Open</ExternalLink>
-                      </div>
-                      <Expandable title="Message" content={message.body} />
-                    </article>
-                  ))}
-                  {detail.chatMessages.length === 0 ? <p className="muted">No chat messages recorded.</p> : null}
-                </div>
-              </section>
-
-              <section>
-                <h3>Logs</h3>
-                <div className="log-list">
-                  {detail.logs.map(log => (
-                    <div className="log-row" key={log.id}>
-                      <time>{formatDate(log.createdAt)}</time>
-                      <span>{log.level}</span>
-                      <Expandable title="Log Message" content={log.message} />
-                    </div>
-                  ))}
-                  {detail.logs.length === 0 ? <p className="muted">No logs recorded.</p> : null}
-                </div>
-              </section>
-            </div>
-          </div>
-        ) : (
-          <p className="muted">Select a workflow to inspect runs and logs.</p>
-        )}
-      </section>
+      {selectedWorkflowId ? <WorkflowExecutionPage key={selectedWorkflowId} workflowId={selectedWorkflowId} canControl={canTriggerWorkflows} onChanged={() => void refreshWorkflows()} /> : <section className="panel"><h2>Workflow Detail</h2><p>Select a workflow to investigate its visual graph and worker logs.</p></section>}
         </>
       ) : activePage === "workflow-definitions" ? (
         <WorkflowDefinitionsPage
@@ -2816,40 +2438,6 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function formatEnum(value: string | number, labels: string[]) {
-  if (typeof value === "number") {
-    return labels[value] ?? String(value);
-  }
-
-  return value;
-}
-
-function formatDuration(startedAt?: string | null, completedAt?: string | null) {
-  if (!startedAt) {
-    return "Not started";
-  }
-
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
-    return "Duration unavailable";
-  }
-
-  const seconds = Math.round((end - start) / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) {
-    return `${minutes}m ${remainingSeconds}s`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
-}
-
 function stripAnsi(value: string) {
   return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
 }
@@ -2857,28 +2445,6 @@ function stripAnsi(value: string) {
 async function copyText(value: string) {
   await navigator.clipboard?.writeText(value);
 }
-function formatJson(value: string) {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
-function formatFailureDetails(value: string) {
-  try {
-    const payload = JSON.parse(value) as { stackTrace?: unknown; StackTrace?: unknown };
-    const stackTrace = typeof payload.stackTrace === "string" ? payload.stackTrace : typeof payload.StackTrace === "string" ? payload.StackTrace : undefined;
-    if (stackTrace?.trim()) {
-      return stackTrace;
-    }
-
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    return value;
-  }
-}
-
 function shortUrl(value: string) {
   try {
     const url = new URL(value);
@@ -2886,10 +2452,4 @@ function shortUrl(value: string) {
   } catch {
     return value;
   }
-}
-
-function decisionInputSummary(inputJson: string) {
-  try { const input = JSON.parse(inputJson) as { source?: string; reference?: string; valueType?: string };
-    return [input.source || "Evaluated input", input.reference, input.valueType].filter(Boolean).join(" · ");
-  } catch { return "Recorded evaluation input"; }
 }

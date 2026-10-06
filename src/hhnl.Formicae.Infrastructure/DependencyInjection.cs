@@ -23,6 +23,7 @@ public static class DependencyInjection
     public static IServiceCollection AddFormicaeInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<WorkflowService>();
+        services.AddScoped<WorkflowExecutionService>();
         services.AddScoped<WorkflowTriggerService>();
         services.AddScoped<WorkflowDefinitionService>();
         services.AddSingleton<WorkflowDefinitionValidator>();

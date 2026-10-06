@@ -1,0 +1,113 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { applyNodeChanges, Background, Controls, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, type NodeProps } from "@xyflow/react";
+import { useSearchParams } from "react-router-dom";
+import "@xyflow/react/dist/style.css";
+import { controlWorkflow, getWorkflowExecution, listEvents, retryTaskRun, retryWorkflow, workflowEvidenceUrl, type PreparedCustomTaskExecution, type TaskRun, type TaskRunAttempt, type WorkflowEvent, type WorkflowExecution } from "./api";
+import { definitionToGraph, decisionUses, type WorkflowStepNode } from "./workflowGraph";
+import { NodeActions, WorkflowNode } from "./workflowEditor/Node";
+import { arrange } from "./workflowEditor/layout";
+import { EnvironmentHistory } from "./EnvironmentHistory";
+import WorkflowContext from "./workflowExecution/WorkflowContext";
+import LogViewer from "./workflowExecution/LogViewer";
+import { duration, enumName, Evidence, parseEvidence, StateBadge, taskStates, workflowStates } from "./workflowExecution/evidence";
+function ExecutionNode(props: NodeProps<WorkflowStepNode>) { return <div className="execution-node"><WorkflowNode {...props} /><div className="execution-node-state"><StateBadge value={String(props.data.executionStatus ?? "Pending")} /><span>{String(props.data.executionDuration ?? "")}</span></div></div>; }
+const nodeTypes = { workflowStep: ExecutionNode };
+function FitInitialGraph() {
+ const initialized = useNodesInitialized(), { fitView, viewportInitialized } = useReactFlow(), fitted = useRef(false);
+ useEffect(() => {
+  if (!initialized || !viewportInitialized || fitted.current) return;
+  let active = true;
+  const frame = requestAnimationFrame(() => {
+   void fitView({ padding: .2, maxZoom: 1.2 }).then(success => { if (active && success) fitted.current = true; });
+  });
+  return () => { active = false; cancelAnimationFrame(frame); };
+ }, [initialized, viewportInitialized, fitView]);
+ return null;
+}
+type Scope = { key: string; run: TaskRun; archive?: TaskRunAttempt; number: number };
+export default function WorkflowExecutionPage({ workflowId, canControl, onChanged }: { workflowId: string; canControl: boolean; onChanged: () => void }) {
+ const [execution, setExecution] = useState<WorkflowExecution>(), [events, setEvents] = useState<WorkflowEvent[]>([]), [error, setError] = useState<string>(), [loading, setLoading] = useState(true);
+ const [params, setParams] = useSearchParams(), [positions, setPositions] = useState<WorkflowStepNode[]>([]), [action, setAction] = useState<"pause" | "resume" | "cancel" | "retry-task" | "retry-workflow">(), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
+ const latest = useRef(0), pinnedVersion = useRef<string | undefined>(undefined), generation = useRef(0);
+ const nodeId = params.get("node") ?? "", attemptKey = params.get("attempt") ?? "";
+ useEffect(() => {
+  let active = true, inFlight = false, current: AbortController | undefined; ++generation.current;
+  async function refresh() {
+   if (inFlight) return; inFlight = true;
+   current?.abort(); const controller = new AbortController(); current = controller; const request = ++latest.current;
+   try { const result = await getWorkflowExecution(workflowId, controller.signal); if (!active || request !== latest.current) return; setExecution(result); setError(undefined); }
+   catch (reason) { if (active && !controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not refresh execution."); }
+   finally { inFlight = false; if (active && request === latest.current) setLoading(false); }
+  }
+  void refresh(); const timer = window.setInterval(() => void refresh(), 3000);
+  return () => { active = false; current?.abort(); window.clearInterval(timer); };
+ }, [workflowId, revision]);
+ useEffect(() => { const controller = new AbortController(); listEvents(workflowId, controller.signal).then(result => { if (!controller.signal.aborted) setEvents(result); }).catch(() => {}); return () => controller.abort(); }, [workflowId, execution?.workflow.updatedAt]);
+ // A run's definition is immutable. Status snapshots must not restart its pending layout.
+ const definitionIdentity = execution ? `${workflowId}:${execution.definitionVersionId ?? "legacy"}` : undefined;
+ const graph = useMemo(() => execution?.definition ? definitionToGraph(execution.definition) : { nodes: [], edges: [] }, [definitionIdentity]);
+ useEffect(() => {
+  if (!execution) return; const version = execution.definitionVersionId ?? workflowId;
+  if (pinnedVersion.current === version) return;
+  let active = true;
+  if (execution.definition?.editor?.positions && Object.keys(execution.definition.editor.positions).length) { pinnedVersion.current = version; setPositions(graph.nodes); }
+  else void arrange(graph.nodes, graph.edges).then(result => { if (active) { pinnedVersion.current = version; setPositions(result); } }).catch(() => { if (active) { pinnedVersion.current = version; setPositions(graph.nodes); } });
+  return () => { active = false; };
+ }, [definitionIdentity, graph, workflowId]);
+ const scopes = useMemo<Scope[]>(() => (execution?.runs ?? []).filter(run => !nodeId || run.definitionStepId === nodeId || `run:${run.id}` === nodeId).flatMap(run => [
+  ...(execution?.attempts ?? []).filter(attempt => attempt.taskRunId === run.id).map(archive => ({ key: archive.executionAttemptId, run, archive, number: archive.attemptNumber })),
+  { key: run.executionAttemptId ?? run.id, run, number: run.attemptCount ?? 1 }
+ ]), [execution, nodeId]);
+ const scope = scopes.find(item => item.key === attemptKey) ?? (nodeId ? scopes.at(-1) : undefined), selectedRun = scope?.run, archive = scope?.archive;
+ const selectedStep = execution?.definition?.steps.find(step => step.id === nodeId), nodeDecisions = execution?.decisions.filter(decision => decision.nodeId === nodeId) ?? [], selectedDecision = nodeDecisions.find(decision => decision.id === params.get("decision")) ?? nodeDecisions.at(-1);
+ const prepared = archive ? parseEvidence<PreparedCustomTaskExecution>(archive.customTaskExecutionJson) : selectedRun?.customTaskExecution;
+ const output = archive ? archive.output : selectedRun?.output, failure = archive ? archive.failureReason : selectedRun?.failureReason;
+ const selectedEvents = events.filter(event => { if (!selectedRun) return true; const detail = parseEvidence<{ taskRunId?: string; executionAttemptId?: string }>(event.detailsJson); if ((event.taskRunId ?? detail?.taskRunId) !== selectedRun.id) return false; if (detail?.executionAttemptId && detail.executionAttemptId !== scope?.key) return false; const start = archive ? archive.startedAt ?? archive.createdAt : selectedRun.startedAt ?? selectedRun.createdAt, end = archive?.completedAt ?? archive?.updatedAt; return event.createdAt >= start && (!end || event.createdAt <= end); });
+ const profileEvent = selectedRun ? selectedEvents.filter(event => event.type === "AgentSettingsResolved" || event.type === "TaskSettingsResolved").at(-1) : undefined;
+ const pinnedProfile = selectedStep?.environmentSnapshot ?? execution?.definition?.defaultEnvironmentSnapshot;
+ const environmentDetails = profileEvent?.detailsJson ?? (pinnedProfile ? JSON.stringify({ environment: { id: pinnedProfile.id, revision: pinnedProfile.revision, name: pinnedProfile.name, timeoutLimitSeconds: pinnedProfile.configuration.runtime?.timeoutLimitSeconds } }) : undefined);
+ const statusOf = (run?: TaskRun) => run ? enumName(run.status, taskStates) : "Pending";
+ const nodes = positions.map(node => { const runs = execution?.runs.filter(run => run.definitionStepId === node.id) ?? [], run = runs.at(-1), decision = execution?.decisions.filter(item => item.nodeId === node.id).at(-1), iteration = execution?.loops.filter(item => item.loopId === node.id || `loop-${item.loopId}` === node.id).at(-1), parallel = execution?.parallels?.find(item => item.nodeId === node.id); return { ...node, selected: node.id === nodeId, data: { ...node.data, executionStatus: execution?.control.cancelCompletedAt && ((parallel?.outcome === "Running") || (iteration && enumName(iteration.outcome, ["Running", "Succeeded", "Failed"]) === "Running")) ? "Canceled" : parallel ? parallel.outcome : decision ? (decision.booleanResult ? "True" : "False") : run ? statusOf(run) : iteration ? enumName(iteration.outcome, ["Running", "Succeeded", "Failed"]) : execution?.workflow.currentDefinitionStepId === node.id ? "Running" : ["Completed", "Failed", "Canceled"].includes(enumName(execution?.workflow.status, workflowStates)) ? "Not executed" : "Pending", executionDuration: parallel ? duration(parallel.startedAt, parallel.completedAt ?? execution?.control.cancelCompletedAt) : iteration ? duration(iteration.startedAt, iteration.completedAt ?? execution?.control.cancelCompletedAt) : run ? `${duration(run.startedAt, run.completedAt)} · ${runs.length} run${runs.length === 1 ? "" : "s"}` : "" } }; });
+ const edges = graph.edges.map(edge => { const decision = edge.source === nodeId && selectedDecision ? selectedDecision : execution?.decisions.filter(item => item.nodeId === edge.source).at(-1), selected = decision && edge.target === decision.configuredTargetId; return { ...edge, animated: selected || statusOf(execution?.runs.find(run => run.definitionStepId === edge.target)) === "Running", style: selected ? { ...edge.style, stroke: "#178451", strokeWidth: 3 } : edge.style, className: selected ? "execution-selected-route" : undefined }; });
+ const select = useCallback((node: string, attempt?: string) => { setParams(current => { const next = new URLSearchParams(current); next.set("workflowId", workflowId); next.delete("decision"); if (node) next.set("node", node); else next.delete("node"); if (attempt) next.set("attempt", attempt); else next.delete("attempt"); return next; }); }, [workflowId, setParams]);
+ async function confirmAction() {
+  if (!action || !execution) return; setBusy(true); setError(undefined);
+  try { if (action === "retry-task" && selectedRun) await retryTaskRun(workflowId, selectedRun.id); else if (action === "retry-workflow") await retryWorkflow(workflowId); else if (action === "pause" || action === "resume" || action === "cancel") await controlWorkflow(workflowId, action); setAction(undefined); setRevision(value => value + 1); onChanged(); }
+  catch (reason) { setError(reason instanceof Error ? reason.message : "Control request failed."); }
+  finally { setBusy(false); }
+ }
+ if (!execution) return <section className="panel"><h2>Workflow Detail</h2>{loading && <p>Loading execution…</p>}{error && <p role="alert">{error}</p>}</section>;
+ const workflow = execution.workflow, status = enumName(workflow.status, workflowStates), complete = execution.runs.filter(run => statusOf(run) === "Succeeded").length;
+ const explanations = { pause: "Pause prevents new steps from launching. Active workers continue and their results are recorded.", resume: "Resume allows pending steps to launch from the recorded workflow state.", cancel: "Cancel requests worker termination and stops new launches. Partial evidence is retained; cancellation remains pending until runtime cleanup completes.", "retry-task": "Retry repeats this failed task using the pinned definition. Existing attempt evidence is retained. External side effects may run again; retry waits for previous runtime cleanup.", "retry-workflow": "Retry resumes failed work in this workflow using its pinned definition. Existing successful work is retained. Retried task side effects may run again." };
+ return <section className="panel execution-panel" aria-label="Workflow execution">
+  <div className="panel-heading"><h2>Workflow Detail</h2><StateBadge value={status} /><span>{duration(workflow.createdAt, ["Completed", "Failed", "Canceled"].includes(status) ? workflow.updatedAt : undefined)}</span><span>{complete}/{execution.runs.length} task runs succeeded</span><a href={workflowEvidenceUrl(workflowId)} download>Download JSON evidence</a></div>
+  <div className="execution-overview"><span className="mono">{workflowId}</span><span>Pinned definition: {execution.definitionVersionId ?? "Legacy / unavailable"}</span><a href={workflow.issueUrl} target="_blank" rel="noreferrer">Work item</a>{workflow.pullRequestUrl && <a href={workflow.pullRequestUrl} target="_blank" rel="noreferrer">Pull request</a>}</div>
+  {error && <p role="alert" className="error-text">{error} Recorded execution remains visible.</p>}
+  {workflow.failureReason && <p className="execution-failure" role="alert">{workflow.failureReason}</p>}
+  {execution.control.isPaused && <p role="status">Scheduling paused. Active workers continue.</p>}
+  {execution.control.cancelRequestedAt && <p role="status">{execution.control.cancelCompletedAt ? "Cancellation completed; worker cleanup confirmed." : "Cancellation requested; waiting for worker cleanup."}</p>}
+  <div className="execution-toolbar"><button type="button" onClick={() => select("")}>Workflow overview</button><button type="button" disabled={!execution.runs.some(run => statusOf(run) === "Failed")} onClick={() => { const failed = execution.runs.filter(run => statusOf(run) === "Failed"), next = failed[(failed.findIndex(run => run.definitionStepId === nodeId) + 1) % failed.length]; select(next.definitionStepId || `run:${next.id}`, next.executionAttemptId ?? next.id); }}>Next failed task</button>{canControl && <>{execution.control.canPause && <button type="button" onClick={() => setAction("pause")}>Pause scheduling</button>}{execution.control.canResume && <button type="button" onClick={() => setAction("resume")}>Resume scheduling</button>}{execution.control.canCancel && <button type="button" onClick={() => setAction("cancel")}>Cancel workflow</button>}{status === "Failed" && <button type="button" onClick={() => setAction("retry-workflow")}>Retry workflow</button>}</>}</div>
+  {action && <div className="execution-confirm" role="dialog" aria-label="Confirm workflow control"><p>{explanations[action]}</p><button type="button" disabled={busy} onClick={() => void confirmAction()}>{busy ? "Applying…" : "Confirm"}</button><button type="button" disabled={busy} onClick={() => setAction(undefined)}>Keep current state</button></div>}
+  <div className="execution-investigator"><div className="execution-graph" aria-label="Read-only execution graph"><NodeActions.Provider value={{ start: execution.definition?.startStepId ?? "", errors: new Set(), editable: false, add: () => {} }}><ReactFlowProvider><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={changes => setPositions(current => applyNodeChanges(changes.filter(change => change.type === "dimensions"), current))} nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null} onNodeClick={(_, node) => select(node.id)}><FitInitialGraph /><Background /><Controls showInteractive={false} /></ReactFlow></ReactFlowProvider></NodeActions.Provider>{!execution.definition && <p className="execution-graph-empty">Pinned definition unavailable for this legacy workflow.</p>}</div>
+  <aside className="execution-inspector" aria-label="Task investigation"><h3>{selectedStep?.displayName || nodeId || "Workflow overview"}</h3>
+   <label>Task / node<select aria-label="Task / node" value={nodeId} onChange={event => select(event.target.value)}><option value="">Workflow overview</option>{execution.definition?.steps.map(step => <option key={step.id} value={step.id}>{step.displayName || step.id}</option>) ?? execution.runs.map(run => <option key={run.id} value={run.definitionStepId || `run:${run.id}`}>{run.definitionStepId || run.id}</option>)}</select></label>
+   {nodeId && scopes.length > 0 && <label>Iteration and attempt<select aria-label="Iteration and attempt" value={scope?.key ?? ""} onChange={event => select(nodeId, event.target.value)}>{scopes.map(item => <option key={item.key} value={item.key}>Run {item.run.id.slice(0, 8)} · {item.run.loopIteration != null ? `iteration ${item.run.loopIteration}` : "outside loop"} · attempt {item.number}{item.archive ? " (historical)" : " (current)"} · {enumName(item.archive?.status ?? item.run.status, taskStates)}</option>)}</select></label>}
+   {attemptKey && !scopes.some(item => item.key === attemptKey) && <p role="status">The linked attempt is unavailable for this node. Showing the latest recorded attempt.</p>}
+   {selectedRun && <><div className="execution-scope-meta"><StateBadge value={enumName(archive?.status ?? selectedRun.status, taskStates)} /><span>{duration(archive ? archive.startedAt : selectedRun.startedAt, archive ? archive.completedAt : selectedRun.completedAt)}</span><span className="mono">Worker: {archive ? archive.externalId ?? "Unavailable" : selectedRun.externalId ?? "Unavailable"}</span><span className="mono">Attempt: {scope?.key}</span></div>{failure && <p className="execution-failure">{failure}</p>}{!archive && canControl && statusOf(selectedRun) === "Failed" && !execution.control.cancelRequestedAt && <button type="button" onClick={() => setAction("retry-task")}>Retry selected task</button>}
+   {prepared ? <section aria-label="Custom task execution"><h4>{prepared.name} · revision {prepared.revision}</h4><Evidence title="Prepared inputs" value={prepared.inputs} /><Evidence title="Bound input provenance" value={prepared.provenance ?? {}} /><Evidence title="Workflow source values" value={prepared.workflowFields} /><Evidence title="Prepared prompt" value={prepared.prompt} raw /><p>Timeout: {prepared.timeoutSeconds}s</p></section> : enumName(selectedRun.kind, ["Plan", "Implement", "CreatePullRequest", "AddressComments", "Custom"]) === "Custom" && <p>Custom task metadata unavailable</p>}
+   <Evidence title="Structured outputs" value={archive ? parseEvidence(archive.structuredOutputsJson) : selectedRun.structuredOutputs} /><Evidence title="Task output" value={output} raw /></>}
+   <EnvironmentHistory detailsJson={environmentDetails} />
+   {selectedStep && <Evidence title="Pinned effective settings" value={{ model: selectedStep.model ?? "Inherited; see resolved settings below", aiSettingsId: selectedStep.aiSettingsId, persona: selectedStep.personaSnapshot, environment: selectedStep.environmentSnapshot ?? execution.definition?.defaultEnvironmentSnapshot, task: selectedStep.customTask?.snapshot, decision: selectedStep.decision, loop: selectedStep.loop, parallel: selectedStep.parallel }} />}
+   {selectedRun && <Evidence title="Resolved runtime settings" value={execution.resolvedSettings?.filter(item => item.taskRunId === selectedRun.id && (!item.executionAttemptId || item.executionAttemptId === scope?.key)) ?? []} />}
+   {nodeDecisions.length > 0 && <label>Decision evaluation<select aria-label="Decision evaluation" value={selectedDecision?.id ?? ""} onChange={event => setParams(current => { const next = new URLSearchParams(current); next.set("decision", event.target.value); return next; })}>{nodeDecisions.map(decision => <option key={decision.id} value={decision.id}>{new Date(decision.evaluatedAt).toLocaleString()} · {decision.booleanResult ? "True" : "False"} → {decision.configuredTargetId}</option>)}</select></label>}
+   {selectedDecision && <><p>Selected route: {selectedDecision.configuredTargetId}</p><Evidence title="Evaluated decision input" value={parseEvidence(selectedDecision.inputJson) ?? selectedDecision.inputJson} /></>}
+   {nodeId && execution.loops.filter(item => item.loopId === nodeId || `loop-${item.loopId}` === nodeId).length > 0 && <section aria-label="Recorded loop iterations"><h4>Recorded loop iterations</h4>{execution.loops.filter(item => item.loopId === nodeId || `loop-${item.loopId}` === nodeId).map(item => <article key={item.id}><strong>Iteration {item.iterationNumber}</strong> <StateBadge value={execution.control.cancelCompletedAt && enumName(item.outcome, ["Running", "Succeeded", "Failed"]) === "Running" ? "Canceled" : enumName(item.outcome, ["Running", "Succeeded", "Failed"])} /><p>{duration(item.startedAt, item.completedAt ?? execution.control.cancelCompletedAt)} · {new Date(item.startedAt).toLocaleString()}</p>{item.failureReason && <p className="execution-failure">{item.failureReason}</p>}</article>)}</section>}
+   {nodeId && execution.parallels?.filter(item => item.nodeId === nodeId).map(item => <section aria-label="Parallel execution" key={item.id}><h4>Parallel group</h4><StateBadge value={execution.control.cancelCompletedAt && item.outcome === "Running" ? "Canceled" : item.outcome} /><p>{duration(item.startedAt, item.completedAt)} · {new Date(item.startedAt).toLocaleString()}</p><h4>Branch entry progress</h4>{selectedStep?.parallel?.branchStepIds.map(branch => { const latest = execution.runs.filter(run => run.definitionStepId === branch).at(-1); return <p key={branch}>{branch}: {latest ? statusOf(latest) : "No task run recorded"}</p>; })}</section>)}
+   <details className="execution-events"><summary>{selectedRun ? "Task" : "Workflow"} events ({selectedEvents.length})</summary>{archive && <p className="muted">Events are scoped to this task and the recorded attempt timestamps.</p>}{selectedEvents.map(event => <article key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><strong>{event.type}</strong><p>{event.message}</p>{event.detailsJson && <Evidence title="Event details" value={parseEvidence(event.detailsJson) ?? event.detailsJson} />}</article>)}</details>
+  </aside></div>
+  <p className="muted">Log scope: {selectedRun ? `task ${selectedRun.definitionStepId || selectedRun.id}, iteration ${selectedRun.loopIteration ?? "none"}, attempt ${scope?.number}` : "all worker tasks in this workflow"}.</p>
+  <LogViewer key={`${workflowId}:${scope?.key ?? "workflow"}`} workflowId={workflowId} taskRunId={selectedRun?.id} executionAttemptId={scope && scope.key !== selectedRun?.id ? scope.key : undefined} legacy={!!selectedRun && scope?.key === selectedRun.id} />
+  {!nodeId && <WorkflowContext workflowId={workflowId} updatedAt={workflow.updatedAt} />}
+  {!nodeId && <section aria-label="Decision history"><h3>Decisions</h3>{execution.decisions.map(decision => <article key={decision.id}><strong>Decision {decision.nodeId}</strong> <StateBadge value={decision.booleanResult ? "True" : "False"} /><p>Selected route: {decision.configuredTargetId}</p><Evidence title="Evaluated input" value={parseEvidence(decision.inputJson) ?? decision.inputJson} /></article>)}</section>}
+ </section>;
+}

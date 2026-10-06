@@ -18,6 +18,11 @@ export type WorkflowSummary = {
   pullRequestUrl?: string | null;
   failureReason?: string | null;
   currentDefinitionStepId?: string | null;
+  isPaused?: boolean;
+  cancelRequestedAt?: string | null;
+  cancelCompletedAt?: string | null;
+  workflowDefinitionId?: string | null;
+  workflowDefinitionVersionId?: string | null;
 };
 
 export type WorkflowDefinitionDocument = {
@@ -169,6 +174,8 @@ export type TaskRun = {
   agentMessages: AgentMessage[];
   definitionStepId: string;
   loopIteration?: number | null;
+  executionAttemptId?: string | null;
+  attemptCount?: number;
 };
 
 export type WorkflowLoopIteration = {
@@ -190,6 +197,11 @@ export type AgentMessage = {
 };
 
 export type WorkflowLog = {
+  sequence: number;
+  executionAttemptId?: string | null;
+  source?: string | null;
+  sourceSequence?: number | null;
+  externalId?: string | null;
   id: string;
   workflowId: string;
   taskRunId?: string | null;
@@ -577,16 +589,16 @@ export async function listLogs(workflowId: string): Promise<WorkflowLog[]> {
   return send<WorkflowLog[]>(`/api/workflows/${encodeURIComponent(workflowId)}/logs`);
 }
 
-export async function listEvents(workflowId: string): Promise<WorkflowEvent[]> {
-  return send<WorkflowEvent[]>(`/api/workflows/${encodeURIComponent(workflowId)}/events`);
+export async function listEvents(workflowId: string, signal?: AbortSignal): Promise<WorkflowEvent[]> {
+  return send<WorkflowEvent[]>(`/api/workflows/${encodeURIComponent(workflowId)}/events`, { signal });
 }
 
-export async function listSignals(workflowId: string): Promise<WorkflowSignal[]> {
-  return send<WorkflowSignal[]>(`/api/workflows/${encodeURIComponent(workflowId)}/signals`);
+export async function listSignals(workflowId: string, signal?: AbortSignal): Promise<WorkflowSignal[]> {
+  return send<WorkflowSignal[]>(`/api/workflows/${encodeURIComponent(workflowId)}/signals`, { signal });
 }
 
-export async function listChatMessages(workflowId: string): Promise<WorkflowChatMessage[]> {
-  return send<WorkflowChatMessage[]>(`/api/workflows/${encodeURIComponent(workflowId)}/chat-messages`);
+export async function listChatMessages(workflowId: string, signal?: AbortSignal): Promise<WorkflowChatMessage[]> {
+  return send<WorkflowChatMessage[]>(`/api/workflows/${encodeURIComponent(workflowId)}/chat-messages`, { signal });
 }
 
 async function send<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -671,3 +683,42 @@ export const listEnvironments = () => send<EnvironmentProfile[]>("/api/environme
 export const createEnvironment = (input: EnvironmentInput) => send<EnvironmentProfile>("/api/environments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 export const updateEnvironment = (id: string, input: EnvironmentInput, expectedRevision: number) => send<EnvironmentProfile>(`/api/environments/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
 export const deleteEnvironment = (id: string, expectedRevision: number) => sendNoContent(`/api/environments/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });
+
+export type TaskRunAttempt = {
+ id: string; workflowId: string; taskRunId: string; executionAttemptId: string; attemptNumber: number;
+ status: string | number; externalId?: string | null; output?: string | null; failureReason?: string | null;
+ structuredOutputsJson?: string | null; customTaskExecutionJson?: string | null; definitionStepId: string;
+ loopIteration?: number | null; startedAt?: string | null; completedAt?: string | null; createdAt: string; updatedAt: string;
+};
+export type WorkflowExecution = {
+ workflow: WorkflowSummary; definitionVersionId?: string | null; definition: WorkflowDefinitionDocument | null;
+ runs: TaskRun[]; attempts: TaskRunAttempt[]; loops: WorkflowLoopIteration[]; decisions: WorkflowDecisionExecution[];
+ parallels?: Array<{ id: string; workflowId: string; nodeId: string; outcome: string; startedAt: string; completedAt?: string | null }>;
+ resolvedSettings?: Array<{ taskRunId: string; executionAttemptId?: string | null; aiSettingsId?: string | null; model?: string | null; personaId?: string | null; personaRevision?: number | null; personaName?: string | null; environment?: unknown }>;
+ control: { isPaused: boolean; cancelRequestedAt?: string | null; cancelCompletedAt?: string | null; canPause: boolean; canResume: boolean; canCancel: boolean };
+};
+export type WorkflowFilters = { active?: string; search?: string; status?: string; repositoryUrl?: string; definitionId?: string; from?: string; to?: string };
+export type WorkflowSearchPage = { items: WorkflowSummary[]; totalCount: number; offset: number; limit: number };
+export type LogFilters = { taskRunId?: string; executionAttemptId?: string; level?: string; source?: string; search?: string };
+export type WorkflowLogPage = { items: WorkflowLog[]; nextCursor: number; previousCursor: number; hasMore: boolean; hasEarlier: boolean };
+function executionQuery(values: Record<string, string | number | undefined>) {
+ const query = new URLSearchParams();
+ for (const [key, value] of Object.entries(values)) if (value !== undefined && value !== "") query.set(key, String(value));
+ return query.toString();
+}
+export function searchWorkflows(filters: WorkflowFilters, offset = 0, limit = 25, signal?: AbortSignal) {
+ return send<WorkflowSearchPage>(`/api/workflows/search?${executionQuery({ ...filters, offset, limit })}`, { signal });
+}
+export function getWorkflowExecution(workflowId: string, signal?: AbortSignal) {
+ return send<WorkflowExecution>(`/api/workflows/${encodeURIComponent(workflowId)}/execution`, { signal });
+}
+export function getWorkflowLogPage(workflowId: string, filters: LogFilters, cursor: { after?: number; before?: number } = {}, signal?: AbortSignal) {
+ return send<WorkflowLogPage>(`/api/workflows/${encodeURIComponent(workflowId)}/logs/page?${executionQuery({ ...filters, ...cursor, limit: 200 })}`, { signal });
+}
+export function workflowLogUrl(workflowId: string, operation: "stream" | "download", filters: LogFilters, after?: number) {
+ return `/api/workflows/${encodeURIComponent(workflowId)}/logs/${operation}?${executionQuery({ ...filters, after })}`;
+}
+export function controlWorkflow(workflowId: string, action: "pause" | "resume" | "cancel") {
+ return send<WorkflowSummary>(`/api/workflows/${encodeURIComponent(workflowId)}/${action}`, { method: "POST" });
+}
+export function workflowEvidenceUrl(workflowId: string) { return `/api/workflows/${encodeURIComponent(workflowId)}/evidence`; }

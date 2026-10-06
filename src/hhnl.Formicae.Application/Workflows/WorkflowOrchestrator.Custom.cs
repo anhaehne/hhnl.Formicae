@@ -111,7 +111,7 @@ public sealed partial class WorkflowOrchestrator
                 new { aiSettingsId = started.AiSettingsId ?? prepared.Task.AiSettingsId ?? AiSettings.DefaultId,
                     model = started.Model ?? prepared.Task.Model, personaId = prepared.Persona?.Id ?? "default",
                     personaRevision = prepared.Persona?.Revision ?? 1, personaName = prepared.Persona?.Name ?? "Default behavior",
-                    prepared.Task.TimeoutSeconds, started.ExternalId, run.ExecutionAttemptId,
+                    prepared.Task.TimeoutSeconds, externalId = started.ExternalId, executionAttemptId = run.ExecutionAttemptId,
                     environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot) }, token);
             return true;
         }
@@ -123,6 +123,15 @@ public sealed partial class WorkflowOrchestrator
     }
 
     private async Task CompleteCustomTaskAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken token)
+    {
+        result = await ValidateCustomTaskResultAsync(workflow, run, result, token);
+        await CompleteTaskRunAsync(workflow, run, result, token);
+        await AddAgentOutputLogAsync(workflow.Id, run, result, token);
+        if (result.Succeeded) await AdvanceDefinitionCursorAsync(workflow, "Custom task completed.", token);
+        else await FailWorkflowAsync(workflow, result.FailureReason ?? "Custom task failed.", BuildFailureDetails(run, result), token);
+    }
+
+    private async Task<AgentRunResult> ValidateCustomTaskResultAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken token)
     {
         if (result.Output.Length > CustomOutputLimit)
         {
@@ -145,10 +154,7 @@ public sealed partial class WorkflowOrchestrator
             catch (InvalidOperationException exception)
             { result = result with { Succeeded = false, FailureReason = exception.Message }; }
         }
-        await CompleteTaskRunAsync(workflow, run, result, token);
-        await AddAgentOutputLogAsync(workflow.Id, run, result, token);
-        if (result.Succeeded) await AdvanceDefinitionCursorAsync(workflow, "Custom task completed.", token);
-        else await FailWorkflowAsync(workflow, result.FailureReason ?? "Custom task failed.", BuildFailureDetails(run, result), token);
+        return result;
     }
 
     private async Task AddCustomWarningAsync(Workflow workflow, TaskRun run, Exception exception, CancellationToken token)
@@ -156,6 +162,7 @@ public sealed partial class WorkflowOrchestrator
         try
         {
             await store.AddLogAsync(new WorkflowLog { WorkflowId = workflow.Id, TaskRunId = run.Id, Level = "Warning",
+                ExecutionAttemptId = run.ExecutionAttemptId, ExternalId = run.ExternalId,
                 Message = $"Custom task '{run.DefinitionStepId}' will resume its existing attempt after an orchestration error: {exception.Message}",
                 CreatedAt = clock.UtcNow }, token);
         }

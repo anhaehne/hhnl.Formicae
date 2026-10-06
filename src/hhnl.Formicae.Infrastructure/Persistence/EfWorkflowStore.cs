@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace hhnl.Formicae.Infrastructure.Persistence;
 
-public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStore
+public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStore
 {
     public async Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
     {
@@ -35,7 +35,9 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
                 || workflow.Status == WorkflowStatus.Implementing
                 || workflow.Status == WorkflowStatus.CreatingPullRequest
                 || workflow.Status == WorkflowStatus.Reviewing
-                || workflow.Status == WorkflowStatus.Running)
+                || workflow.Status == WorkflowStatus.Running
+                || (workflow.CancelRequestedAt != null && workflow.CancelCompletedAt == null)
+                || dbContext.TaskRuns.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null)))))
             .OrderBy(workflow => workflow.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -55,6 +57,8 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
 
     public async Task<TaskRun> UpsertTaskRunAsync(TaskRun taskRun, CancellationToken cancellationToken)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await LockLogWorkflowAsync(taskRun.WorkflowId, cancellationToken);
         var exists = await dbContext.TaskRuns.AnyAsync(run => run.Id == taskRun.Id, cancellationToken);
         if (exists)
         {
@@ -66,6 +70,7 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return taskRun;
     }
 
@@ -190,8 +195,7 @@ public sealed class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStor
 
     public async Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken)
     {
-        dbContext.WorkflowLogs.Add(log);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await AppendLogsAsync([log], cancellationToken);
     }
 
     public async Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken)

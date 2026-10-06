@@ -10,6 +10,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
 {
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
+    public DbSet<TaskRunAttempt> TaskRunAttempts => Set<TaskRunAttempt>();
     public DbSet<WorkflowLoopIteration> WorkflowLoopIterations => Set<WorkflowLoopIteration>();
     public DbSet<WorkflowParallelExecution> WorkflowParallelExecutions => Set<WorkflowParallelExecution>();
     public DbSet<WorkflowDecisionExecution> WorkflowDecisionExecutions => Set<WorkflowDecisionExecution>();
@@ -76,6 +77,16 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(run => run.DefinitionStepId).IsRequired().HasDefaultValue("");
             entity.HasIndex(run => new { run.WorkflowId, run.DefinitionStepId, run.LoopIteration }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(run => new { run.WorkflowId, run.Kind, run.CreatedAt });
+        });
+
+        modelBuilder.Entity<TaskRunAttempt>(entity =>
+        {
+            entity.ToTable("task_run_attempts");
+            entity.HasKey(attempt => attempt.Id);
+            entity.Property(attempt => attempt.Status).HasConversion<string>();
+            entity.HasIndex(attempt => new { attempt.TaskRunId, attempt.ExecutionAttemptId }).IsUnique();
+            entity.HasIndex(attempt => new { attempt.WorkflowId, attempt.TaskRunId, attempt.AttemptNumber });
+            entity.HasOne<Workflow>().WithMany().HasForeignKey(attempt => attempt.WorkflowId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WorkflowLoopIteration>(entity =>
@@ -153,6 +164,10 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
         {
             entity.ToTable("workflow_logs");
             entity.HasKey(log => log.Id);
+            entity.Property(log => log.Sequence).UseIdentityByDefaultColumn();
+            entity.Property(log => log.Source).HasDefaultValue("system");
+            entity.HasIndex(log => new { log.WorkflowId, log.Sequence }).IsUnique();
+            entity.HasIndex(log => new { log.WorkflowId, log.ExecutionAttemptId, log.Source, log.SourceSequence }).IsUnique();
             entity.Property(log => log.Message).IsRequired();
             entity.Property(log => log.Level).IsRequired();
             entity.HasIndex(log => log.WorkflowId);

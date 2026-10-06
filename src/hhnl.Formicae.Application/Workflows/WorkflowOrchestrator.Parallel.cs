@@ -127,8 +127,8 @@ public sealed partial class WorkflowOrchestrator
                 $"Parallel task '{step.Id}': model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
                 new { nodeId = step.Id, aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
-                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId,
-                    run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
+                    personaName = prepared.Persona?.Name ?? "Default behavior", externalId = started.ExternalId,
+                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
             if (started.CompletedResult is not null)
             {
                 var result = ValidatePlanningResult(started.CompletedResult);
@@ -164,6 +164,7 @@ public sealed partial class WorkflowOrchestrator
         try
         {
             await store.AddLogAsync(new WorkflowLog { WorkflowId = workflow.Id, TaskRunId = run.Id, Level = "Warning",
+                ExecutionAttemptId = run.ExecutionAttemptId, ExternalId = run.ExternalId,
                 Message = $"Parallel task '{run.DefinitionStepId}' will resume its existing attempt after an orchestration error: {exception.Message}", CreatedAt = clock.UtcNow }, token);
         }
         catch (Exception) when (!token.IsCancellationRequested) { }

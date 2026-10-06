@@ -90,9 +90,19 @@ public sealed class CustomTaskPersistenceTests(MigrationPostgresFixture fixture)
         var parallel = new WorkflowParallelExecution { WorkflowId = workflow.Id, NodeId = "parallel", EntryPlanArtifact = "entry" };
         var decision = new WorkflowDecisionExecution { WorkflowId = workflow.Id, NodeId = "decision", ConfiguredTargetId = "plan",
             SelectedTargetId = "plan", InputJson = "{\"value\":true}", BooleanResult = true };
-        db.Workflows.Add(workflow); db.WorkflowDefinitions.Add(definition); db.WorkflowDefinitionVersions.Add(version);
-        db.WorkflowParallelExecutions.Add(parallel); db.WorkflowDecisionExecutions.Add(decision);
-        await db.SaveChangesAsync();
+        // Seed only columns present in the historical schema; current EF mappings include later control fields.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO workflows ("Id", "IssueUrl", "RepositoryUrl", "BaseBranch", "Status", "CurrentStep", "CreatedAt", "UpdatedAt")
+            VALUES ({workflow.Id}, {workflow.IssueUrl}, {workflow.RepositoryUrl}, {workflow.BaseBranch}, 'Queued', 'None', {workflow.CreatedAt}, {workflow.UpdatedAt});
+            INSERT INTO workflow_definitions ("Id", "Name", "CreatedAt", "UpdatedAt")
+            VALUES ({definition.Id}, {definition.Name}, {definition.CreatedAt}, {definition.UpdatedAt});
+            INSERT INTO workflow_definition_versions ("Id", "WorkflowDefinitionId", "Version", "DslSchemaVersion", "IsEnabled", "IsDefault", "DefinitionJson", "CreatedAt")
+            VALUES ({version.Id}, {definition.Id}, {version.Version}, {version.DslSchemaVersion}, {version.IsEnabled}, {version.IsDefault}, {version.DefinitionJson}, {version.CreatedAt});
+            INSERT INTO workflow_parallel_executions ("Id", "WorkflowId", "NodeId", "EntryPlanArtifact", "Outcome", "StartedAt")
+            VALUES ({parallel.Id}, {workflow.Id}, {parallel.NodeId}, {parallel.EntryPlanArtifact}, 'Running', {parallel.StartedAt});
+            INSERT INTO workflow_decision_executions ("Id", "WorkflowId", "NodeId", "ConfiguredTargetId", "SelectedTargetId", "InputJson", "BooleanResult", "EvaluatedAt")
+            VALUES ({decision.Id}, {workflow.Id}, {decision.NodeId}, {decision.ConfiguredTargetId}, {decision.SelectedTargetId}, {decision.InputJson}, {decision.BooleanResult}, {decision.EvaluatedAt});
+            """);
         var runId = Guid.NewGuid(); var attemptId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO task_runs ("Id", "WorkflowId", "Kind", "DefinitionStepId", "Status", "ExecutionAttemptId", "CreatedAt", "UpdatedAt", "Output")

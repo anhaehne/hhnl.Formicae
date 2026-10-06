@@ -31,10 +31,22 @@ public sealed partial class WorkflowOrchestrator(
 
     public async Task<bool> AdvanceAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        if (workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
+        await ReconcileRuntimeCleanupAsync(workflow, cancellationToken);
+        if (workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed
+            && workflow.CancelRequestedAt is null
+            && (await store.ListTaskRunsAsync(workflow.Id, cancellationToken)).Any(run => run.Status == TaskRunStatus.Running))
+            return await CancelWorkflowRuntimeAsync(workflow, cancellationToken, cleanupOnly: true);
+        if (workflow.Status == WorkflowStatus.Canceled && workflow.CancelRequestedAt is null
+            && (await store.ListTaskRunsAsync(workflow.Id, cancellationToken)).Any(run => run.Status == TaskRunStatus.Running))
         {
-            return false;
+            workflow.CancelRequestedAt = clock.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
         }
+        if (workflow.CancelRequestedAt is not null && workflow.CancelCompletedAt is null)
+            return await CancelWorkflowRuntimeAsync(workflow, cancellationToken);
+        if (workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
+            return false;
+        if (workflow.IsPaused) return await PollPausedTasksAsync(workflow, cancellationToken);
 
         try
         {
@@ -79,6 +91,11 @@ public sealed partial class WorkflowOrchestrator(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (RuntimeEvidenceUnavailableException exception)
+        {
+            await RecordRuntimeWarningAsync(workflow, null, exception, cancellationToken);
+            return false;
         }
         catch (WorkItemProviderUnavailableException exception)
         {
@@ -461,7 +478,9 @@ public sealed partial class WorkflowOrchestrator(
 
         if (!pullRequestStatus.IsOpen)
         {
-            await TransitionWorkflowAsync(workflow, WorkflowStatus.Canceled, WorkflowStep.Done, "Workflow canceled because the pull request was closed without merging.", cancellationToken);
+            workflow.CancelRequestedAt ??= clock.UtcNow;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+            await CancelWorkflowRuntimeAsync(workflow, cancellationToken);
             return true;
         }
 
@@ -552,24 +571,34 @@ public sealed partial class WorkflowOrchestrator(
         }
     }
 
-    private Task AddReactionWarningLogAsync(Guid workflowId, Guid? taskRunId, Exception exception, CancellationToken cancellationToken)
-        => store.AddLogAsync(new WorkflowLog
+    private async Task AddReactionWarningLogAsync(Guid workflowId, Guid? taskRunId, Exception exception, CancellationToken cancellationToken)
+    {
+        var run = taskRunId is null ? null : (await store.ListTaskRunsAsync(workflowId, cancellationToken))
+            .SingleOrDefault(item => item.Id == taskRunId);
+        await store.AddLogAsync(new WorkflowLog
         {
             WorkflowId = workflowId,
             TaskRunId = taskRunId,
+            ExecutionAttemptId = run?.ExecutionAttemptId,
+            ExternalId = run?.ExternalId,
             Level = "Warning",
             Message = $"GitHub reaction feedback could not be added: {exception.Message}",
             CreatedAt = clock.UtcNow
         }, cancellationToken);
+    }
 
     private async Task<AgentRunResult?> TryGetRunningAgentResultAsync(TaskRun run, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(run.ExternalId))
         {
-            return null;
+            run.ExternalId = agentRunner.ResolveExternalId(run.WorkflowId, run.Kind, run.ExecutionAttemptId);
+            if (run.ExternalId is null) return null;
+            await store.UpsertTaskRunAsync(run, cancellationToken);
         }
 
-        return await agentRunner.TryGetResultAsync(run.ExternalId, cancellationToken);
+        try { return await agentRunner.TryGetResultAsync(run.ExternalId, cancellationToken); }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        { throw new RuntimeEvidenceUnavailableException("Runtime result could not be read; the existing task will be polled again.", exception); }
     }
     private async Task TransitionWorkflowAsync(
         Workflow workflow,
@@ -607,6 +636,19 @@ public sealed partial class WorkflowOrchestrator(
         await EnsureWorkflowDefinitionAllowsTaskAsync(workflow, run.Kind, cancellationToken);
 
         var wasRunning = run.Status == TaskRunStatus.Running;
+        if (run.Status is TaskRunStatus.Succeeded or TaskRunStatus.Failed or TaskRunStatus.Canceled)
+        {
+            if (run.RuntimeCleanupPending) throw new InvalidOperationException("Previous runtime cleanup must finish before starting another attempt.");
+            await store.ArchiveTaskRunAttemptAsync(run, cancellationToken);
+            run.ExecutionAttemptId = Guid.NewGuid();
+            run.ExternalId = null;
+            run.RuntimeLogsCaptured = false;
+            run.Output = null;
+            run.StructuredOutputsJson = null;
+            run.StartedAt = null;
+        }
+        run.ExecutionAttemptId ??= Guid.NewGuid();
+        run.RuntimeCleanupPending = true;
         run.Status = TaskRunStatus.Running;
         run.StartedAt ??= clock.UtcNow;
         run.CompletedAt = null;
@@ -626,6 +668,7 @@ public sealed partial class WorkflowOrchestrator(
     private async Task AssignExternalJobAsync(Workflow workflow, TaskRun run, string externalId, CancellationToken cancellationToken)
     {
         run.ExternalId = externalId;
+        run.RuntimeCleanupPending = true;
         run.UpdatedAt = clock.UtcNow;
         await store.UpsertTaskRunAsync(run, cancellationToken);
         await AddEventAsync(workflow.Id, run.Id, WorkflowEventTypes.ExternalJobAssigned, "Information", $"{run.Kind} external job assigned.", new
@@ -637,18 +680,26 @@ public sealed partial class WorkflowOrchestrator(
 
     private async Task<AgentRunStartResult> StartAgentTaskAsync(Workflow workflow, TaskRun run, AgentTask task, CancellationToken cancellationToken)
     {
+        var launchAccepted = false;
         try
         {
             var prepared = await PrepareAgentTaskAsync(workflow, run, task, cancellationToken);
-            task = prepared.Task;
+            task = prepared.Task with { ExecutionAttemptId = run.ExecutionAttemptId };
             var started = await agentRunner.StartAsync(task, cancellationToken);
+            launchAccepted = true;
+            run.ExternalId = started.ExternalId;
+            await store.UpsertTaskRunAsync(run, cancellationToken);
             await AddEventAsync(workflow.Id, run.Id, "AgentSettingsResolved", "Information",
                 $"AI configuration: {started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId}; model passed to CLI: {started.Model ?? task.Model ?? "CLI default"}.",
                 new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
-                    personaName = prepared.Persona?.Name ?? "Default behavior", started.ExternalId,
-                    run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
+                    personaName = prepared.Persona?.Name ?? "Default behavior", externalId = started.ExternalId,
+                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
             return started;
+        }
+        catch (Exception exception) when (launchAccepted || IsUncertainParallelTransport(exception, cancellationToken))
+        {
+            throw new RuntimeEvidenceUnavailableException("Worker launch outcome is uncertain; the same attempt will be reconciled.", exception);
         }
         catch (Exception exception)
         {
@@ -691,8 +742,9 @@ public sealed partial class WorkflowOrchestrator(
         CancellationToken cancellationToken,
         string? externalId = null)
     {
-        run.Status = succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;
         run.ExternalId = externalId ?? run.ExternalId;
+        await CaptureRuntimeLogsAsync(workflow, run, cancellationToken);
+        run.Status = succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;
         run.Output = output;
         run.FailureReason = failureReason;
         run.StartedAt ??= clock.UtcNow;
@@ -708,6 +760,7 @@ public sealed partial class WorkflowOrchestrator(
             succeeded ? $"{run.Kind} task succeeded." : $"{run.Kind} task failed.",
             succeeded ? new { taskKind = run.Kind.ToString(), run.ExternalId } : BuildFailureDetails(run, new AgentRunResult(false, run.ExternalId ?? string.Empty, output, failureReason)),
             cancellationToken);
+        await TryAcknowledgeRuntimeAsync(workflow, run, cancellationToken);
     }
 
     private async Task FailWorkflowAsync(Workflow workflow, string reason, object? details, CancellationToken cancellationToken)
@@ -798,6 +851,8 @@ public sealed partial class WorkflowOrchestrator(
         {
             WorkflowId = workflowId,
             TaskRunId = run.Id,
+            ExecutionAttemptId = run.ExecutionAttemptId,
+            ExternalId = run.ExternalId ?? result.ExternalId,
             Level = result.Succeeded ? "Information" : "Error",
             Message = result.Output
         }, cancellationToken);

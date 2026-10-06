@@ -17,12 +17,12 @@ public sealed class CustomTaskCallbackTests
         first.Status = status; first.Output = "authoritative"; first.StructuredOutputsJson = "{\"summary\":\"ready\"}";
         await store.UpsertTaskRunAsync(first, default);
         var service = new WorkerAgentMessageService(store);
-        Assert.True(await service.RecordAsync(new(workflow.Id, "Custom", "first", "stdout",
+        Assert.Equal(status == TaskRunStatus.Running, await service.RecordAsync(new(workflow.Id, "Custom", "first", "stdout",
             "{\"type\":\"agent_message\",\"message\":\"late output\"}", DateTimeOffset.UtcNow), default));
-        Assert.True(await service.RecordAsync(new(workflow.Id, "Custom", "first", "stdout", new string('a', 20000), DateTimeOffset.UtcNow), default));
+        Assert.Equal(status == TaskRunStatus.Running, await service.RecordAsync(new(workflow.Id, "Custom", "first", "stdout", new string('a', 20000), DateTimeOffset.UtcNow), default));
         var loaded = (await store.ListTaskRunsAsync(workflow.Id, default)).Single(run => run.Id == first.Id);
         Assert.Equal("{\"summary\":\"ready\"}", loaded.StructuredOutputsJson); Assert.Equal("authoritative", loaded.Output); Assert.Equal(status, loaded.Status); Assert.Null(second.Output);
-        var logs = await store.ListLogsAsync(workflow.Id, default); Assert.Equal(2, logs.Count);
+        var logs = await store.ListLogsAsync(workflow.Id, default); Assert.Equal(status == TaskRunStatus.Running ? 2 : 0, logs.Count);
         Assert.All(logs, log => { Assert.Equal(first.Id, log.TaskRunId); Assert.InRange(log.Message.Length, 1, 16030); });
     }
 

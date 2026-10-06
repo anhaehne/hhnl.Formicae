@@ -2,7 +2,7 @@ using hhnl.Formicae.Application.Workflows;
 
 namespace hhnl.Formicae.Infrastructure.Fakes;
 
-public sealed class InMemoryWorkflowStore : IWorkflowStore
+public sealed partial class InMemoryWorkflowStore : IWorkflowStore
 {
     private readonly object gate = new();
     private readonly Dictionary<Guid, Workflow> workflows = [];
@@ -66,7 +66,9 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
         lock (gate)
         {
             return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
-                .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing or WorkflowStatus.Running)
+                .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing or WorkflowStatus.Running
+                    || (workflow.CancelRequestedAt is not null && workflow.CancelCompletedAt is null)
+                    || runs.Values.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null)))))
                 .OrderBy(workflow => workflow.CreatedAt)
                 .ToArray());
         }
@@ -258,7 +260,7 @@ public sealed class InMemoryWorkflowStore : IWorkflowStore
     {
         lock (gate)
         {
-            logs.Add(log);
+            AppendLogLocked(log);
         }
 
         return Task.CompletedTask;
