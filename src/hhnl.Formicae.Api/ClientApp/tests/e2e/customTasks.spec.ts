@@ -107,6 +107,43 @@ test("output schema editing and data connections support undo save reload deleti
   await page.screenshot({ path: testInfo.outputPath("task-data-stale-binding.png"), fullPage: true });
 });
 
+test("reconnecting then deleting a data edge clears destination literals through undo and reload", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
+  const producer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Reconnect producer ${Date.now()}`, promptTemplate: "Return ready", outputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
+  const consumer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Reconnect consumer ${Date.now()}`, promptTemplate: "Use {{input.summary}}", inputs: [{ name: "summary", valueType: "string", required: false }] } })).json();
+  const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Reconnect data ${Date.now()}` } })).json();
+  const saved = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "producer", steps: [
+    { id: "producer", uses: "builtins.custom-task", displayName: "Producer", nextStepId: "first", customTask: { taskId: producer.id } },
+    { id: "first", uses: "builtins.custom-task", displayName: "First consumer", nextStepId: "custom", customTask: { taskId: consumer.id, bindings: { summary: { stepId: "producer", outputName: "summary" } } } },
+    { id: "custom", uses: "builtins.custom-task", displayName: "Second consumer", customTask: { taskId: consumer.id, inputs: { summary: "old literal" } } }
+  ] } } }); expect(saved.ok(), await saved.text()).toBeTruthy();
+  await open(page, item.name);
+  await expect(page.getByLabel("Value for summary", { exact: true })).toHaveValue("old literal");
+  await page.getByRole("button", { name: "Fit All", exact: true }).click();
+  await page.locator('.react-flow__edge[data-id="data:first:summary"] .react-flow__edgeupdater-target').dragTo(page.locator('.react-flow__node[data-id="custom"] [data-handleid="data:summary"]'));
+  const source = page.getByLabel("Source for summary", { exact: true });
+  await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(source).toHaveValue(""); await expect(page.getByLabel("Value for summary", { exact: true })).toHaveValue("old literal");
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(source).toHaveValue(JSON.stringify(["producer", "summary"]));
+  const edge = page.locator('.react-flow__edge[data-id="data:custom:summary"]');
+  await edge.press("Enter");
+  await expect(edge).toHaveClass(/selected/);
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(edge).toHaveCount(0); await find(page, "custom");
+  await expect(source).toHaveValue(""); await expect(page.getByLabel("Provide summary", { exact: true })).not.toBeChecked();
+  await expect(page.getByLabel("Value for summary", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  const document = await latest(request, item.id);
+  expect(document.steps.find((step: { id: string }) => step.id === "custom").customTask.inputs).toEqual({});
+  expect(document.steps.find((step: { id: string }) => step.id === "custom").customTask.bindings).toEqual({});
+  await page.reload(); await open(page, item.name);
+  await expect(page.getByLabel("Provide summary", { exact: true })).not.toBeChecked();
+  await page.screenshot({ path: testInfo.outputPath("reconnected-input-without-literal.png"), fullPage: true });
+});
+
 test("producer consumer runtime exposes validated outputs and frozen input provenance", async ({ page, request }, testInfo) => {
   const producer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Runtime producer ${Date.now()}`, promptTemplate: "Return ready", outputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
   const consumer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Runtime consumer ${Date.now()}`, promptTemplate: "Use {{input.summary}}", inputs: [{ name: "summary", valueType: "string", required: true }] } })).json();

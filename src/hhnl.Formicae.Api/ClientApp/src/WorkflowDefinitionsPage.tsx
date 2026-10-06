@@ -228,7 +228,11 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
             onReconnect={(old, connection) => {
               if (isDataEdge(old)) {
                 if (!validConnection(connection)) { setNotice("That data connection is not allowed."); return; }
-                state.commit(); state.update(current => ({ ...current, edges: [...current.edges.filter(edge => edge.id !== old.id && !(edge.target === connection.target && edge.targetHandle === connection.targetHandle)), makeEdge(connection.source, connection.sourceHandle!, connection.target, connection.targetHandle!)] }));
+                state.commit(); state.update(current => ({ ...current, nodes: current.nodes.map(node => {
+                  if (node.id !== connection.target || !node.data.customTask) return node;
+                  const inputs = { ...node.data.customTask.inputs }; delete inputs[connection.targetHandle!.slice(5)];
+                  return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
+                }), edges: [...current.edges.filter(edge => edge.id !== old.id && !(edge.target === connection.target && edge.targetHandle === connection.targetHandle)), makeEdge(connection.source, connection.sourceHandle!, connection.target, connection.targetHandle!)] }));
                 return;
               }
               if (old.source !== connection.source || old.sourceHandle !== connection.sourceHandle) { setNotice("Reconnect the target, or disconnect and choose a new output in the inspector."); return; } connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input"); }}>

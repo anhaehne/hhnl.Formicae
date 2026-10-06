@@ -141,4 +141,35 @@ public sealed class TaskDataPassingTests
         foreach (var final in new[] { codex, openHands, oldOpenHands, sdkMessage, sdkFinish }) Assert.Equal("{\"summary\":\"ready\"}", OpenHandsAgentRunner.ExtractFinalResponse("worker log\n{\"summary\":\"fake\"}\n" + final + "\nworker finished"));
         Assert.Null(OpenHandsAgentRunner.ExtractFinalResponse("{\"type\":\"item.completed\",\"item\":\"malformed\"}\n{\"summary\":\"fake\"}\n{\"action\":\"message\",\"source\":\"user\",\"args\":{\"content\":\"fake\"}}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"text\":\"fake\"}}"));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \t")]
+    public void Empty_cli_final_responses_never_fall_back_to_earlier_valid_outputs(string response)
+    {
+        var earlier = JsonSerializer.Serialize(new { kind = "MessageEvent", source = "agent", llm_message = new { role = "assistant", content = new[] { new { type = "text", text = "{\"summary\":\"earlier\"}" } } } });
+        var finals = new[]
+        {
+            JsonSerializer.Serialize(new { kind = "ActionEvent", source = "agent", action = new { kind = "FinishAction", message = response } }),
+            JsonSerializer.Serialize(new { action = "finish", source = "agent", args = new { final_thought = response } }),
+            JsonSerializer.Serialize(new { action = "finish", source = "agent", args = new { outputs = new { content = response } } }),
+            JsonSerializer.Serialize(new { kind = "MessageEvent", source = "agent", llm_message = new { role = "assistant", content = new[] { new { type = "text", text = response } } } }),
+            JsonSerializer.Serialize(new { type = "item.completed", item = new { type = "agent_message", text = response } })
+        };
+        foreach (var final in finals)
+        {
+            var extracted = OpenHandsAgentRunner.ExtractFinalResponse(earlier + "\n" + final);
+            Assert.Equal(response, extracted);
+            Assert.Throws<InvalidOperationException>(() => CustomTaskDefinitions.ParseOutputs(extracted!, Producer().Outputs));
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"kind\":\"ActionEvent\",\"source\":\"agent\",\"action\":{\"kind\":\"FinishAction\"}}")]
+    [InlineData("{\"action\":\"finish\",\"source\":\"agent\",\"args\":{}}")]
+    public void Terminal_events_with_missing_responses_do_not_accept_surrounding_messages(string terminal)
+    {
+        var message = JsonSerializer.Serialize(new { kind = "MessageEvent", source = "agent", llm_message = new { role = "assistant", content = new[] { new { type = "text", text = "{\"summary\":\"message\"}" } } } });
+        Assert.Null(OpenHandsAgentRunner.ExtractFinalResponse(message + "\n" + terminal + "\n" + message));
+    }
 }

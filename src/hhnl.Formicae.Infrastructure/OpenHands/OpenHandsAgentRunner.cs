@@ -156,7 +156,9 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     internal static string? ExtractFinalResponse(string logs, bool includeOpenHands = true)
     {
-        var messages = new List<string>();
+        string? lastMessage = null;
+        string? terminalResponse = null;
+        var hasTerminalResponse = false;
         foreach (var line in logs.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!line.StartsWith('{')) continue;
@@ -169,8 +171,11 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
                     && TryGetString(root, "source", out var sdkSource) && sdkSource == "agent")
                 {
                     if (kind == "ActionEvent" && root.TryGetProperty("action", out var sdkAction) && sdkAction.ValueKind == JsonValueKind.Object
-                        && TryGetString(sdkAction, "kind", out var actionKind) && actionKind == "FinishAction"
-                        && TryGetString(sdkAction, "message", out var finishMessage)) messages.Add(finishMessage);
+                        && TryGetString(sdkAction, "kind", out var actionKind) && actionKind == "FinishAction")
+                    {
+                        hasTerminalResponse = true;
+                        terminalResponse = TryGetString(sdkAction, "message", out var finishMessage) ? finishMessage : null;
+                    }
                     else if (kind == "MessageEvent" && root.TryGetProperty("llm_message", out var llm) && llm.ValueKind == JsonValueKind.Object
                         && TryGetString(llm, "role", out var role) && role == "assistant"
                         && llm.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
@@ -179,15 +184,19 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
                             && TryGetString(part, "type", out var partType) && partType == "text"
                             && part.TryGetProperty("text", out var partText) && partText.ValueKind == JsonValueKind.String)
                             .Select(part => part.GetProperty("text").GetString());
-                        messages.Add(string.Concat(textParts));
+                        lastMessage = string.Concat(textParts);
                     }
                 }
                 if (includeOpenHands && TryGetString(root, "action", out var action) && action == "finish"
-                    && TryGetString(root, "source", out var source) && source == "agent"
-                    && root.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Object)
+                    && TryGetString(root, "source", out var source) && source == "agent")
                 {
-                    if (TryGetString(args, "final_thought", out var finalThought) && !string.IsNullOrWhiteSpace(finalThought)) messages.Add(finalThought);
-                    else if (args.TryGetProperty("outputs", out var outputs) && outputs.ValueKind == JsonValueKind.Object && TryGetString(outputs, "content", out var content)) messages.Add(content);
+                    hasTerminalResponse = true;
+                    terminalResponse = null;
+                    if (root.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Object)
+                    {
+                        if (TryGetString(args, "final_thought", out var finalThought)) terminalResponse = finalThought;
+                        else if (args.TryGetProperty("outputs", out var outputs) && outputs.ValueKind == JsonValueKind.Object && TryGetString(outputs, "content", out var content)) terminalResponse = content;
+                    }
                 }
                 if (TryGetString(root, "type", out var eventType)
                     && string.Equals(eventType, "item.completed", StringComparison.OrdinalIgnoreCase)
@@ -196,7 +205,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
                     && string.Equals(itemType, "agent_message", StringComparison.OrdinalIgnoreCase)
                     && TryGetString(item, "text", out var text))
                 {
-                    messages.Add(text);
+                    lastMessage = text;
                 }
             }
             catch (JsonException)
@@ -204,8 +213,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             }
         }
 
-        var lastMessage = messages.LastOrDefault(message => !string.IsNullOrWhiteSpace(message));
-        return lastMessage;
+        return hasTerminalResponse ? terminalResponse : lastMessage;
     }
 
     private static string? ExtractCheckpointFailure(string logs)
