@@ -60,6 +60,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
+    for (const [name, binding] of Object.entries(step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
     if (step.nextStepId) edges.push({ id: `${step.id}:next`, source: step.id, target: step.nextStepId,
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
@@ -80,9 +81,11 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
   return { schema: workflowSchema, startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
+    const bindings = Object.fromEntries(edges.filter(edge => isDataEdge(edge) && edge.target === node.id).map(edge => [edge.targetHandle!.slice(5), { stepId: edge.source, outputName: edge.sourceHandle!.slice(7) }]));
+    const customTask = node.data.customTask ? { ...node.data.customTask, bindings, inputs: Object.fromEntries(Object.entries(node.data.customTask.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined;
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
       nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
-      personaId: node.data.personaId || undefined, personaSnapshot: node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? node.data.customTask : undefined,
+      personaId: node.data.personaId || undefined, personaSnapshot: node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? customTask : undefined,
       aiSettingsId: node.data.aiSettingsId || undefined, model: node.data.model || undefined,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
         trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",
@@ -110,4 +113,30 @@ export function getEnabledDefinitionVersions(definitions: WorkflowDefinitionResp
 
     return right.version.version - left.version.version;
   });
+}
+
+export const isDataEdge = (edge: Edge) => !!edge.sourceHandle?.startsWith("output:");
+export const dataEdge = (source: string, output: string, target: string, input: string): Edge => ({ id: `data:${target}:${input}`, source, target, sourceHandle: `output:${output}`, targetHandle: `data:${input}`, label: `${output} → ${input}`, style: { stroke: "#168b85", strokeDasharray: "4 3" }, markerEnd: { type: MarkerType.ArrowClosed } });
+
+// Data connections never participate in control traversal or layout.
+export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start: string, producer: string, consumer: string) {
+  const control = edges.filter(edge => !isDataEdge(edge));
+  const loops = new Map<string, string>();
+  for (const loop of nodes.filter(node => node.data.uses === loopUses)) {
+    let cursor = control.find(edge => edge.source === loop.id && edge.sourceHandle === "body")?.target;
+    const seen = new Set<string>();
+    while (cursor && cursor !== loop.id && !seen.has(cursor)) { seen.add(cursor); loops.set(cursor, loop.id); cursor = control.find(edge => edge.source === cursor)?.target; }
+  }
+  const next = (id: string) => {
+    const node = nodes.find(node => node.id === id);
+    if (node?.data.uses === loopUses) return control.filter(edge => edge.source === id && edge.sourceHandle === "body").map(edge => edge.target);
+    return control.filter(edge => edge.source === id).flatMap(edge => edge.targetHandle === "return" ? control.filter(exit => exit.source === edge.target && exit.sourceHandle === "exit").map(exit => exit.target) : [edge.target]);
+  };
+  const reach = (entry: string, blocked?: string) => {
+    const visited = new Set<string>(), pending = [entry];
+    while (pending.length) { const id = pending.pop()!; if (id === blocked || visited.has(id)) continue; if (id === consumer) return true; visited.add(id); pending.push(...next(id)); }
+    return false;
+  };
+  const entries = [start, ...nodes.filter(node => node.data.uses === triggerUses).flatMap(node => next(node.id))];
+  return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && !entries.some(entry => reach(entry, producer));
 }

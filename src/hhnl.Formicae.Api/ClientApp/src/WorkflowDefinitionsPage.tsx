@@ -1,3 +1,4 @@
+import { dataEdge, isDataEdge, eligibleProducer } from "./workflowGraph";
 import { EnvironmentPicker } from "./workflowEditor/EnvironmentPicker";
 import { PersonaPicker } from "./workflowEditor/PersonaPicker";
 import { StepIcon } from "./workflowEditor/StepIcon";
@@ -16,7 +17,7 @@ import { NodeActions, WorkflowNode } from "./workflowEditor/Node";
 type Props = { definitions: WorkflowDefinitionResponse[]; loading: boolean; error?: string; saved?: string; canAdminister: boolean; onRefresh: (definitionId?: string, versionId?: string) => Promise<void>; onSaved: (message: string) => void; onError: (message: string) => void };
 const nodeTypes = { workflowStep: WorkflowNode };
 const initial: EditorDraft = { name: "Custom workflow", version: "", enabled: true, isDefault: false, start: "plan", ...definitionToGraph(createDefaultDefinitionDocument()) };
-const makeEdge = (source: string, sourceHandle: string, target: string, targetHandle = "input"): Edge => ({ id: `${source}:${sourceHandle}`, source, sourceHandle, target, targetHandle, markerEnd: { type: MarkerType.ArrowClosed }, label: sourceHandle === "true" ? "True" : sourceHandle === "false" ? "False" : targetHandle === "join" ? "Join" : sourceHandle.startsWith("branch:") ? `Branch ${Number(sourceHandle.slice(7)) + 1}` : targetHandle === "return" ? "Return" : sourceHandle === "body" ? "Body" : sourceHandle === "exit" ? "Exit" : undefined, style: targetHandle === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : targetHandle === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined });
+const makeEdge = (source: string, sourceHandle: string, target: string, targetHandle = "input"): Edge => sourceHandle.startsWith("output:") ? dataEdge(source, sourceHandle.slice(7), target, targetHandle.slice(5)) : ({ id: `${source}:${sourceHandle}`, source, sourceHandle, target, targetHandle, markerEnd: { type: MarkerType.ArrowClosed }, label: sourceHandle === "true" ? "True" : sourceHandle === "false" ? "False" : targetHandle === "join" ? "Join" : sourceHandle.startsWith("branch:") ? `Branch ${Number(sourceHandle.slice(7)) + 1}` : targetHandle === "return" ? "Return" : sourceHandle === "body" ? "Body" : sourceHandle === "exit" ? "Exit" : undefined, style: targetHandle === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : targetHandle === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined });
 export default function WorkflowDefinitionsPage(props: Props) { return <ReactFlowProvider><Editor {...props} /></ReactFlowProvider>; }
 
 function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved, onError }: Props) {
@@ -102,15 +103,27 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   });
   const validConnection = (connection: Connection | Edge) => {
     const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
+    if (connection.sourceHandle?.startsWith("output:") || connection.targetHandle?.startsWith("data:")) {
+      if (!source || !target || source.data.uses !== "builtins.custom-task" || target.data.uses !== "builtins.custom-task" || !connection.sourceHandle?.startsWith("output:") || !connection.targetHandle?.startsWith("data:")) return false;
+      const schemaFor = (node: WorkflowStepNode) => customTasks.find(task => task.id === node.data.customTask?.taskId) ?? node.data.customTask?.snapshot;
+      const output = schemaFor(source)?.outputs?.find(output => output.name === connection.sourceHandle!.slice(7));
+      const input = schemaFor(target)?.inputs.find(input => input.name === connection.targetHandle!.slice(5));
+      return !!output && !!input && output.valueType === input.valueType && eligibleProducer(draft.nodes, draft.edges, draft.start, source.id, target.id);
+    }
     return !!source && !!target && source.id !== target.id && target.data.uses !== triggerUses && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && source.data.uses !== triggerUses && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
   };
   function connect(source: string, port: string, target?: string, targetPort = "input") {
     if (!editable) return;
-    const existing = draft.edges.find(edge => edge.source === source && edge.sourceHandle === port);
+    const data = port.startsWith("output:");
+    const existing = draft.edges.find(edge => data ? edge.target === target && edge.targetHandle === targetPort : edge.source === source && edge.sourceHandle === port);
     if (target && !validConnection(makeEdge(source, port, target, targetPort))) { setNotice("That connection is not allowed."); return; }
-    if (existing?.target === target && existing?.targetHandle === targetPort) return;
-    const action = () => { state.commit(); state.update(current => ({ ...current, edges: [...current.edges.filter(edge => !(edge.source === source && edge.sourceHandle === port)), ...(target ? [makeEdge(source, port, target, targetPort)] : [])] })); };
-    if (existing && target) setPending({ message: "Replace this output's existing connection?", label: "Replace", action }); else action();
+    if (existing?.target === target && existing?.targetHandle === targetPort && (!data || (existing.source === source && existing.sourceHandle === port))) return;
+    const action = () => { state.commit(); state.update(current => ({ ...current, nodes: data && target ? current.nodes.map(node => {
+        if (node.id !== target || !node.data.customTask) return node;
+        const inputs = { ...node.data.customTask.inputs }; delete inputs[targetPort.slice(5)];
+        return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
+      }) : current.nodes, edges: [...current.edges.filter(edge => data ? !(edge.target === target && edge.targetHandle === targetPort) : !(edge.source === source && edge.sourceHandle === port)), ...(target ? [makeEdge(source, port, target, targetPort)] : [])] })); };
+    if (existing && target) setPending({ message: data ? "Replace this input's existing data connection?" : "Replace this output's existing connection?", label: "Replace", action }); else action();
   }
   function canAdd(uses: string) {
     if (!context) return true;
@@ -178,7 +191,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <button type="button" className="editor-add-step" disabled={!editable} onClick={() => { setContext(undefined); setQuery(""); setMenu(!menu); }}>+ Add Step</button>
       <button type="button" disabled={!editable || !state.canUndo} onClick={state.undo} className="editor-icon-button" aria-label="Undo" title="Undo (Ctrl+Z)"><ToolbarIcon name="undo" /></button><button type="button" disabled={!editable || !state.canRedo} onClick={state.redo} className="editor-icon-button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><ToolbarIcon name="redo" /></button>
       <button type="button" disabled={!editable || (!selected.length && !selectedEdges.length)} onClick={remove} className="editor-icon-button" aria-label="Delete" title="Delete selection"><ToolbarIcon name="delete" /></button>
-      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses || selectedNode.data.uses === parallelUses || selectedNode.data.uses === decisionUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }] })); reveal(id); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
+      <button type="button" disabled={!editable || !selectedNode || selectedNode.data.uses === loopUses || selectedNode.data.uses === triggerUses || selectedNode.data.uses === parallelUses || selectedNode.data.uses === decisionUses} onClick={() => { const original = selectedNode!; let id = `${original.id}-copy`; let suffix = 2; while (draft.nodes.some(node => node.id === id)) id = `${original.id}-copy-${suffix++}`; state.update(current => ({ ...current, nodes: [...current.nodes, { ...original, id, position: { x: original.position.x + 40, y: original.position.y + 160 }, data: { ...original.data, stepId: id, displayName: `${original.data.displayName} copy` } }], edges: [...current.edges, ...current.edges.filter(edge => isDataEdge(edge) && edge.target === original.id).map(edge => dataEdge(edge.source, edge.sourceHandle!.slice(7), id, edge.targetHandle!.slice(5)))] })); reveal(id); }} className="editor-icon-button" aria-label="Duplicate task" title="Duplicate task"><ToolbarIcon name="duplicate" /></button>
       </div>
       <div className="editor-tool-group" role="group" aria-label="Canvas view">
       <button type="button" disabled={!editable} onClick={() => void layout()}><ToolbarIcon name="arrange" />{arranging ? "Arranging…" : "Arrange"}</button>
@@ -194,7 +207,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     <div className="editor-body">
       <div className="editor-canvas" ref={canvas}>
         <NodeActions.Provider value={{ start: draft.start, errors: new Set(errors.flatMap(error => error.nodeId ? [error.nodeId] : [])), editable, add: (source, port) => { setContext({ source, port }); setQuery(""); setMenu(true); } }}>
-          <ReactFlow nodes={draft.nodes.map(node => ({ ...node, measured: measurements[node.id], selected: selectedSet.has(node.id) }))} edges={draft.edges.map(edge => ({ ...edge, selected: edgeSet.has(edge.id) }))} nodeTypes={nodeTypes} minZoom={0.02} maxZoom={2} nodesDraggable={editable} nodesConnectable={editable} edgesReconnectable={editable} deleteKeyCode={null} onNodeDragStart={state.begin} onNodeDragStop={state.commit}
+          <ReactFlow nodes={draft.nodes.map(node => ({ ...node, data: { ...node.data, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: customTasks.find(task => task.id === node.data.customTask?.taskId) ?? node.data.customTask.snapshot } : undefined }, measured: measurements[node.id], selected: selectedSet.has(node.id) }))} edges={draft.edges.map(edge => ({ ...edge, selected: edgeSet.has(edge.id) }))} nodeTypes={nodeTypes} minZoom={0.02} maxZoom={2} nodesDraggable={editable} nodesConnectable={editable} edgesReconnectable={editable} deleteKeyCode={null} onNodeDragStart={state.begin} onNodeDragStop={state.commit}
             onNodesChange={changes => {
               const dimensions = changes.filter(change => change.type === "dimensions" && change.dimensions);
               if (dimensions.length) setMeasurements(current => {
@@ -212,7 +225,17 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
             onEdgesChange={changes => setSelectedEdges(current => { const ids = new Set(current); changes.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; })}
             onNodeClick={(_, node) => { setInspector(true); setSettings(false); }} onPaneClick={() => { setMenu(false); }}
             onConnect={connection => connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input")} isValidConnection={validConnection}
-            onReconnect={(old, connection) => { if (old.source !== connection.source || old.sourceHandle !== connection.sourceHandle) { setNotice("Reconnect the target, or disconnect and choose a new output in the inspector."); return; } connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input"); }}>
+            onReconnect={(old, connection) => {
+              if (isDataEdge(old)) {
+                if (!validConnection(connection)) { setNotice("That data connection is not allowed."); return; }
+                state.commit(); state.update(current => ({ ...current, nodes: current.nodes.map(node => {
+                  if (node.id !== connection.target || !node.data.customTask) return node;
+                  const inputs = { ...node.data.customTask.inputs }; delete inputs[connection.targetHandle!.slice(5)];
+                  return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
+                }), edges: [...current.edges.filter(edge => edge.id !== old.id && !(edge.target === connection.target && edge.targetHandle === connection.targetHandle)), makeEdge(connection.source, connection.sourceHandle!, connection.target, connection.targetHandle!)] }));
+                return;
+              }
+              if (old.source !== connection.source || old.sourceHandle !== connection.sourceHandle) { setNotice("Reconnect the target, or disconnect and choose a new output in the inspector."); return; } connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input"); }}>
             <Background /> <Controls showInteractive={false} /> {miniMap && <MiniMap pannable zoomable />}
           </ReactFlow>
         </NodeActions.Provider>
@@ -228,8 +251,11 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         <p className="muted">Enabled versions can start workflows. Disabled versions may be saved with incomplete steps.</p>
         <label className="toggle-label"><input type="checkbox" checked={draft.isDefault} disabled={!editable} onChange={event => update(current => ({ ...current, isDefault: event.target.checked }))} /><span>Default</span></label><p className="muted">Saving a default enabled version changes the default for new runs. Existing versions and runs remain intact.</p>
         <details className="optional-settings"><summary>Advanced</summary><label><span>Schema</span><input readOnly value={workflowSchema} /></label><label><span>Version number</span><input type="number" min="1" disabled={!editable} placeholder="Automatic" value={draft.version} onChange={event => update(current => ({ ...current, version: event.target.value }))} /></label></details>
-      </aside> : inspector && selectedNode ? <Inspector key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={selectedNode} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
-        update={values => update(current => ({ ...current, nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node) }))}
+      </aside> : inspector && selectedNode ? <Inspector workflowStart={draft.start} key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={{ ...selectedNode, data: { ...selectedNode.data, customTask: document.steps.find(step => step.id === selectedNode.id)?.customTask } }} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
+        update={values => update(current => ({ ...current,
+          nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node),
+          edges: values.customTask ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...Object.entries(values.customTask.bindings ?? {}).map(([name, binding]) => dataEdge(binding.stepId, binding.outputName, selectedNode.id, name))] : current.edges
+        }))}
         resizeBranches={count => {
           if (count < 2 || count > 8) return;
           state.commit(); update(current => ({ ...current,

@@ -14,7 +14,7 @@ public static class CustomTaskDefinitions
     private sealed record Part(string Text, string? Source = null, string? Name = null);
 
     public static WorkflowDefinitionValidationResult ValidateCatalog(string? name, string? description, string? promptTemplate,
-        IReadOnlyList<CustomTaskInputDefinition>? inputs, CustomTaskRunnerSettings? runner)
+        IReadOnlyList<CustomTaskInputDefinition>? inputs, CustomTaskRunnerSettings? runner, IReadOnlyList<CustomTaskOutputDefinition>? outputs = null)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
         void Error(string message, string path) => errors.Add(new("definition.customTask.invalid", message, path));
@@ -33,6 +33,15 @@ public static class CustomTaskDefinitions
             if (input.ValueType is not ("string" or "number" or "boolean")) Error($"Input '{input.Name}' has an unsupported value type.", "inputs");
             if (input.DefaultValue is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) } value && !ValidScalar(value, input.ValueType))
                 Error($"Default for '{input.Name}' must match its type and limits.", "inputs");
+        }
+        if (outputs?.Count > 32) Error("Output schema may contain at most 32 outputs.", "outputs");
+        var outputNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var output in outputs ?? [])
+        {
+            if (output is null || string.IsNullOrEmpty(output.Name) || !Regex.IsMatch(output.Name, "^[A-Za-z][A-Za-z0-9_]{0,63}\\z") || !outputNames.Add(output.Name))
+                Error("Output names must be unique identifiers of at most 64 characters, starting with a letter.", "outputs");
+            if (output is not null && output.ValueType is not ("string" or "number" or "boolean"))
+                Error($"Output '{output.Name}' has an unsupported value type.", "outputs");
         }
         if (!string.IsNullOrWhiteSpace(promptTemplate) && promptTemplate.Length <= 16000)
         {
@@ -66,7 +75,7 @@ public static class CustomTaskDefinitions
                 {
                     var task = tasks is null ? null : await tasks.GetAsync(settings.TaskId, token);
                     snapshot = task is null ? null : new(task.Id, task.Revision, task.Name, task.Description, task.PromptTemplate,
-                        task.Inputs.Select(input => input with { DefaultValue = input.DefaultValue?.Clone() }).ToArray(), task.Runner with { });
+                        task.Inputs.Select(input => input with { DefaultValue = input.DefaultValue?.Clone() }).ToArray(), task.Runner with { }, task.Outputs.ToArray());
                     cache[settings.TaskId] = snapshot;
                 }
             }
@@ -74,7 +83,9 @@ public static class CustomTaskDefinitions
             errors.AddRange(ValidateSettings(enriched).Select(message => Error(step.Id, message)));
             steps.Add(step with { CustomTask = enriched });
         }
-        return new(document with { Steps = steps }, new(errors));
+        var resolved = document with { Steps = steps };
+        errors.AddRange(ValidateBindings(resolved));
+        return new(resolved, new(errors));
     }
 
     public static WorkflowDefinitionValidationResult ValidateRuntime(WorkflowDefinitionDocument document)
@@ -87,14 +98,15 @@ public static class CustomTaskDefinitions
             if (step.Uses == Uses) errors.AddRange(ValidateSettings(step.CustomTask).Select(message => Error(step.Id, message)));
             else if (step.CustomTask is not null) errors.Add(Error(step.Id, "Only Custom task nodes may carry custom task settings."));
         }
+        errors.AddRange(ValidateBindings(document));
         return new(errors);
     }
 
-    public static PreparedCustomTaskExecution Prepare(WorkflowCustomTaskSettings settings, Workflow workflow)
+    public static PreparedCustomTaskExecution Prepare(WorkflowCustomTaskSettings settings, Workflow workflow, IReadOnlyDictionary<string, CustomTaskInputProvenance>? provenance = null)
     {
         Throw(ValidateSettings(settings));
         var snapshot = settings.Snapshot!;
-        var inputs = ResolveInputs(snapshot.Inputs, settings.Inputs, out var errors);
+        var inputs = ResolveInputs(snapshot.Inputs, BoundValues(settings, provenance), out var errors);
         Throw(errors);
         var parts = Parse(snapshot.PromptTemplate, snapshot.Inputs.Select(input => input.Name).ToHashSet(StringComparer.Ordinal));
         var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
@@ -105,9 +117,9 @@ public static class CustomTaskDefinitions
                 "model" => workflow.Model, "planArtifact" => workflow.PlanArtifact, "pullRequestUrl" => workflow.PullRequestUrl,
                 _ => throw new InvalidOperationException("Unknown workflow template field.")
             });
-        var prompt = Render(parts, inputs, fields);
+        var prompt = WithOutputInstruction(Render(parts, inputs, fields), snapshot);
         if (Encoding.UTF8.GetByteCount(prompt) > MaximumPromptBytes) throw new InvalidOperationException("Rendered custom task prompt exceeds 131072 UTF-8 bytes.");
-        return new(snapshot.Id, snapshot.Revision, snapshot.Name, inputs, fields, snapshot.Runner.TimeoutSeconds, prompt);
+        return new(snapshot.Id, snapshot.Revision, snapshot.Name, inputs, fields, snapshot.Runner.TimeoutSeconds, prompt, Provenance: provenance?.ToDictionary(pair => pair.Key, pair => pair.Value with { Value = pair.Value.Value?.Clone() }, StringComparer.Ordinal));
     }
 
     public static void ValidatePrepared(PreparedCustomTaskExecution prepared, WorkflowCustomTaskSettings settings)
@@ -118,7 +130,7 @@ public static class CustomTaskDefinitions
             || prepared.Name != snapshot.Name || prepared.TimeoutSeconds != snapshot.Runner.TimeoutSeconds
             || prepared.Inputs is null || prepared.WorkflowFields is null || prepared.Prompt is null)
             throw new InvalidOperationException("Prepared custom task execution is malformed or does not match its pinned task.");
-        var resolved = ResolveInputs(snapshot.Inputs, settings.Inputs, out var errors);
+        var resolved = ResolveInputs(snapshot.Inputs, BoundValues(settings, prepared.Provenance), out var errors);
         Throw(errors);
         _ = ResolveInputs(snapshot.Inputs, prepared.Inputs, out var preparedErrors);
         Throw(preparedErrors);
@@ -128,7 +140,7 @@ public static class CustomTaskDefinitions
         if (!references.SetEquals(prepared.WorkflowFields.Keys)
             || prepared.WorkflowFields.Values.Any(value => value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)))
             throw new InvalidOperationException("Prepared workflow fields do not match the template references.");
-        if (Encoding.UTF8.GetByteCount(prepared.Prompt) > MaximumPromptBytes || prepared.Prompt != Render(parts, prepared.Inputs, prepared.WorkflowFields))
+        if (Encoding.UTF8.GetByteCount(prepared.Prompt) > MaximumPromptBytes || prepared.Prompt != WithOutputInstruction(Render(parts, prepared.Inputs, prepared.WorkflowFields), snapshot))
             throw new InvalidOperationException("Prepared custom task prompt is invalid.");
     }
 
@@ -139,8 +151,110 @@ public static class CustomTaskDefinitions
         if (settings.Snapshot is not { } snapshot) return [$"Custom task '{settings.TaskId}' is unavailable or has no pinned snapshot."];
         if (snapshot.Id != settings.TaskId || snapshot.Revision < 1 || snapshot.Description is null)
             errors.Add("Custom task snapshot is malformed or does not match its selected task.");
-        errors.AddRange(ValidateCatalog(snapshot.Name, snapshot.Description, snapshot.PromptTemplate, snapshot.Inputs, snapshot.Runner).Errors.Select(error => error.Message));
-        if (errors.Count == 0) { _ = ResolveInputs(snapshot.Inputs, settings.Inputs, out var inputErrors); errors.AddRange(inputErrors); }
+        errors.AddRange(ValidateCatalog(snapshot.Name, snapshot.Description, snapshot.PromptTemplate, snapshot.Inputs, snapshot.Runner, snapshot.Outputs).Errors.Select(error => error.Message));
+        var bindings = settings.Bindings ?? new Dictionary<string, CustomTaskInputBinding>();
+        foreach (var (name, binding) in bindings)
+        {
+            if (snapshot.Inputs?.Any(input => input?.Name == name) != true) errors.Add($"Unknown bound input '{name}'.");
+            if (settings.Inputs?.ContainsKey(name) == true) errors.Add($"Input '{name}' cannot have both a literal and a binding.");
+            if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) errors.Add($"Binding for '{name}' requires a producer step and output name.");
+        }
+        if (errors.Count == 0)
+        {
+            _ = ResolveInputs((snapshot.Inputs ?? []).Where(input => !bindings.ContainsKey(input.Name)).ToArray(), settings.Inputs, out var inputErrors);
+            errors.AddRange(inputErrors);
+        }
+        return errors;
+    }
+
+    public static IReadOnlyDictionary<string, JsonElement> ParseOutputs(string response, IReadOnlyList<CustomTaskOutputDefinition> schema)
+    {
+        if (Encoding.UTF8.GetByteCount(response) > MaximumInputBytes) throw new InvalidOperationException("Custom task outputs exceed 65536 UTF-8 bytes.");
+        try
+        {
+            using var document = JsonDocument.Parse(response);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("Custom task final response must be a JSON object.");
+            var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                var definition = schema.SingleOrDefault(output => output.Name == property.Name);
+                if (definition is null) throw new InvalidOperationException($"Unknown custom task output '{property.Name}'.");
+                if (!result.TryAdd(property.Name, property.Value.Clone())) throw new InvalidOperationException($"Duplicate custom task output '{property.Name}'.");
+                if (!ValidScalar(property.Value, definition.ValueType)) throw new InvalidOperationException($"Output '{property.Name}' must be a bounded {definition.ValueType} value.");
+            }
+            foreach (var output in schema.Where(output => output.Required))
+                if (!result.ContainsKey(output.Name)) throw new InvalidOperationException($"Required output '{output.Name}' is missing.");
+            if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(result, Json)) > MaximumInputBytes)
+                throw new InvalidOperationException("Serialized custom task outputs exceed 65536 UTF-8 bytes.");
+            return result;
+        }
+        catch (JsonException exception) { throw new InvalidOperationException("Custom task final response must be strict JSON matching its output schema; omit markdown and commentary.", exception); }
+    }
+
+    private static string WithOutputInstruction(string prompt, CustomTaskSnapshot snapshot)
+        => snapshot.Outputs.Count == 0 ? prompt : prompt + "\n\nReturn your final response as one strict JSON object containing only the declared named outputs. Do not use markdown fences or additional commentary. Omit optional outputs when unavailable. Output schema: " + JsonSerializer.Serialize(snapshot.Outputs, Json);
+
+    private static IReadOnlyDictionary<string, JsonElement> BoundValues(WorkflowCustomTaskSettings settings, IReadOnlyDictionary<string, CustomTaskInputProvenance>? provenance)
+    {
+        var bindings = settings.Bindings ?? new Dictionary<string, CustomTaskInputBinding>();
+        if ((provenance?.Count ?? 0) != bindings.Count) throw new InvalidOperationException("Prepared input provenance does not match the configured bindings.");
+        var values = Clone(settings.Inputs) ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var (name, binding) in bindings)
+        {
+            if (provenance is null || !provenance.TryGetValue(name, out var source) || source is null
+                || source.StepId != binding.StepId || source.OutputName != binding.OutputName || source.RunId == Guid.Empty || source.ExecutionAttemptId == Guid.Empty)
+                throw new InvalidOperationException($"Binding '{name}' has no valid frozen producer identity.");
+            if (source.Value is { } value) values[name] = value.Clone();
+        }
+        return values;
+    }
+
+    public static IReadOnlyList<WorkflowDefinitionValidationError> ValidateBindings(WorkflowDefinitionDocument document)
+    {
+        var errors = new List<WorkflowDefinitionValidationError>();
+        if (!document.Steps.Any(step => step.CustomTask?.Bindings?.Count > 0)) return errors;
+        WorkflowDefinitionDocument plan;
+        try { plan = WorkflowNodeDefinitions.Normalize(document); }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or KeyNotFoundException or NullReferenceException)
+        { return [new("definition.customTask.invalid", "Bindings require a valid control graph.", "steps[].customTask.bindings")]; }
+        if (plan.Steps.Select(step => step.Id).Distinct().Count() != plan.Steps.Count) return [new("definition.customTask.invalid", "Bindings require unique step IDs.")];
+        var nodes = plan.Steps.ToDictionary(step => step.Id, StringComparer.Ordinal);
+        string? LoopFor(string id) => plan.Loops?.FirstOrDefault(loop => loop.BodyStepIds.Contains(id))?.Id;
+        IEnumerable<string> Next(string id)
+        {
+            if (!nodes.TryGetValue(id, out var node)) return [];
+            var loop = plan.Loops?.FirstOrDefault(loop => loop.BodyStepIds.LastOrDefault() == id);
+            if (loop is not null) return [loop.ExitStepId];
+            if (node.Decision is { } decision) return [decision.TrueStepId, decision.FalseStepId];
+            if (node.Parallel is { } parallel) return parallel.BranchStepIds.Concat(node.NextStepId is null ? [] : new[] { node.NextStepId });
+            return node.NextStepId is null ? [] : [node.NextStepId];
+        }
+        bool Reach(string start, string target, string? blocked = null)
+        {
+            var visited = new HashSet<string>(); var pending = new Stack<string>(); pending.Push(start);
+            while (pending.TryPop(out var id))
+            {
+                if (id == blocked || !visited.Add(id)) continue;
+                if (id == target) return true;
+                foreach (var next in Next(id)) pending.Push(next);
+            }
+            return false;
+        }
+        var entries = new[] { plan.StartStepId }.Concat(plan.Triggers?.Select(trigger => trigger.NextStepId ?? plan.StartStepId) ?? []).Distinct().ToArray();
+        foreach (var consumer in plan.Steps)
+        foreach (var (name, binding) in consumer.CustomTask?.Bindings ?? new Dictionary<string, CustomTaskInputBinding>())
+        {
+            if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) continue;
+            var input = consumer.CustomTask?.Snapshot?.Inputs?.FirstOrDefault(input => input?.Name == name);
+            nodes.TryGetValue(binding.StepId, out var producer);
+            var output = producer?.CustomTask?.Snapshot?.Outputs?.FirstOrDefault(output => output?.Name == binding.OutputName);
+            if (input is null || output is null || input.ValueType != output.ValueType)
+                errors.Add(Error(consumer.Id, $"Binding '{name}' must reference a declared producer output with the same scalar type."));
+            else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id) || entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))
+                errors.Add(Error(consumer.Id, $"Producer '{producer.Id}' must be guaranteed to execute before consumer '{consumer.Id}'; self, downstream and conditional sources are invalid."));
+            else if (LoopFor(producer.Id) is { } producerLoop && producerLoop != LoopFor(consumer.Id))
+                errors.Add(Error(consumer.Id, "Bindings cannot leave a loop body or cross loops."));
+        }
         return errors;
     }
 

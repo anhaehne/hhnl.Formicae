@@ -7,6 +7,21 @@ namespace hhnl.Formicae.Tests;
 public sealed class CustomTaskApiTests
 {
     [Fact]
+    public async Task Catalog_api_accepts_typed_outputs_and_rejects_duplicate_and_invalid_output_schemas()
+    {
+        await using var factory = new ManagementAuthApiTests.FormicaeApiFactory(true);
+        var client = factory.CreateAuthenticatedClient((await factory.CreateAdminAsync("output-admin")).Id);
+        var response = await client.PostAsJsonAsync("/api/custom-tasks", new CreateCustomTaskRequest("Producer", "Produce", Outputs: [new("summary", "string", true)]));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var saved = (await response.Content.ReadFromJsonAsync<CustomTaskResponse>())!;
+        Assert.Equal(new("summary", "string", true), Assert.Single(saved.Outputs));
+        foreach (var outputs in new CustomTaskOutputDefinition[][] { [new("same", "string"), new("same", "boolean")], [new("bad-name", "string")], [new("summary", "array")] })
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/custom-tasks", new CreateCustomTaskRequest("Invalid", "Produce", Outputs: outputs))).StatusCode);
+        var old = await client.PostAsJsonAsync("/api/custom-tasks", new CreateCustomTaskRequest("Old", "Prompt"));
+        Assert.Empty((await old.Content.ReadFromJsonAsync<CustomTaskResponse>())!.Outputs);
+    }
+
+    [Fact]
     public async Task Administrator_manages_catalog_with_validation_and_conflict_feedback()
     {
         await using var factory = new ManagementAuthApiTests.FormicaeApiFactory(true);

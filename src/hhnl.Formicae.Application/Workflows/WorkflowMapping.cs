@@ -33,7 +33,8 @@ public static class WorkflowMapping
             AgentMessageParser.Parse(run.Output),
             run.DefinitionStepId,
             run.LoopIteration,
-            ReadCustomExecution(run.CustomTaskExecutionJson));
+            ReadCustomExecution(run.CustomTaskExecutionJson),
+            run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson));
 
     private static PreparedCustomTaskExecution? ReadCustomExecution(string? json)
     {

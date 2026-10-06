@@ -18,7 +18,7 @@ function ordinaryTasks(nodes: WorkflowStepNode[], edges: Edge[]) {
     const visit = (id: string) => {
       if (id === group.id || bodies.has(id)) return;
       bodies.add(id);
-      for (const edge of edges.filter(edge => edge.source === id && edge.targetHandle !== "return" && edge.targetHandle !== "join")) visit(edge.target);
+      for (const edge of edges.filter(edge => !edge.sourceHandle?.startsWith("output:") && edge.source === id && edge.targetHandle !== "return" && edge.targetHandle !== "join")) visit(edge.target);
     };
     edges.filter(edge => edge.source === group.id && (edge.sourceHandle === "body" || edge.sourceHandle?.startsWith("branch:"))).forEach(edge => visit(edge.target));
   }

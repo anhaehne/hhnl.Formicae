@@ -202,6 +202,7 @@ public sealed class TaskRun
     public string DefinitionStepId { get; init; } = string.Empty;
     public int? LoopIteration { get; init; }
     public Guid? ExecutionAttemptId { get; set; }
+    public string? StructuredOutputsJson { get; set; }
     public string? CustomTaskExecutionJson { get; set; }
     public TaskRunStatus Status { get; set; } = TaskRunStatus.Queued;
     public string? ExternalId { get; set; }
@@ -442,7 +443,7 @@ public sealed record TaskRunResponse(
     IReadOnlyList<AgentMessageResponse> AgentMessages,
     string DefinitionStepId,
     int? LoopIteration,
-    PreparedCustomTaskExecution? CustomTaskExecution = null);
+    PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,
@@ -647,7 +648,8 @@ public sealed record AgentRunResult(
     bool Succeeded,
     string ExternalId,
     string Output,
-    string? FailureReason);
+    string? FailureReason,
+    bool OutputIsFinalResponse = true);
 
 public sealed record PullRequestResult(string Url);
 

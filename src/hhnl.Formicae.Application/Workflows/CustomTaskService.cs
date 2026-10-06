@@ -17,7 +17,7 @@ public sealed class CustomTaskService(ICustomTaskStore store, IClock? clock = nu
         var now = clock.UtcNow;
         var task = Normalize(new CustomTaskDefinition { Id = Guid.NewGuid().ToString("N"), Name = request.Name,
             PromptTemplate = request.PromptTemplate, CreatedAt = now, UpdatedAt = now },
-            request.Name, request.Description, request.PromptTemplate, request.Inputs, request.Runner);
+            request.Name, request.Description, request.PromptTemplate, request.Inputs, request.Runner, request.Outputs);
         return Response(await store.CreateAsync(task, token));
     }
     public async Task<CustomTaskResponse?> UpdateAsync(string id, UpdateCustomTaskRequest request, CancellationToken token)
@@ -27,7 +27,7 @@ public sealed class CustomTaskService(ICustomTaskStore store, IClock? clock = nu
         if (existing is null) return null;
         if (existing.Revision != request.ExpectedRevision) throw Conflict();
         var replacement = Normalize(existing with { Revision = checked(existing.Revision + 1), UpdatedAt = clock.UtcNow },
-            request.Name, request.Description, request.PromptTemplate, request.Inputs, request.Runner);
+            request.Name, request.Description, request.PromptTemplate, request.Inputs, request.Runner, request.Outputs);
         if (!await store.TryUpdateAsync(replacement, request.ExpectedRevision, token)) throw Conflict();
         return Response(replacement);
     }
@@ -41,18 +41,18 @@ public sealed class CustomTaskService(ICustomTaskStore store, IClock? clock = nu
         return true;
     }
     private static CustomTaskDefinition Normalize(CustomTaskDefinition task, string? name, string? description, string? prompt,
-        IReadOnlyList<CustomTaskInputDefinition>? inputs, CustomTaskRunnerSettings? runner)
+        IReadOnlyList<CustomTaskInputDefinition>? inputs, CustomTaskRunnerSettings? runner, IReadOnlyList<CustomTaskOutputDefinition>? outputs)
     {
         name = name?.Trim() ?? ""; description = description?.Trim() ?? "";
         inputs ??= []; runner ??= new();
-        var validation = CustomTaskDefinitions.ValidateCatalog(name, description, prompt, inputs, runner);
+        var validation = CustomTaskDefinitions.ValidateCatalog(name, description, prompt, inputs, runner, outputs);
         if (!validation.IsValid) throw new ArgumentException(string.Join(" ", validation.Errors.Select(error => error.Message)));
         return task with { Name = name, Description = description, PromptTemplate = prompt!,
-            InputsJson = JsonSerializer.Serialize(inputs, JsonOptions), RunnerJson = JsonSerializer.Serialize(runner, JsonOptions) };
+            OutputsJson = JsonSerializer.Serialize(outputs ?? [], JsonOptions), InputsJson = JsonSerializer.Serialize(inputs, JsonOptions), RunnerJson = JsonSerializer.Serialize(runner, JsonOptions) };
     }
     private static CustomTaskResponse Response(CustomTaskDefinition task) => new(task.Id, task.Revision, task.Name, task.Description,
         task.PromptTemplate, JsonSerializer.Deserialize<CustomTaskInputDefinition[]>(task.InputsJson, JsonOptions)!,
-        JsonSerializer.Deserialize<CustomTaskRunnerSettings>(task.RunnerJson, JsonOptions)!, task.CreatedAt, task.UpdatedAt);
+        JsonSerializer.Deserialize<CustomTaskRunnerSettings>(task.RunnerJson, JsonOptions)!, task.CreatedAt, task.UpdatedAt, JsonSerializer.Deserialize<CustomTaskOutputDefinition[]>(task.OutputsJson, JsonOptions) ?? []);
     private static void EnsureRevision(int revision)
     { if (revision < 1) throw new ArgumentException("Expected revision must be positive."); }
     private static CustomTaskConflictException Conflict() => new("This task changed. Reload its current revision before retrying.");

@@ -181,6 +181,107 @@ public sealed class CustomTaskOrchestratorTests
         }
     }
 
+    [Fact]
+    public async Task Producer_consumer_completion_survives_restart_and_consumer_retry_with_frozen_provenance()
+    {
+        var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
+        var consumer = Snapshot() with { PromptTemplate = "Consume {{input.summary}}", Inputs = [new("summary", "string", true)] };
+        var settings = new WorkflowCustomTaskSettings("task", Snapshot: consumer, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") });
+        var steps = new[] { Custom("producer", "consumer") with { CustomTask = new("task", Snapshot: producer) }, Custom("consumer") with { CustomTask = settings } };
+        var (store, workflow) = await SetupAsync(steps: steps, start: "producer");
+        var agent = new Agent { Immediate = "{\"summary\":\"ready\"}" };
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        var source = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
+        Assert.Equal("ready", source.ToResponse().StructuredOutputs!["summary"].GetString());
+        Assert.Contains("Output schema:", agent.Tasks[0].Prompt);
+        agent.Immediate = null; agent.Permanent = true;
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
+        var run = (await store.ListTaskRunsAsync(workflow.Id, default)).Single(run => run.DefinitionStepId == "consumer");
+        var frozen = run.CustomTaskExecutionJson;
+        var execution = run.ToResponse().CustomTaskExecution!;
+        Assert.Equal(source.Id, execution.Provenance!["summary"].RunId);
+        Assert.Equal(source.ExecutionAttemptId, execution.Provenance["summary"].ExecutionAttemptId);
+        Assert.Equal("Consume ready", execution.Prompt);
+        await new WorkflowService(store).RetryWorkflowAsync(workflow.Id, default);
+        source.StructuredOutputsJson = "{\"summary\":\"changed\"}"; source.ExecutionAttemptId = Guid.NewGuid();
+        agent.Permanent = false; agent.Immediate = "consumed";
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        Assert.Equal(frozen, run.CustomTaskExecutionJson);
+        Assert.Equal("Consume ready", agent.Tasks.Last().Prompt);
+    }
+
+    [Theory]
+    [InlineData("{bad")]
+    [InlineData("{}")]
+    [InlineData("{\"summary\":42}")]
+    public async Task Invalid_output_fails_producer_and_does_not_launch_consumer(string output)
+    {
+        var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
+        var (store, workflow) = await SetupAsync(steps: [Custom("producer", "consumer") with { CustomTask = new("task", Snapshot: producer) }, Custom("consumer")], start: "producer");
+        var agent = new Agent { Immediate = output };
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status); Assert.Single(agent.Tasks);
+        var run = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
+        Assert.Null(run.StructuredOutputsJson); Assert.Equal(TaskRunStatus.Failed, run.Status); Assert.NotNull(run.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Failed_execution_or_unrecognized_cli_logs_cannot_supply_structured_outputs(bool succeeded, bool finalResponse)
+    {
+        var (store, workflow) = await SetupAsync(snapshot: Snapshot() with { Outputs = [new("summary", "string", true)] });
+        var agent = new Agent { Immediate = "{\"summary\":\"ready\"}", Succeeded = succeeded, FinalResponse = finalResponse };
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status);
+        var run = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default)); Assert.Null(run.StructuredOutputsJson);
+        await new WorkflowService(store).RetryWorkflowAsync(workflow.Id, default);
+        agent.Succeeded = true; agent.FinalResponse = true;
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status); Assert.NotNull(run.StructuredOutputsJson);
+    }
+
+    [Fact]
+    public async Task Unavailable_source_fails_before_external_launch()
+    {
+        var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
+        var consumer = Snapshot() with { PromptTemplate = "Consume {{input.summary}}", Inputs = [new("summary", "string", true)] };
+        var settings = new WorkflowCustomTaskSettings("task", Snapshot: consumer, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") });
+        var (store, workflow) = await SetupAsync(steps: [Custom("producer", "consumer") with { CustomTask = new("task", Snapshot: producer) }, Custom("consumer") with { CustomTask = settings }], start: "producer");
+        workflow.CurrentDefinitionStepId = "consumer"; var agent = new Agent();
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Failed, workflow.Status); Assert.Empty(agent.Tasks);
+        Assert.Contains("requires successful validated outputs", workflow.FailureReason);
+    }
+
+    [Fact]
+    public async Task Bound_inputs_resolve_outputs_from_the_same_loop_iteration()
+    {
+        var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
+        var consumer = Snapshot() with { PromptTemplate = "Consume {{input.summary}}", Inputs = [new("summary", "string", true)] };
+        var settings = new WorkflowCustomTaskSettings("task", Snapshot: consumer, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") });
+        var steps = new[] { new WorkflowDefinitionStep("loop", "builtins.loop", "finish", Loop: new("producer", 2, 2)),
+            Custom("producer", "consumer") with { CustomTask = new("task", Snapshot: producer) },
+            Custom("consumer", "loop") with { NextStepPort = "return", CustomTask = settings }, Custom("finish") };
+        var (store, workflow) = await SetupAsync(steps: steps, start: "loop"); var agent = new Agent();
+        for (var i = 0; i < 6; i++)
+        {
+            var iteration = (await store.ListTaskRunsAsync(workflow.Id, default)).Count(run => run.DefinitionStepId == "producer") + 1;
+            agent.Immediate = workflow.CurrentDefinitionStepId == "producer" ? $"{{\"summary\":\"iteration{iteration}\"}}" : "consumed";
+            await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        }
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        var consumers = (await store.ListTaskRunsAsync(workflow.Id, default)).Where(run => run.DefinitionStepId == "consumer").OrderBy(run => run.LoopIteration).ToArray();
+        Assert.Equal(2, consumers.Length);
+        for (var i = 0; i < 2; i++)
+        {
+            var execution = consumers[i].ToResponse().CustomTaskExecution!;
+            Assert.Equal($"Consume iteration{i + 1}", execution.Prompt); Assert.Equal(i + 1, execution.Provenance!["summary"].LoopIteration);
+        }
+    }
+
     private static CustomTaskSnapshot Snapshot() => new("task", 1, "Inspect", "", "Inspect {{workflow.planArtifact}}", [], new(TimeoutSeconds: 43));
     private static WorkflowDefinitionStep Custom(string id, string? next = null) => new(id, CustomTaskDefinitions.Uses, next,
         Model: "node-model", AiSettingsId: "node-ai", CustomTask: new("task", Snapshot: Snapshot()));
@@ -209,6 +310,7 @@ public sealed class CustomTaskOrchestratorTests
     private sealed class Agent : IAgentRunner
     {
         public List<AgentTask> Tasks = [];
+        public bool Succeeded = true; public bool FinalResponse = true;
         public string? Immediate; public bool Uncertain; public bool Permanent; public bool PollFailure; public string? PollOutput;
         public Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken token)
         {
@@ -216,7 +318,7 @@ public sealed class CustomTaskOrchestratorTests
             if (Uncertain) { Uncertain = false; throw new AgentLaunchUncertainException("lost response", new HttpRequestException()); }
             if (Permanent) throw new InvalidOperationException("bad configuration");
             var id = task.ExecutionAttemptId!.Value.ToString("N");
-            return Task.FromResult(new AgentRunStartResult(id, Immediate is null ? null : new(true, id, Immediate, null)));
+            return Task.FromResult(new AgentRunStartResult(id, Immediate is null ? null : new(Succeeded, id, Immediate, Succeeded ? null : "Agent execution failed", FinalResponse)));
         }
         public Task<AgentRunResult?> TryGetResultAsync(string id, CancellationToken token)
         { if (PollFailure) throw new HttpRequestException("temporary"); return Task.FromResult<AgentRunResult?>(PollOutput is null ? null : new(true, id, PollOutput, null)); }

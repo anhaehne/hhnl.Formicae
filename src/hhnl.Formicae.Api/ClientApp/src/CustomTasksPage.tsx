@@ -1,10 +1,10 @@
-import { CustomTaskSchema } from "./workflowEditor/CustomTaskSchema";
+import { CustomTaskSchema, CustomTaskOutputSchema } from "./workflowEditor/CustomTaskSchema";
 import { useEffect, useRef, useState } from "react";
 import { useBeforeUnload, useBlocker } from "react-router-dom";
 import { ApiError, createCustomTask, deleteCustomTask, listCustomTasks, updateCustomTask, type CustomTaskDefinition, type CustomTaskInput } from "./api";
 
-const empty: CustomTaskInput = { name: "", description: "", promptTemplate: "", inputs: [], runner: { kind: "agent", timeoutSeconds: 1800 } };
-const formFor = (persona: CustomTaskDefinition): CustomTaskInput => ({ name: persona.name, description: persona.description, promptTemplate: persona.promptTemplate, inputs: persona.inputs, runner: persona.runner });
+const empty: CustomTaskInput = { name: "", description: "", promptTemplate: "", inputs: [], outputs: [], runner: { kind: "agent", timeoutSeconds: 1800 } };
+const formFor = (persona: CustomTaskDefinition): CustomTaskInput => ({ name: persona.name, description: persona.description, promptTemplate: persona.promptTemplate, inputs: persona.inputs, outputs: persona.outputs ?? [], runner: persona.runner });
 export default function CustomTasksPage({ canAdminister }: { canAdminister: boolean }) {
   const [personas, setPersonas] = useState<CustomTaskDefinition[]>([]), [selected, setSelected] = useState<CustomTaskDefinition>();
   const [form, setForm] = useState<CustomTaskInput>(empty), [baseline, setBaseline] = useState<CustomTaskInput>(empty);
@@ -47,6 +47,7 @@ export default function CustomTasksPage({ canAdminister }: { canAdminister: bool
       <label><span>Prompt template</span><textarea aria-label="Prompt template" rows={6} required disabled={!editable} value={form.promptTemplate} maxLength={16000} onChange={event => setForm({ ...form, promptTemplate: event.target.value })} /></label>
       <p className="muted">Use {'{{input.NAME}}'} for declared inputs. Workflow fields: issueUrl, repositoryUrl, baseBranch, model, planArtifact, pullRequestUrl (for example {'{{workflow.issueUrl}}'}). Values are inserted once; expressions and filters are unavailable.</p>
       <CustomTaskSchema inputs={form.inputs} disabled={!editable} onChange={inputs => setForm({ ...form, inputs })} />
+      <CustomTaskOutputSchema outputs={form.outputs ?? []} disabled={!editable} onChange={outputs => setForm({ ...form, outputs })} />
       <fieldset><legend>Agent runner</legend><label><span>Timeout seconds</span><input aria-label="Timeout seconds" type="number" min={1} max={3600} required disabled={!editable} value={form.runner.timeoutSeconds} onChange={event => setForm({ ...form, runner: { kind: "agent", timeoutSeconds: Number(event.target.value) } })} /></label></fieldset>
       {error && <p role="alert" className="error-text">{error}</p>}{notice && <p role="status" className="success-text">{notice}</p>}
       {conflict && <div className="persona-conflict"><p>Your edits are retained. Another operator changed this custom task. Reload the current revision before saving again.</p><button type="button" className="secondary-button" disabled={busy} onClick={() => guard(() => { setBusy(true); void refresh().then(items => { if (items) choose(items.find(persona => persona.id === selected?.id)); }).finally(() => setBusy(false)); })}>Reload current revision</button></div>}
