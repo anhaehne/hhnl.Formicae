@@ -162,7 +162,7 @@ public sealed class RuntimeEnvironmentExtensionTests
         Assert.Equal(selected, cli.Environment!["STEP_TOKEN"]); Assert.Equal(managed, cli.Environment["LLM_API_KEY"]); Assert.Equal(callback, cli.Environment["FORMICAE_WORKER_CALLBACK_SECRET"]);
         foreach (var pair in cli.Environment)
         {
-            var index = Array.IndexOf(cli.Arguments!.ToArray(), pair.Key); Assert.True(index > 0); Assert.Equal("--env", cli.Arguments[index - 1]);
+            var index = Array.IndexOf(cli.Arguments!.ToArray(), pair.Key); Assert.True(index > 0); Assert.Equal("--env", cli.Arguments![index - 1]);
             Assert.DoesNotContain(cli.Arguments!, argument => argument.Contains(pair.Value, StringComparison.Ordinal));
             Assert.DoesNotContain(pair.Value, error.Message);
             Assert.DoesNotContain(JsonSerializer.Serialize(pair.Value)[1..^1], error.Message);

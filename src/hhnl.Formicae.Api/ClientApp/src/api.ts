@@ -681,9 +681,9 @@ export const deleteCustomTask = (id: string, expectedRevision: number) => sendNo
 
 export type StepSecretReference = { environmentName: string; secretName: string; key: string };
 export type WorkflowScriptSettings = { shell: "sh" | "bash"; script: string; timeoutSeconds: number; workingDirectory: "workspace" | "repository" };
-export type EnvironmentImage = { reference: string; pullPolicy: "Always" | "IfNotPresent" | "Never"; pullSecretNames: string[] };
+export type EnvironmentImage = { reference: string; pullPolicy: "Always" | "IfNotPresent" | "Never"; pullSecretNames?: string[] | null };
 export type EnvironmentTool = { name: string; script: string; shell: "sh" | "bash"; timeoutSeconds: number };
-export type EnvironmentMcpServer = { name: string; transport: "stdio" | "http"; command?: string | null; arguments: string[]; url?: string | null; environmentVariables: Record<string, string>; bearerTokenEnvironmentVariable?: string | null; headerEnvironmentVariables: Record<string, string> };
+export type EnvironmentMcpServer = { name: string; transport: "stdio" | "http"; command?: string | null; arguments?: string[] | null; url?: string | null; environmentVariables?: Record<string, string> | null; bearerTokenEnvironmentVariable?: string | null; headerEnvironmentVariables?: Record<string, string> | null };
 export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: EnvironmentImage | null; tools: EnvironmentTool[]; mcpServers: EnvironmentMcpServer[] };
 export type EnvironmentSnapshot = { id: string; revision: number; name: string; description: string; configuration: EnvironmentConfiguration };
 export type EnvironmentProfile = EnvironmentSnapshot & { builtIn: boolean; createdAt: string; updatedAt: string };

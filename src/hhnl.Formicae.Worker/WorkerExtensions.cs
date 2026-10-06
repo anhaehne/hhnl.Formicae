@@ -5,7 +5,7 @@ using hhnl.Formicae.Application.Workflows;
 internal static class WorkerExtensions
 {
     internal static async Task<int> InstallToolsAsync(IReadOnlyList<EnvironmentToolInstall> tools, WorkerReporter reporter,
-        TimeProvider timeProvider, CancellationToken token)
+        TimeProvider timeProvider, CancellationToken token, string workspaceDirectory = "/workspace")
     {
         foreach (var tool in tools)
         {
@@ -13,7 +13,7 @@ internal static class WorkerExtensions
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(tool.TimeoutSeconds), timeProvider);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
             int exit;
-            try { exit = await ExecuteScriptAsync(tool.Shell, tool.Script, "/workspace", reporter, linked.Token); }
+            try { exit = await ExecuteScriptAsync(tool.Shell, tool.Script, workspaceDirectory, reporter, linked.Token); }
             catch (OperationCanceledException) when (deadline.IsCancellationRequested && !token.IsCancellationRequested)
             {
                 await reporter.ReportAsync("worker-error", $"Tool installation '{tool.Name}' exceeded its {tool.TimeoutSeconds}s deadline.", token);
@@ -82,7 +82,7 @@ internal static class WorkerExtensions
 
     internal static string BuildCodexConfiguration(IReadOnlyList<EnvironmentMcpServer> servers, bool browser)
     {
-        static string Quote(string value) => JsonSerializer.Serialize(value);
+        static string Quote(string value) => QuoteToml(value);
         var text = new StringBuilder("# Task-owned Formicae configuration. Credentials are never logged.\n[mcp_servers]\n");
         foreach (var server in servers)
         {
@@ -122,6 +122,29 @@ internal static class WorkerExtensions
             text.AppendLine("args = [" + string.Join(", ", BrowserArguments.Select(Quote)) + "]");
         }
         return text.ToString();
+    }
+
+    internal static string QuoteToml(string value)
+    {
+        var text = new StringBuilder("\"");
+        foreach (var rune in value.EnumerateRunes())
+        {
+            switch (rune.Value)
+            {
+                case 34: text.Append("\\\""); break;
+                case 92: text.Append("\\\\"); break;
+                case 8: text.Append("\\b"); break;
+                case 9: text.Append("\\t"); break;
+                case 10: text.Append("\\n"); break;
+                case 12: text.Append("\\f"); break;
+                case 13: text.Append("\\r"); break;
+                default:
+                    if (rune.Value < 32 || rune.Value == 127) text.Append("\\u" + rune.Value.ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
+                    else text.Append(rune.ToString());
+                    break;
+            }
+        }
+        return text.Append('"').ToString();
     }
 
     private static readonly string[] BrowserArguments = ["--headless", "--browser", "chromium", "--no-sandbox",

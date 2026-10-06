@@ -148,7 +148,7 @@ public sealed partial class KubernetesWorkflowE2ETests
         => WithExtensionWorkerAsync(async context =>
         {
             var secretName = "extension-mcp-" + Guid.NewGuid().ToString("N");
-            var secretValue = "mcp-selected-" + Guid.NewGuid().ToString("N");
+            var secretValue = "mcp-selected-😀-" + Guid.NewGuid().ToString("N");
             await context.CreateSecretAsync(secretName, new() { ["token"] = secretValue });
             // Replace only the CLI inside this ephemeral worker. The real worker performs
             // bootstrap, secret injection and native config generation; no model is contacted.
@@ -161,6 +161,7 @@ public sealed partial class KubernetesWorkflowE2ETests
                     config_path = pathlib.Path(os.environ['CODEX_HOME']) / 'config.toml'
                     config = tomllib.loads(config_path.read_text())['mcp_servers']
                     assert set(config) == expected, 'Codex server selection mismatch'
+                    assert config['local-check']['args'] == ['-c', 'exit 0', 'unicode-😀'], 'Codex Unicode argument mismatch'
                     assert config['local-check']['env']['SERVER_TOKEN'] == os.environ['STEP_TOKEN'], 'Codex alias mapping failed'
                     assert config['remote-check']['bearer_token_env_var'] == 'STEP_TOKEN', 'Codex bearer alias missing'
                     assert config['remote-check']['env_http_headers']['X-Api-Key'] == 'STEP_TOKEN', 'Codex header alias missing'
@@ -169,6 +170,7 @@ public sealed partial class KubernetesWorkflowE2ETests
                     config_path = pathlib.Path(os.environ['OPENHANDS_PERSISTENCE_DIR']) / 'mcp.json'
                     config = json.loads(config_path.read_text())['mcpServers']
                     assert set(config) == expected, 'OpenHands server selection mismatch'
+                    assert config['local-check']['args'] == ['-c', 'exit 0', 'unicode-😀'], 'OpenHands Unicode argument mismatch'
                     assert config['local-check']['env']['SERVER_TOKEN'] == os.environ['STEP_TOKEN'], 'OpenHands alias mapping failed'
                     assert config['remote-check']['transport'] == 'http', 'OpenHands transport mismatch'
                     assert config['remote-check']['headers']['Authorization'] == 'Bearer ' + os.environ['STEP_TOKEN'], 'OpenHands bearer mapping failed'
@@ -186,7 +188,7 @@ public sealed partial class KubernetesWorkflowE2ETests
                 Tools = [new("mcp-probe", probe)],
                 McpServers =
                 [
-                    new("local-check", Command: "sh", Arguments: ["-c", "exit 0"], EnvironmentVariables: new Dictionary<string, string> { ["SERVER_TOKEN"] = "STEP_TOKEN" }),
+                    new("local-check", Command: "sh", Arguments: ["-c", "exit 0", "unicode-😀"], EnvironmentVariables: new Dictionary<string, string> { ["SERVER_TOKEN"] = "STEP_TOKEN" }),
                     new("remote-check", Transport: "http", Url: "https://example.invalid/mcp", BearerTokenEnvironmentVariable: "STEP_TOKEN",
                         HeaderEnvironmentVariables: new Dictionary<string, string> { ["X-Api-Key"] = "STEP_TOKEN" }),
                     // Its absent secret must not be resolved because this server is not enabled.

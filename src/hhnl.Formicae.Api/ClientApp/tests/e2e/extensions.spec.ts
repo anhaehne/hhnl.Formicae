@@ -8,6 +8,10 @@ async function open(page: Page, name: string) {
 async function inspect(page: Page, id: string) { await page.getByLabel("Find a node").fill(id); await page.locator(".editor-search-results").getByRole("button", { name: new RegExp(`\\(${id}\\)$`) }).click(); }
 
 test("environment extensions save structured image tool and credential references and remain read only for viewers", async ({ page, request }) => {
+ const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+ const minimalName = `Native optional settings ${Date.now()}`;
+ const minimalResponse = await request.post(`${api}/api/environments`, { data: { name: minimalName, configuration: { schemaVersion: 1, image: { reference: "example/worker:1" }, tools: [], mcpServers: [{ name: "local", command: "node" }] } } }); expect(minimalResponse.ok(), await minimalResponse.text()).toBeTruthy();
+ await page.goto("/environments"); await page.getByRole("complementary", { name: "Environment catalog" }).getByRole("button", { name: new RegExp(minimalName) }).click(); await expect(page.getByLabel("Image reference", { exact: true })).toHaveValue("example/worker:1"); await expect(page.getByLabel("Image pull policy")).toHaveValue("IfNotPresent"); await expect(page.getByLabel("Image pull secret names (one per line)")).toHaveValue(""); await expect(page.getByRole("button", { name: "Add MCP 1 argument", exact: true })).toBeVisible(); await page.getByLabel("Image reference", { exact: true }).fill("example/worker:2"); await page.getByRole("button", { name: "Save environment", exact: true }).click(); await expect(page.getByText("Environment saved.", { exact: true })).toBeVisible(); expect(errors).toEqual([]);
  await page.goto("/environments"); await page.getByRole("button", { name: "New environment", exact: true }).click();
  const name = `Extended environment ${Date.now()}`; await page.getByLabel("Environment name", { exact: true }).fill(name);
  await page.getByLabel("Use custom execution image").check(); await page.getByLabel("Image reference", { exact: true }).fill("ghcr.io/anhaehne/formicae-worker:0.20.0");
@@ -24,7 +28,7 @@ test("environment extensions save structured image tool and credential reference
  await page.getByLabel("Install script 1").fill("local unsaved change"); await page.getByRole("button", { name: "Cancel edits", exact: true }).click(); await page.getByRole("dialog").getByRole("button", { name: "Discard", exact: true }).click(); await expect(page.getByLabel("Install script 1")).toHaveValue("command -v jq");
  await page.route("**/api/auth/current-user", async route => { const response = await route.fetch(); await route.fulfill({ json: { ...await response.json(), canAdminister: false, canViewWorkflows: true } }); });
  await page.reload(); await page.getByRole("complementary", { name: "Environment catalog" }).getByRole("button", { name: new RegExp(name) }).click();
- await expect(page.getByLabel("Image reference", { exact: true })).toBeDisabled(); await expect(page.getByLabel("Install script 1")).toBeDisabled(); await expect(page.getByLabel("MCP bearer token secret alias 1")).toBeDisabled(); await expect(page.getByRole("button", { name: "Add tool install" })).toBeDisabled();
+ await expect(page.getByLabel("Image reference", { exact: true })).toBeDisabled(); await expect(page.getByLabel("Install script 1")).toBeDisabled(); await expect(page.getByLabel("MCP bearer token secret alias 1")).toBeDisabled(); await expect(page.getByRole("button", { name: "Add tool install" })).toBeDisabled(); expect(errors).toEqual([]);
 });
 
 test("script editor preserves capability distinction secret references and script output binding through undo and reload", async ({ page, request }) => {

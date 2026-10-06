@@ -134,9 +134,11 @@ internal static class WorkerCommand
         WorkerEnvironment environment,
         WorkerReporter reporter,
         CancellationToken cancellationToken,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? workspaceDirectory = null)
     {
-        Directory.CreateDirectory(WorkspaceDirectory);
+        workspaceDirectory ??= WorkspaceDirectory;
+        Directory.CreateDirectory(workspaceDirectory);
         if (environment.TaskKind == "ModelDiscovery")
         {
             var discoveryExit = await CodexModelDiscovery.RunAsync(cancellationToken);
@@ -150,16 +152,16 @@ internal static class WorkerCommand
 
         if (environment.RequiresHardEnvironmentDeadline || environment.TaskKind is "Script" or "Custom")
             return await RunWithHardDeadlineAsync(environment.JobTimeoutSeconds, reporter, timeProvider ?? TimeProvider.System,
-                cancellationToken, token => RunTaskAsync(environment, reporter, token, timeProvider));
-        return await RunTaskAsync(environment, reporter, cancellationToken, timeProvider);
+                cancellationToken, token => RunTaskAsync(environment, reporter, token, timeProvider, workspaceDirectory));
+        return await RunTaskAsync(environment, reporter, cancellationToken, timeProvider, workspaceDirectory);
     }
 
     private static async Task<int> RunTaskAsync(WorkerEnvironment environment, WorkerReporter reporter,
-        CancellationToken cancellationToken, TimeProvider? timeProvider)
+        CancellationToken cancellationToken, TimeProvider? timeProvider, string workspaceDirectory)
     {
 
         var bootstrapExit = await WorkerExtensions.InstallToolsAsync(environment.ExecutionConfiguration?.Tools ?? [], reporter,
-            timeProvider ?? TimeProvider.System, cancellationToken);
+            timeProvider ?? TimeProvider.System, cancellationToken, workspaceDirectory);
         if (bootstrapExit != 0) return bootstrapExit;
         if (environment.TaskKind != "Script" && !environment.UsesCodexSubscription) WorkerExtensions.ConfigureOpenHands(environment.ExecutionConfiguration?.McpServers ?? [], environment.RequiresBrowser);
 
@@ -168,7 +170,7 @@ internal static class WorkerCommand
             return 1;
         }
 
-        var workingDirectory = WorkspaceDirectory;
+        var workingDirectory = workspaceDirectory;
         if (environment.RequiresRepositoryCheckout)
         {
             workingDirectory = RepositoryDirectory;
@@ -433,7 +435,7 @@ internal static class WorkerCommand
             args.Add(environment.Model);
         }
 
-        args.AddRange(["-c", $"projects={{{JsonSerializer.Serialize(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
+        args.AddRange(["-c", $"projects={{{WorkerExtensions.QuoteToml(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
         args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
         return args;
     }
@@ -441,7 +443,7 @@ internal static class WorkerCommand
     internal static List<string> BuildCodexResumeArguments(WorkerEnvironment environment, string workingDirectory, string threadId)
     {
         var args = new List<string> { "-y", "@openai/codex", "exec" };
-        args.AddRange(["-c", $"projects={{{JsonSerializer.Serialize(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
+        args.AddRange(["-c", $"projects={{{WorkerExtensions.QuoteToml(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
         if (!string.IsNullOrWhiteSpace(environment.Model))
         {
             args.Add("-m");

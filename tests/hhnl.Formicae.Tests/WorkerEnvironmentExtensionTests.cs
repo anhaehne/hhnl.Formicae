@@ -34,7 +34,7 @@ public sealed class WorkerEnvironmentExtensionTests
         using var reporter = Reporter(runtime);
         var environment = EnvironmentFor(new("sleep 30; printf 'should-not-run'", TimeoutSeconds: 1));
         var started = DateTimeOffset.UtcNow;
-        var exit = await worker::WorkerCommand.RunAsync(environment, reporter, default);
+        var exit = await worker::WorkerCommand.RunAsync(environment, reporter, default, workspaceDirectory: Path.GetTempPath());
         await reporter.ReportScriptResultAsync(exit);
         Assert.Equal(124, exit);
         Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(10));
@@ -60,7 +60,7 @@ public sealed class WorkerEnvironmentExtensionTests
     {
         using var runtime = new StringWriter(); using var reporter = Reporter(runtime);
         var configuration = new EnvironmentConfiguration { Tools = [new("fixture", install, TimeoutSeconds: 1)] };
-        var exit = await worker::WorkerCommand.RunAsync(EnvironmentFor(new("printf 'script-visible\\n'", TimeoutSeconds: 10), configuration), reporter, default);
+        var exit = await worker::WorkerCommand.RunAsync(EnvironmentFor(new("printf 'script-visible\\n'", TimeoutSeconds: 10), configuration), reporter, default, workspaceDirectory: Path.GetTempPath());
         Assert.Equal(expectedExit, exit);
         Assert.Contains("Installing environment tool 'fixture'", hhnl.Formicae.Infrastructure.OpenHands.OpenHandsAgentRunner.UnwrapRuntimeLogs(runtime.ToString()));
         Assert.Equal(startsScript, runtime.ToString().Contains("script-visible", StringComparison.Ordinal));
