@@ -23,6 +23,10 @@ This skill is project-local to this repository. When this workflow requires user
 
 - Add a management UI.
 - Add workflow observability.
+  - Visual investigation of running and historical executions, live and retained worker logs, immutable retry attempts, and evidence exports (available in 0.19.0).
+  - Scheduling-boundary pause/resume and durable cancellation with runtime cleanup (available in 0.19.0).
+  - Searchable execution history, saved filter views and shareable task investigation links (available in 0.19.0).
+  - Automatic retry/backoff policies, execution retention policies, notifications, artifact storage, subworkflows and compensation remain future work.
 - Add user authentication.
 - Add a permission system.
 - Configure AI model/API settings through the UI.

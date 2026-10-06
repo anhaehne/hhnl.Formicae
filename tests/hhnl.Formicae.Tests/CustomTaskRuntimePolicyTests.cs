@@ -36,7 +36,10 @@ public sealed class CustomTaskRuntimePolicyTests
         Assert.Contains("formicae.timeout-seconds=43", arguments); Assert.DoesNotContain("--privileged", arguments);
         var result = await runtime.TryGetJobResultAsync("custom-deadline", default);
         Assert.NotNull(result); Assert.False(result.Succeeded); Assert.Contains("43 seconds", result.FailureReason);
-        Assert.Contains(cli.Calls, call => call[0] == "rm" && call.Contains("--force"));
+        Assert.Contains(cli.Calls, call => call[0] == "stop");
+        Assert.DoesNotContain(cli.Calls, call => call[0] == "rm");
+        await runtime.AcknowledgeCompletionAsync("custom-deadline", default);
+        Assert.Contains(cli.Calls, call => call[0] == "rm");
     }
 
     private sealed class Cli : IContainerCli

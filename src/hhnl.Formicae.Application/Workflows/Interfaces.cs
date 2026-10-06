@@ -79,6 +79,12 @@ public interface IAgentRunner
     Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken);
 
     Task<AgentRunResult?> TryGetResultAsync(string externalId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<AgentRuntimeLog>> ReadLogsAsync(string externalId, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<AgentRuntimeLog>>([]);
+    Task CancelAsync(string externalId, CancellationToken cancellationToken)
+        => Task.FromException(new NotSupportedException("This agent runner cannot cancel workers."));
+    Task AcknowledgeCompletionAsync(string externalId, CancellationToken cancellationToken) => Task.CompletedTask;
+    string? ResolveExternalId(Guid workflowId, TaskRunKind kind, Guid? attemptId) => null;
 }
 
 public interface IWorkflowStore
@@ -108,6 +114,12 @@ public interface IWorkflowStore
     Task<IReadOnlyList<WorkflowTriggerEvent>> ListTriggerEventsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<WorkflowTriggerEvent?> GetTriggerEventByDeliveryAsync(string deliveryId, string triggerId, CancellationToken cancellationToken);
     Task AddLogAsync(WorkflowLog log, CancellationToken cancellationToken);
+    Task<IReadOnlyList<WorkflowLog>> AppendLogsAsync(IReadOnlyList<WorkflowLog> logs, CancellationToken cancellationToken);
+    Task<bool> TryAddWorkerLogAsync(WorkflowLog log, string externalId, Guid? expectedAttempt, CancellationToken cancellationToken);
+    Task<WorkflowLogPage> QueryLogsAsync(Guid workflowId, WorkflowLogQuery query, CancellationToken cancellationToken);
+    Task<WorkflowSearchPage> SearchWorkflowsAsync(WorkflowSearchQuery query, CancellationToken cancellationToken);
+    Task ArchiveTaskRunAttemptAsync(TaskRun run, CancellationToken cancellationToken);
+    Task<IReadOnlyList<TaskRunAttempt>> ListTaskRunAttemptsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowLog>> ListLogsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowDefinition>> ListWorkflowDefinitionsAsync(CancellationToken cancellationToken);
     Task<WorkflowDefinition?> GetWorkflowDefinitionAsync(Guid definitionId, CancellationToken cancellationToken);

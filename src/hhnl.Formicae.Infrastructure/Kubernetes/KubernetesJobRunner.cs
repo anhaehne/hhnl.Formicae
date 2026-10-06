@@ -90,7 +90,7 @@ public sealed class KubernetesJobApi : IKubernetesJobApi, IDisposable
         => client.BatchV1.DeleteNamespacedJobAsync(
             name,
             namespaceName,
-            new V1DeleteOptions { PropagationPolicy = "Background" },
+            new V1DeleteOptions { PropagationPolicy = "Foreground" },
             cancellationToken: cancellationToken);
 
     public Task DeleteConfigMapAsync(string name, string namespaceName, CancellationToken cancellationToken)
@@ -169,21 +169,18 @@ public sealed class KubernetesJobRunner(
         if (IsComplete(current))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
-            await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
             return new RuntimeJobResult(true, jobName, logs, null);
         }
 
         if (IsFailed(current, out var failureReason))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, cancellationToken);
-            await DeleteIfConfiguredAsync(jobName, namespaceName, cancellationToken);
             return new RuntimeJobResult(false, jobName, logs, failureReason);
         }
 
         if (IsTimedOut(current, out var timeoutReason))
         {
             var logs = await ReadLogsAsync(jobName, namespaceName, CancellationToken.None);
-            await DeleteIfConfiguredAsync(jobName, namespaceName, CancellationToken.None);
             return new RuntimeJobResult(false, jobName, logs, timeoutReason);
         }
 
@@ -191,6 +188,29 @@ public sealed class KubernetesJobRunner(
     }
     public async Task<string> ReadJobLogsAsync(string jobName, CancellationToken cancellationToken)
         => await ReadLogsAsync(jobName, ResolveNamespace(), cancellationToken);
+
+    public async Task CancelJobAsync(string externalId, CancellationToken cancellationToken)
+    {
+        // Cancellation is independent of retention settings and idempotent after a restart.
+        try { await jobApi.DeleteJobAsync(externalId, ResolveNamespace(), cancellationToken); }
+        catch (Exception exception) when (IsNotFound(exception)) { }
+        var pods = await jobApi.ListPodsAsync(ResolveNamespace(), $"job-name={externalId}", cancellationToken);
+        if (pods.Any(pod => pod.Status?.Phase is not ("Succeeded" or "Failed")))
+            throw new InvalidOperationException("Worker pod termination is still in progress; cancellation will be checked again.");
+    }
+
+    public async Task AcknowledgeCompletionAsync(string externalId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var job = await jobApi.ReadJobStatusAsync(externalId, ResolveNamespace(), cancellationToken);
+            if (!IsComplete(job) && !IsFailed(job, out _) && IsTimedOut(job, out _))
+                await CancelJobAsync(externalId, cancellationToken);
+        }
+        catch (Exception exception) when (IsNotFound(exception)) { }
+        try { await DeleteIfConfiguredAsync(externalId, ResolveNamespace(), cancellationToken); }
+        catch (Exception exception) when (IsNotFound(exception)) { }
+    }
 
     private string ResolveNamespace()
         => string.IsNullOrWhiteSpace(options.Value.Namespace) ? "default" : options.Value.Namespace;
@@ -701,6 +721,7 @@ public sealed class KubernetesJobRunner(
     {
         var pods = await jobApi.ListPodsAsync(namespaceName, $"job-name={jobName}", cancellationToken);
         var builder = new StringBuilder();
+        if (pods.Count == 0) builder.AppendLine("[Runtime logs unavailable: no worker pod exists for this job.]");
         foreach (var pod in pods.OrderBy(pod => pod.Metadata.CreationTimestamp))
         {
             var podName = pod.Metadata.Name;
@@ -714,11 +735,7 @@ public sealed class KubernetesJobRunner(
             {
                 builder.AppendLine(await jobApi.ReadPodLogAsync(podName, namespaceName, ContainerName, cancellationToken));
             }
-            catch (KubernetesException exception)
-            {
-                AppendLogReadFailure(builder, exception);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (IsNotFound(exception) || IsPodStartingLogUnavailable(exception))
             {
                 AppendLogReadFailure(builder, exception);
             }

@@ -121,8 +121,15 @@ public sealed class EnvironmentPersistenceTests(MigrationPostgresFixture fixture
         var prepared = JsonSerializer.Serialize(new PreparedCustomTaskExecution("task", 1, "Task", new Dictionary<string, JsonElement>(), new Dictionary<string, JsonElement>(), 1800, "Prompt"));
         var run = new TaskRun { WorkflowId = workflow.Id, DefinitionStepId = "custom", Kind = TaskRunKind.Custom,
             Status = TaskRunStatus.Running, ExecutionAttemptId = Guid.NewGuid(), CustomTaskExecutionJson = prepared };
-        db.Workflows.Add(workflow); db.WorkflowDefinitions.Add(definition); db.WorkflowDefinitionVersions.Add(version);
-        await db.SaveChangesAsync();
+        // Seed only columns present in the historical schema; current EF mappings include later control fields.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO workflows ("Id", "IssueUrl", "RepositoryUrl", "BaseBranch", "Status", "CurrentStep", "CreatedAt", "UpdatedAt")
+            VALUES ({workflow.Id}, {workflow.IssueUrl}, {workflow.RepositoryUrl}, {workflow.BaseBranch}, 'Queued', 'None', {workflow.CreatedAt}, {workflow.UpdatedAt});
+            INSERT INTO workflow_definitions ("Id", "Name", "CreatedAt", "UpdatedAt")
+            VALUES ({definition.Id}, {definition.Name}, {definition.CreatedAt}, {definition.UpdatedAt});
+            INSERT INTO workflow_definition_versions ("Id", "WorkflowDefinitionId", "Version", "DslSchemaVersion", "IsEnabled", "IsDefault", "DefinitionJson", "CreatedAt")
+            VALUES ({version.Id}, {definition.Id}, {version.Version}, {version.DslSchemaVersion}, {version.IsEnabled}, {version.IsDefault}, {version.DefinitionJson}, {version.CreatedAt});
+            """);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO task_runs ("Id", "WorkflowId", "DefinitionStepId", "Kind", "Status", "ExecutionAttemptId", "CustomTaskExecutionJson", "CreatedAt", "UpdatedAt")
             VALUES ({run.Id}, {workflow.Id}, {run.DefinitionStepId}, 'Custom', 'Running', {run.ExecutionAttemptId}, {prepared}, {run.CreatedAt}, {run.UpdatedAt})

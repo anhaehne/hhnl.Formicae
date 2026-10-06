@@ -1,117 +1,32 @@
-using System.Text.Json;
-
 namespace hhnl.Formicae.Application.Workflows;
 
 public sealed record WorkerAgentMessageRequest(
-    Guid WorkflowId,
-    string TaskKind,
-    string ExternalId,
-    string Stream,
-    string Line,
-    DateTimeOffset Timestamp);
+    Guid WorkflowId, string TaskKind, string ExternalId, string Stream, string Line, DateTimeOffset Timestamp,
+    Guid? MessageId = null, Guid? ExecutionAttemptId = null, long? Sequence = null);
 
 public sealed class WorkerAgentMessageService(IWorkflowStore store)
 {
     public async Task<bool> RecordAsync(WorkerAgentMessageRequest request, CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, ignoreCase: true, out var taskKind)
-            || !Enum.IsDefined(taskKind) || string.IsNullOrWhiteSpace(request.ExternalId))
-        {
+        if (!Enum.TryParse<TaskRunKind>(request.TaskKind, true, out var kind) || !Enum.IsDefined(kind)
+            || string.IsNullOrWhiteSpace(request.ExternalId) || string.IsNullOrWhiteSpace(request.Line)
+            || request.Sequence is < 0 || request.MessageId == Guid.Empty || request.ExecutionAttemptId == Guid.Empty)
             return false;
-        }
-
-        var workflow = await store.GetWorkflowAsync(request.WorkflowId, cancellationToken);
-        if (workflow is null)
+        var source = request.Stream?.ToLowerInvariant();
+        if (source is not ("stdout" or "stderr" or "worker-error" or "worker" or "worker-checkpoint")) return false;
+        var run = (await store.ListTaskRunsAsync(request.WorkflowId, cancellationToken)).SingleOrDefault(item =>
+            item.Kind == kind && (string.Equals(item.ExternalId, request.ExternalId, StringComparison.Ordinal)
+                || (item.ExternalId is null && request.ExecutionAttemptId is { } attempt && item.ExecutionAttemptId == attempt)));
+        if (run is null) return false;
+        // The store rechecks identity under its append lock. Callbacks never own authoritative task output.
+        return await store.TryAddWorkerLogAsync(new WorkflowLog
         {
-            return false;
-        }
-
-        var run = (await store.ListTaskRunsAsync(request.WorkflowId, cancellationToken))
-            .SingleOrDefault(item => item.Kind == taskKind
-                && string.Equals(item.ExternalId, request.ExternalId, StringComparison.Ordinal));
-        if (run is null)
-        {
-            return false;
-        }
-
-        if (taskKind != TaskRunKind.Custom && TryNormalizeAgentOutputLine(request.Line, request.Timestamp, out var outputLine))
-        {
-            run.Output = string.IsNullOrWhiteSpace(run.Output)
-                ? outputLine
-                : run.Output.TrimEnd() + Environment.NewLine + outputLine;
-            run.UpdatedAt = request.Timestamp;
-            await store.UpsertTaskRunAsync(run, cancellationToken);
-        }
-
-        if (taskKind == TaskRunKind.Custom || string.Equals(request.Stream, "stderr", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(request.Stream, "worker-error", StringComparison.OrdinalIgnoreCase))
-        {
-            await store.AddLogAsync(new WorkflowLog
-            {
-                WorkflowId = request.WorkflowId,
-                TaskRunId = run.Id,
-                Level = string.Equals(request.Stream, "worker-error", StringComparison.OrdinalIgnoreCase) ? "Error"
-                    : string.Equals(request.Stream, "stderr", StringComparison.OrdinalIgnoreCase) ? "Warning" : "Information",
-                Message = taskKind == TaskRunKind.Custom && request.Line.Length > 16000 ? request.Line[..16000] + "\n[Message truncated]" : request.Line,
-                CreatedAt = request.Timestamp
-            }, cancellationToken);
-        }
-
-        return true;
-    }
-
-    private static bool TryNormalizeAgentOutputLine(string line, DateTimeOffset timestamp, out string outputLine)
-    {
-        outputLine = string.Empty;
-        if (!line.TrimStart().StartsWith('{'))
-        {
-            return false;
-        }
-
-        if (AgentMessageParser.Parse(line).Count > 0)
-        {
-            outputLine = line;
-            return true;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(line);
-            var root = document.RootElement;
-            if (!TryGetString(root, "type", out var eventType)
-                || !string.Equals(eventType, "item.completed", StringComparison.OrdinalIgnoreCase)
-                || !root.TryGetProperty("item", out var item)
-                || !TryGetString(item, "type", out var itemType)
-                || !string.Equals(itemType, "agent_message", StringComparison.OrdinalIgnoreCase)
-                || !TryGetString(item, "text", out var text)
-                || string.IsNullOrWhiteSpace(text))
-            {
-                return false;
-            }
-
-            outputLine = JsonSerializer.Serialize(new
-            {
-                type = "agent_message",
-                message = text,
-                timestamp
-            });
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static bool TryGetString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = property.GetString() ?? string.Empty;
-        return true;
+            WorkflowId = request.WorkflowId, TaskRunId = run.Id,
+            Id = request.MessageId ?? Guid.NewGuid(), ExecutionAttemptId = request.ExecutionAttemptId ?? run.ExecutionAttemptId,
+            ExternalId = request.ExternalId, Source = source, SourceSequence = request.Sequence,
+            Level = source == "worker-error" ? "Error" : source == "stderr" ? "Warning" : "Information",
+            Message = request.Line.Length > 16000 ? request.Line[..16000] + "\n[Message truncated]" : request.Line,
+            CreatedAt = request.Timestamp
+        }, request.ExternalId, request.ExecutionAttemptId, cancellationToken);
     }
 }

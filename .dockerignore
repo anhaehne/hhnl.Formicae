@@ -3,6 +3,8 @@
 **/node_modules/
 **/*.tsbuildinfo
 .git/
+.artifacts/
+test-results/
 .vs/
 .vscode/
 agent-os/specs/*/visuals/*

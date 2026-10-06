@@ -41,7 +41,8 @@ public enum TaskRunStatus
     Queued,
     Running,
     Succeeded,
-    Failed
+    Failed,
+    Canceled
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -53,6 +54,9 @@ public enum WorkflowTriggerType
 
 public sealed class Workflow
 {
+    public bool IsPaused { get; set; }
+    public DateTimeOffset? CancelRequestedAt { get; set; }
+    public DateTimeOffset? CancelCompletedAt { get; set; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string IssueUrl { get; init; }
     public required string RepositoryUrl { get; init; }
@@ -196,6 +200,8 @@ public sealed class WorkflowParallelExecution
 
 public sealed class TaskRun
 {
+    public bool RuntimeCleanupPending { get; set; }
+    public bool RuntimeLogsCaptured { get; set; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid WorkflowId { get; init; }
     public TaskRunKind Kind { get; init; }
@@ -263,6 +269,11 @@ public sealed class WorkflowTriggerEvent
 
 public sealed class WorkflowLog
 {
+    public long Sequence { get; set; }
+    public Guid? ExecutionAttemptId { get; init; }
+    public string Source { get; init; } = "system";
+    public long? SourceSequence { get; init; }
+    public string? ExternalId { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid WorkflowId { get; init; }
     public Guid? TaskRunId { get; init; }
@@ -410,7 +421,8 @@ public sealed record WorkflowSummaryResponse(
     DateTimeOffset UpdatedAt,
     string? PullRequestUrl,
     string? FailureReason,
-    string? CurrentDefinitionStepId = null);
+    string? CurrentDefinitionStepId = null,
+    bool IsPaused = false, DateTimeOffset? CancelRequestedAt = null, DateTimeOffset? CancelCompletedAt = null);
 
 public sealed record WorkflowEventResponse(
     Guid Id,
@@ -443,7 +455,8 @@ public sealed record TaskRunResponse(
     IReadOnlyList<AgentMessageResponse> AgentMessages,
     string DefinitionStepId,
     int? LoopIteration,
-    PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null);
+    PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null,
+    Guid? ExecutionAttemptId = null, int AttemptCount = 1);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,

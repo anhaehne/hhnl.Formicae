@@ -98,9 +98,12 @@ test("UI loads without page or console errors", async ({ page }) => {
     }
   });
 
+  const historyReady = page.waitForResponse(response => new URL(response.url()).pathname === "/api/workflows/search" && response.ok());
   await page.goto("/workflows");
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Management" })).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await historyReady;
+  await expect(page.getByRole("region", { name: "Workflow history" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Workflow", exact: true })).toBeEnabled();
 
   expect(errors).toEqual([]);
 });

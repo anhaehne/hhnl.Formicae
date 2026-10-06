@@ -456,6 +456,9 @@ public sealed class ManagementAuthApiTests
 
             builder.ConfigureTestServices(services =>
             {
+                // Authorization tests exercise endpoint permissions, independently of scheduler-lock timing.
+                foreach (var descriptor in services.Where(item => item.ImplementationType == typeof(hhnl.Formicae.Api.WorkflowBackgroundService)).ToArray())
+                    services.Remove(descriptor);
                 // Each host owns its identity data; parallel role seeding must not share the production fake database name.
                 services.ConfigureDbContext<FormicaeDbContext>(options => options.UseInMemoryDatabase(identityDatabaseName));
                 services
@@ -592,6 +595,5 @@ public sealed class ManagementAuthApiTests
         }
     }
 }
-
 
 

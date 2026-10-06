@@ -15,7 +15,7 @@ public static class WorkflowMapping
             workflow.UpdatedAt,
             workflow.PullRequestUrl,
             workflow.FailureReason,
-            workflow.CurrentDefinitionStepId);
+            workflow.CurrentDefinitionStepId, workflow.IsPaused, workflow.CancelRequestedAt, workflow.CancelCompletedAt);
 
     public static TaskRunResponse ToResponse(this TaskRun run)
         => new(
@@ -34,7 +34,8 @@ public static class WorkflowMapping
             run.DefinitionStepId,
             run.LoopIteration,
             ReadCustomExecution(run.CustomTaskExecutionJson),
-            run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson));
+            run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson),
+            run.ExecutionAttemptId);
 
     private static PreparedCustomTaskExecution? ReadCustomExecution(string? json)
     {

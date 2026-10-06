@@ -9,13 +9,21 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.19.0 execution operations
+
+Deploy matching 0.19.0 API and worker images with the 0.19.0 Helm chart. Startup applies the generated migration for durable log cursors, retry-attempt history and execution controls while preserving existing workflow evidence. Database backups and the normal rollout verification remain part of the deployment process.
+
+Finished worker jobs are acknowledged for deletion only after available runtime logs have been saved. Failed acknowledgment remains pending and is retried after restart. Cancellation terminates active jobs regardless of finished-job retention settings and remains pending while active pods are still present. Grant the existing namespace-scoped Job, Pod and Pod/log permissions to the API service account.
+
+Permit long-running authenticated SSE responses through the ingress and disable response buffering for `/api/workflows/*/logs/stream`. Logs are stored in PostgreSQL rather than relying on pod retention. See [workflow execution operations](workflow-execution-operations.md) for investigation, controls and evidence limits.
+
 ## 0.8.1 upgrade from 0.7.4 or 0.7.5
 
 Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migration. Before creating the loop-aware task-run index, startup maps legacy task kinds to step IDs in each workflow's pinned, immutable definition version. Workflows without a pinned version use the canonical MVP step IDs. Existing runs remain non-loop executions (`LoopIteration = null`); run IDs, retry state, outputs, timestamps, logs, and events are preserved. The current workflow step is backfilled as well.
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.18.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.19.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 

@@ -48,6 +48,9 @@ public sealed partial class KubernetesWorkflowE2ETests
                 Assert.Contains(job.Status.Conditions, condition => condition.Type == "Failed" && condition.Reason == "DeadlineExceeded");
                 var result = await runtime.TryGetJobResultAsync(name, timeout.Token);
                 Assert.NotNull(result); Assert.False(result.Succeeded); Assert.Contains("deadline", result.FailureReason!, StringComparison.OrdinalIgnoreCase);
+                // Reading a result must retain runtime evidence until the orchestrator has saved it.
+                Assert.NotNull(await api.ReadJobStatusAsync(name, ns, timeout.Token));
+                await runtime.AcknowledgeCompletionAsync(name, timeout.Token);
                 while (true)
                 {
                     try { await api.ReadJobStatusAsync(name, ns, timeout.Token); }

@@ -126,7 +126,7 @@ public sealed class ContainerJobRuntime(
             if (IsTimedOut(externalId, state, out var timeoutReason))
             {
                 var timeoutLogs = await ReadJobLogsAsync(externalId, CancellationToken.None);
-                await RemoveIfConfiguredAsync(externalId, force: true, CancellationToken.None);
+                await CancelJobAsync(externalId, CancellationToken.None);
                 return new RuntimeJobResult(false, externalId, timeoutLogs, timeoutReason);
             }
 
@@ -134,7 +134,6 @@ public sealed class ContainerJobRuntime(
         }
 
         var logs = await ReadJobLogsAsync(externalId, cancellationToken);
-        await RemoveIfConfiguredAsync(externalId, force: false, cancellationToken);
         return state.ExitCode == 0
             ? new RuntimeJobResult(true, externalId, logs, null)
             : new RuntimeJobResult(false, externalId, logs, $"Container '{externalId}' exited with code {state.ExitCode}.");
@@ -143,8 +142,19 @@ public sealed class ContainerJobRuntime(
     public async Task<string> ReadJobLogsAsync(string externalId, CancellationToken cancellationToken)
     {
         var result = await cli.RunAsync(Executable(), ["logs", externalId], cancellationToken);
-        return result.ExitCode == 0 ? result.StandardOutput : result.StandardError;
+        return result.ExitCode == 0 ? string.Join("\n", new[] { result.StandardOutput, result.StandardError }.Where(value => !string.IsNullOrWhiteSpace(value))) : result.StandardError.Contains("No such", StringComparison.OrdinalIgnoreCase) ? "[Runtime logs unavailable: worker no longer exists.]" : throw new InvalidOperationException($"Container log read failed: {result.StandardError}");
     }
+
+    public async Task CancelJobAsync(string externalId, CancellationToken cancellationToken)
+    {
+        if (await TryInspectStateAsync(externalId, cancellationToken) is not { Running: true }) return;
+        var result = await cli.RunAsync(Executable(), ["stop", "--time", "10", externalId], cancellationToken);
+        if (result.ExitCode != 0 && !result.StandardError.Contains("No such", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Container cancellation failed: {result.StandardError}");
+    }
+
+    public Task AcknowledgeCompletionAsync(string externalId, CancellationToken cancellationToken)
+        => RemoveIfConfiguredAsync(externalId, force: false, cancellationToken);
 
     private IReadOnlyList<string> BuildRunArguments(RuntimeJobSpec spec)
     {
@@ -274,7 +284,9 @@ public sealed class ContainerJobRuntime(
         }
 
         IReadOnlyList<string> arguments = force ? ["rm", "--force", externalId] : ["rm", externalId];
-        await cli.RunAsync(Executable(), arguments, cancellationToken);
+        var result = await cli.RunAsync(Executable(), arguments, cancellationToken);
+        if (result.ExitCode != 0 && !result.StandardError.Contains("No such", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Container cleanup failed: {result.StandardError}");
     }
 
     private void StartCompletionSignalWatcher(string externalId)
@@ -316,7 +328,10 @@ public sealed class ContainerJobRuntime(
     private async Task<ContainerState?> TryInspectStateAsync(string externalId, CancellationToken cancellationToken)
     {
         var inspect = await cli.RunAsync(Executable(), ["inspect", externalId], cancellationToken);
-        return inspect.ExitCode == 0 ? ParseState(inspect.StandardOutput) : null;
+        if (inspect.ExitCode == 0) return ParseState(inspect.StandardOutput);
+        if (inspect.StandardError.Contains("No such", StringComparison.OrdinalIgnoreCase)
+            || inspect.StandardError.Contains("not found", StringComparison.OrdinalIgnoreCase)) return null;
+        throw new InvalidOperationException($"Container status read failed: {inspect.StandardError}");
     }
 
     private string Executable()

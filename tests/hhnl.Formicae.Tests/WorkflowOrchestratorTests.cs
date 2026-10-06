@@ -1920,7 +1920,7 @@ public sealed class WorkflowOrchestratorTests
 public sealed class WorkerAgentMessageServiceTests
 {
     [Fact]
-    public async Task RecordAsync_Appends_agent_json_lines_to_running_task_output()
+    public async Task RecordAsync_Persists_agent_json_without_replacing_authoritative_task_output()
     {
         var store = new InMemoryWorkflowStore();
         var workflow = await store.CreateWorkflowAsync(new Workflow
@@ -1950,8 +1950,10 @@ public sealed class WorkerAgentMessageServiceTests
 
         Assert.True(recorded);
         Assert.NotNull(run);
-        Assert.Contains("Planning now", run.Output);
-        Assert.Equal(timestamp, run.UpdatedAt);
+        Assert.Null(run.Output);
+        var log = Assert.Single(await store.ListLogsAsync(workflow.Id, CancellationToken.None));
+        Assert.Contains("Planning now", log.Message);
+        Assert.Equal(timestamp, log.CreatedAt);
     }
 
     [Fact]
@@ -2806,6 +2808,8 @@ public sealed class AdapterContractTests
         var container = Assert.Single(api.CreatedJob.Spec.Template.Spec.Containers);
         Assert.Contains(container.VolumeMounts, mount => mount.Name == "formicae-context" && mount.MountPath == "/workspace/formicae/context" && mount.ReadOnlyProperty == true);
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Name == "formicae-context" && volume.ConfigMap.Name == "formicae-address-comments-context");
+        Assert.Empty(api.DeletedJobs);
+        await runner.AcknowledgeCompletionAsync(start.ExternalId, CancellationToken.None);
         Assert.Collection(api.DeletedJobs, name => Assert.Equal("formicae-address-comments", name));
         Assert.Collection(api.DeletedConfigMaps, name => Assert.Equal("formicae-address-comments-context", name));
     }
@@ -3045,6 +3049,7 @@ public sealed class AdapterContractTests
     {
         var cli = new CapturingContainerCli { Logs = "running output" };
         cli.InspectResults.Enqueue(ContainerInspectJson(running: true, exitCode: 0, DateTimeOffset.UtcNow.AddSeconds(-60)));
+        cli.InspectResults.Enqueue(ContainerInspectJson(running: true, exitCode: 0, DateTimeOffset.UtcNow.AddSeconds(-60)));
         var runtime = new ContainerJobRuntime(cli, Options.Create(new ContainerRuntimeOptions
         {
             TimeoutSeconds = 1,
@@ -3057,7 +3062,9 @@ public sealed class AdapterContractTests
         Assert.False(result.Succeeded);
         Assert.Equal("running output", result.Logs);
         Assert.Contains("timed out after 1 seconds", result.FailureReason);
-        Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "--force", "formicae-plan-timeout"]));
+        Assert.DoesNotContain(cli.Calls, call => call.Arguments.FirstOrDefault() == "rm");
+        await runtime.AcknowledgeCompletionAsync("formicae-plan-timeout", CancellationToken.None);
+        Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "formicae-plan-timeout"]));
     }
 
     [Fact]
@@ -3101,6 +3108,8 @@ public sealed class AdapterContractTests
 
         await runtime.TryGetJobResultAsync("formicae-plan-test", CancellationToken.None);
 
+        Assert.DoesNotContain(cli.Calls, call => call.Arguments.FirstOrDefault() == "rm");
+        await runtime.AcknowledgeCompletionAsync("formicae-plan-test", CancellationToken.None);
         Assert.Contains(cli.Calls, call => call.Arguments.SequenceEqual(["rm", "formicae-plan-test"]));
     }
 

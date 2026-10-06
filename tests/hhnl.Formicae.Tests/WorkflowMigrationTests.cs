@@ -179,9 +179,9 @@ public sealed class WorkflowMigrationTests(MigrationPostgresFixture fixture) : I
     private static Task<string> HistoryAsync(FormicaeDbContext db)
         => db.Database.SqlQueryRaw<string>("""
             SELECT jsonb_build_object(
-                'runs', (SELECT jsonb_agg(to_jsonb(r) - 'DefinitionStepId' - 'LoopIteration' - 'ExecutionAttemptId' - 'CustomTaskExecutionJson' - 'StructuredOutputsJson' ORDER BY "Id") FROM task_runs r),
-                'workflows', (SELECT jsonb_agg(to_jsonb(w) - 'CurrentDefinitionStepId' ORDER BY "Id") FROM workflows w),
-                'logs', (SELECT jsonb_agg(to_jsonb(l) ORDER BY "Id") FROM workflow_logs l),
+                'runs', (SELECT jsonb_agg(to_jsonb(r) - 'DefinitionStepId' - 'LoopIteration' - 'ExecutionAttemptId' - 'CustomTaskExecutionJson' - 'StructuredOutputsJson' - 'RuntimeCleanupPending' - 'RuntimeLogsCaptured' ORDER BY "Id") FROM task_runs r),
+                'workflows', (SELECT jsonb_agg(to_jsonb(w) - 'CurrentDefinitionStepId' - 'IsPaused' - 'CancelRequestedAt' - 'CancelCompletedAt' ORDER BY "Id") FROM workflows w),
+                'logs', (SELECT jsonb_agg(to_jsonb(l) - 'Sequence' - 'Source' - 'SourceSequence' - 'ExecutionAttemptId' - 'ExternalId' ORDER BY "Id") FROM workflow_logs l),
                 'events', (SELECT jsonb_agg(to_jsonb(e) ORDER BY "Id") FROM workflow_events e)
             )::text AS "Value"
             """).SingleAsync();

@@ -3,9 +3,10 @@ using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 
 var environment = WorkerEnvironment.Load();
-using var reporter = new WorkerReporter(environment.CallbackUrl, environment.CallbackSecret, environment.WorkflowId, environment.TaskKind, environment.ExternalId);
+using var reporter = new WorkerReporter(environment.CallbackUrl, environment.CallbackSecret, environment.WorkflowId, environment.TaskKind, environment.ExternalId, environment.ExecutionAttemptId);
 using var shutdown = new CancellationTokenSource();
 using var sigterm = OperatingSystem.IsLinux()
     ? PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
@@ -29,9 +30,13 @@ try
 }
 catch (Exception exception)
 {
-    Console.Error.WriteLine(exception);
     await reporter.ReportAsync("worker-error", exception.ToString());
     return 1;
+}
+
+finally
+{
+    await reporter.FlushAsync();
 }
 
 internal sealed record WorkerEnvironment(
@@ -53,7 +58,8 @@ internal sealed record WorkerEnvironment(
     bool RequiresNestedContainers,
     int? JobTimeoutSeconds,
     int CheckpointGraceSeconds,
-    bool EnvironmentTimeoutLimit = false)
+    bool EnvironmentTimeoutLimit = false,
+    Guid? ExecutionAttemptId = null)
 {
     public static WorkerEnvironment Load()
     {
@@ -77,7 +83,8 @@ internal sealed record WorkerEnvironment(
             IsTrue("FORMICAE_REQUIRES_NESTED_CONTAINERS"),
             OptionalPositiveInt("FORMICAE_JOB_TIMEOUT_SECONDS"),
             OptionalNonNegativeInt("FORMICAE_CHECKPOINT_GRACE_SECONDS"),
-            IsTrue("FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"));
+            IsTrue("FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"),
+            Guid.TryParse(Optional("FORMICAE_EXECUTION_ATTEMPT_ID"), out var attempt) ? attempt : null);
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
@@ -320,7 +327,6 @@ internal static class WorkerCommand
             checkpoint.Changed,
             checkpoint.ExitCode == 0,
             checkpointReason), JsonSerializerOptions.Web);
-        Console.WriteLine(marker);
         await reporter.ReportAsync("worker-checkpoint", marker, CancellationToken.None);
         return CheckpointExitCode;
     }
@@ -679,17 +685,8 @@ internal static class WorkerCommand
     {
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
-            var sanitized = Redact(line, redact);
+            var sanitized = reporter.Sanitize(Redact(line, redact));
             observer?.Invoke(sanitized);
-            if (stream == "stderr")
-            {
-                Console.Error.WriteLine(sanitized);
-            }
-            else
-            {
-                Console.WriteLine(sanitized);
-            }
-
             await reporter.ReportAsync(stream, sanitized, cancellationToken);
         }
     }
@@ -777,33 +774,141 @@ internal static class CodexWorkspace
     }
 }
 
-internal sealed class WorkerReporter(Uri? callbackUrl, string? callbackSecret, Guid workflowId, string taskKind, string externalId) : IDisposable
+internal sealed class WorkerReporter : IDisposable
 {
-    private readonly HttpClient http = new();
+    private readonly Uri? callbackUrl;
+    private readonly string? callbackSecret;
+    private readonly Guid workflowId;
+    private readonly string taskKind;
+    private readonly string externalId;
+    private readonly Guid? attemptId;
+    private readonly HttpClient http;
+    private readonly TextWriter? runtimeWriter;
+    private readonly string[] secrets;
+    private readonly Channel<WorkerAgentMessage> pending;
+    private readonly CancellationTokenSource shutdown = new();
+    private readonly Task delivery;
+    private long sequence;
+    private long dropped;
+    private bool disposed;
+    private static readonly JsonSerializerOptions JsonOptions = JsonSerializerOptions.Web;
 
-    public async Task ReportAsync(string stream, string line, CancellationToken cancellationToken = default)
+    public WorkerReporter(Uri? callbackUrl, string? callbackSecret, Guid workflowId, string taskKind, string externalId,
+        Guid? attemptId = null, HttpMessageHandler? handler = null, int capacity = 512, IEnumerable<string>? knownSecrets = null, TextWriter? runtimeWriter = null)
     {
-        if (callbackUrl is null || string.IsNullOrWhiteSpace(line))
-        {
-            return;
-        }
+        this.runtimeWriter = runtimeWriter;
+        this.callbackUrl = callbackUrl; this.callbackSecret = callbackSecret; this.workflowId = workflowId;
+        this.taskKind = taskKind; this.externalId = externalId; this.attemptId = attemptId;
+        http = handler is null ? new HttpClient() : new HttpClient(handler);
+        http.Timeout = TimeSpan.FromSeconds(3);
+        secrets = (knownSecrets ?? LoadKnownSecrets()).Append(callbackSecret ?? "")
+            .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().OrderByDescending(value => value.Length).ToArray();
+        pending = Channel.CreateBounded<WorkerAgentMessage>(new BoundedChannelOptions(Math.Max(1, capacity))
+        { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        delivery = DeliverAsync(shutdown.Token);
+    }
 
+    public string Sanitize(string text)
+    {
+        foreach (var secret in secrets) text = text.Replace(secret, "***", StringComparison.Ordinal);
+        return text;
+    }
+
+    private static IEnumerable<string> LoadKnownSecrets()
+    {
+        var values = new List<string>();
+        foreach (var name in new[] { "FORMICAE_GIT_ACCESS_TOKEN", "FORMICAE_WORKER_CALLBACK_SECRET", "LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY" })
+            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value) values.Add(value);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, callbackUrl)
+            var directory = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_MOUNT_PATH") ?? "/root/.codex";
+            var file = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_FILE_NAME") ?? "auth.json";
+            if (File.Exists(Path.Combine(directory, file)))
             {
-                Content = JsonContent.Create(new WorkerAgentMessage(workflowId, taskKind, externalId, stream, line, DateTimeOffset.UtcNow), options: JsonSerializerOptions.Web)
-            };
-            if (!string.IsNullOrWhiteSpace(callbackSecret))
-            {
-                request.Headers.Add("X-Formicae-Worker-Callback-Secret", callbackSecret);
+                using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, file)));
+                void Visit(JsonElement element, string name = "")
+                {
+                    if (element.ValueKind == JsonValueKind.Object)
+                        foreach (var property in element.EnumerateObject()) Visit(property.Value, property.Name);
+                    else if (element.ValueKind == JsonValueKind.String && (name.Contains("token", StringComparison.OrdinalIgnoreCase) || name.Contains("key", StringComparison.OrdinalIgnoreCase)))
+                        if (element.GetString() is { Length: > 0 } secret) values.Add(secret);
+                }
+                Visit(json.RootElement);
             }
-
-            await http.SendAsync(request, cancellationToken);
         }
-        catch
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException) { }
+        return values;
+    }
+
+    public Task ReportAsync(string stream, string line, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return Task.CompletedTask;
+        var sanitized = Sanitize(line);
+        // Keep complete supported agent final responses in runtime evidence; callbacks remain small.
+        if (sanitized.Length > 1048576) sanitized = sanitized[..1048576] + "\n[Message truncated: runtime line limit exceeded]";
+        var message = new WorkerAgentMessage(workflowId, taskKind, externalId, stream, sanitized,
+            DateTimeOffset.UtcNow, Guid.NewGuid(), attemptId, Interlocked.Increment(ref sequence));
+        WriteRuntime(message);
+        if (message.Line.Length > 16000) message = message with { Line = message.Line[..16000] + "\n[Message truncated; full text retained in runtime logs]" };
+        if (callbackUrl is not null && !pending.Writer.TryWrite(message))
         {
-            // Kubernetes logs remain the durable fallback if the live callback is temporarily unavailable.
+            if (Interlocked.Increment(ref dropped) == 1)
+                WriteRuntime(new WorkerAgentMessage(workflowId, taskKind, externalId, "worker-error",
+                    "[Live log delivery gap: callback queue is full; runtime logs retain the omitted messages.]",
+                    DateTimeOffset.UtcNow, Guid.NewGuid(), attemptId, Interlocked.Increment(ref sequence)));
+        }
+        return Task.CompletedTask;
+    }
+
+    private void WriteRuntime(WorkerAgentMessage message)
+    {
+        var envelope = JsonSerializer.Serialize(new { formicaeLog = 1, data = message }, JsonOptions);
+        if (runtimeWriter is not null) { lock (runtimeWriter) runtimeWriter.WriteLine(envelope); }
+        else if (message.Stream is "stderr" or "worker-error") Console.Error.WriteLine(envelope);
+        else Console.WriteLine(envelope);
+    }
+
+    private async Task DeliverAsync(CancellationToken token)
+    {
+        try
+        {
+            await foreach (var message in pending.Reader.ReadAllAsync(token))
+            {
+                var delivered = false;
+                for (var retry = 0; retry < 3 && !delivered; retry++)
+                {
+                    try
+                    {
+                        using var request = new HttpRequestMessage(HttpMethod.Post, callbackUrl)
+                        { Content = JsonContent.Create(message, options: JsonOptions) };
+                        if (!string.IsNullOrWhiteSpace(callbackSecret)) request.Headers.Add("X-Formicae-Worker-Callback-Secret", callbackSecret);
+                        using var response = await http.SendAsync(request, token);
+                        delivered = response.IsSuccessStatusCode;
+                        if (!delivered && (int)response.StatusCode is not (408 or 409 or 429 or >= 500)) break;
+                    }
+                    catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException && !token.IsCancellationRequested) { }
+                    if (!delivered && retry < 2) await Task.Delay(TimeSpan.FromMilliseconds(100 * (retry + 1)), token);
+                }
+                if (!delivered)
+                    WriteRuntime(new WorkerAgentMessage(workflowId, taskKind, externalId, "worker-error",
+                        "[Live log delivery gap: callback failed; runtime logs retain message " + message.MessageId + ".]",
+                        DateTimeOffset.UtcNow, Guid.NewGuid(), attemptId, Interlocked.Increment(ref sequence)));
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    public async Task FlushAsync()
+    {
+        pending.Writer.TryComplete();
+        try { await delivery.WaitAsync(TimeSpan.FromSeconds(8)); }
+        catch (TimeoutException)
+        {
+            WriteRuntime(new WorkerAgentMessage(workflowId, taskKind, externalId, "worker-error",
+                "[Live log delivery gap: shutdown flush timed out; remaining output is retained in runtime logs.]",
+                DateTimeOffset.UtcNow, Guid.NewGuid(), attemptId, Interlocked.Increment(ref sequence)));
+            shutdown.Cancel();
+            await delivery;
         }
     }
 
@@ -834,8 +939,12 @@ internal sealed class WorkerReporter(Uri? callbackUrl, string? callbackSecret, G
         }
     }
 
-    public void Dispose() => http.Dispose();
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true; pending.Writer.TryComplete(); shutdown.Cancel(); http.Dispose();
+    }
 }
 
-internal sealed record WorkerAgentMessage(Guid WorkflowId, string TaskKind, string ExternalId, string Stream, string Line, DateTimeOffset Timestamp);
+internal sealed record WorkerAgentMessage(Guid WorkflowId, string TaskKind, string ExternalId, string Stream, string Line, DateTimeOffset Timestamp, Guid? MessageId = null, Guid? ExecutionAttemptId = null, long? Sequence = null);
 internal sealed record WorkerAgentAuthRefresh(Guid WorkflowId, string TaskKind, string ExternalId, string AiSettingsId, string CodexAuthJson);

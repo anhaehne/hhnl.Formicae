@@ -418,8 +418,9 @@ test("workflow decision history shows both outcomes and recorded input", async (
   const workflow = { workflowId: id, issueUrl: "https://example.com/issues/1", repositoryUrl: "https://example.com/repo", status: "Completed", currentStep: "Done", createdAt: "2026-09-06T10:00:00Z", updatedAt: "2026-09-06T10:01:00Z" };
   await page.route("**/api/workflows**", route => {
     const path = new URL(route.request().url()).pathname;
-    const json = path.endsWith("/decisions") ? [true, false].map((booleanResult, index) => ({ id: `outcome-${index}`, workflowId: id, nodeId: `decision-${index}`, booleanResult, configuredTargetId: `route-${index}`, selectedTargetId: `route-${index}`, evaluatedAt: "2026-09-06T10:00:30Z", inputJson: JSON.stringify({ source: "workflowField", reference: "baseBranch", valueType: "string", value: "main" }), sourceTaskRunId: null }))
-      : path === "/api/workflows" ? [workflow] : path === `/api/workflows/${id}` ? workflow : [];
+    const decisions = [true, false].map((booleanResult, index) => ({ id: `outcome-${index}`, workflowId: id, nodeId: `decision-${index}`, booleanResult, configuredTargetId: `route-${index}`, selectedTargetId: `route-${index}`, evaluatedAt: "2026-09-06T10:00:30Z", inputJson: JSON.stringify({ source: "workflowField", reference: "baseBranch", valueType: "string", value: "main" }), sourceTaskRunId: null }));
+    if (path.endsWith("/logs/stream")) return route.fulfill({contentType: "text/event-stream",body:"retry: 60000\n\n"});
+    const json = path.endsWith("/execution") ? { workflow, definitionVersionId: "pinned", definition: null, runs: [], attempts: [], loops: [], decisions, control: { isPaused: false, canPause: false, canResume: false, canCancel: false } } : path.endsWith("/logs/page") ? {items:[],nextCursor:0,previousCursor:0,hasEarlier:false,hasMore:false} : path.endsWith("/search") ? {items:[workflow],totalCount:1,offset:0,limit:25} : path === "/api/workflows" ? [workflow] : [];
     return route.fulfill({ json });
   });
   await page.goto("/workflows");
@@ -427,8 +428,8 @@ test("workflow decision history shows both outcomes and recorded input", async (
   await expect(history.getByText("Decision decision-0", { exact: true })).toBeVisible();
   await expect(history.getByText("True", { exact: true })).toBeVisible();
   await expect(history.getByText("False", { exact: true })).toBeVisible();
-  await expect(history.getByText("route-1", { exact: true })).toBeVisible();
-  await history.getByRole("button", { name: "Expand Evaluated input", exact: true }).first().click();
+  await expect(history.getByText("Selected route: route-1", { exact: true })).toBeVisible();
+  await history.getByText("Evaluated input", { exact: true }).first().click();
   await expect(history.locator("pre").first()).toContainText('"value": "main"');
   await page.screenshot({ path: testInfo.outputPath("decision-history.png"), fullPage: true });
 });

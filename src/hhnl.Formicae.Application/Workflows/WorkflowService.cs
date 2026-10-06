@@ -127,6 +127,10 @@ public sealed class WorkflowService
         {
             throw new InvalidOperationException("Only failed task runs can be retried.");
         }
+        if (workflow.CancelRequestedAt is not null || workflow.CancelCompletedAt is not null || workflow.Status == WorkflowStatus.Canceled)
+            throw new InvalidOperationException("Canceled workflows cannot be retried.");
+        if (run.RuntimeCleanupPending)
+            throw new InvalidOperationException("The previous worker is awaiting cleanup. Retry after cleanup completes.");
 
         var parallel = await GetCurrentParallelExecutionAsync(workflow, cancellationToken);
         if (parallel is not null && !parallel.Value.StepIds.Contains(run.DefinitionStepId))
@@ -143,6 +147,9 @@ public sealed class WorkflowService
         var retryState = GetRetryWorkflowState(run.Kind);
         var now = clock.UtcNow;
 
+        await store.ArchiveTaskRunAttemptAsync(run, cancellationToken);
+        run.RuntimeLogsCaptured = false;
+        run.RuntimeCleanupPending = false;
         run.Status = TaskRunStatus.Queued;
         run.ExternalId = null;
         run.ExecutionAttemptId = Guid.NewGuid();
@@ -177,7 +184,9 @@ public sealed class WorkflowService
             DetailsJson = JsonSerializer.Serialize(new
             {
                 taskRunId = run.Id,
-                taskKind = run.Kind.ToString()
+                taskKind = run.Kind.ToString(),
+                executionAttemptId = run.ExecutionAttemptId,
+                externalId = run.ExternalId
             }),
             CreatedAt = now
         }, cancellationToken);
@@ -185,6 +194,8 @@ public sealed class WorkflowService
         {
             WorkflowId = workflow.Id,
             TaskRunId = run.Id,
+            ExecutionAttemptId = run.ExecutionAttemptId,
+            ExternalId = run.ExternalId,
             Message = message,
             CreatedAt = now
         }, cancellationToken);
@@ -200,12 +211,17 @@ public sealed class WorkflowService
             return null;
         }
 
+        if (workflow.CancelRequestedAt is not null || workflow.CancelCompletedAt is not null || workflow.Status == WorkflowStatus.Canceled)
+            throw new InvalidOperationException("Canceled workflows cannot be retried.");
+
         if (workflow.Status != WorkflowStatus.Failed)
         {
             throw new InvalidOperationException("Only failed workflows can be retried.");
         }
 
         var runs = await store.ListTaskRunsAsync(workflowId, cancellationToken);
+        if (runs.Any(run => run.RuntimeCleanupPending || run.Status == TaskRunStatus.Running))
+            throw new InvalidOperationException("Previous workers are awaiting cleanup. Retry after cleanup completes.");
         var parallel = await GetCurrentParallelExecutionAsync(workflow, cancellationToken);
         if (parallel is not null)
         {

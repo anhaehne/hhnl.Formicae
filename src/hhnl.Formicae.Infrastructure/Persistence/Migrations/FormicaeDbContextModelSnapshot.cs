@@ -534,6 +534,12 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<string>("Output")
                         .HasColumnType("text");
 
+                    b.Property<bool>("RuntimeCleanupPending")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("RuntimeLogsCaptured")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -562,6 +568,72 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.ToTable("task_runs", (string)null);
                 });
 
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.TaskRunAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomTaskExecutionJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DefinitionStepId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ExecutionAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("LoopIteration")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Output")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("StructuredOutputsJson")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TaskRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskRunId", "ExecutionAttemptId")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowId", "TaskRunId", "AttemptNumber");
+
+                    b.ToTable("task_run_attempts", (string)null);
+                });
+
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.Workflow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -574,6 +646,12 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("BranchName")
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CancelCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CancelRequestedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -590,6 +668,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("FailureReason")
                         .HasColumnType("text");
+
+                    b.Property<bool>("IsPaused")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("IssueUrl")
                         .IsRequired()
@@ -783,6 +864,12 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ExecutionAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalId")
+                        .HasColumnType("text");
+
                     b.Property<string>("Level")
                         .IsRequired()
                         .HasColumnType("text");
@@ -790,6 +877,21 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Sequence"));
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("system");
+
+                    b.Property<long?>("SourceSequence")
+                        .HasColumnType("bigint");
 
                     b.Property<Guid?>("TaskRunId")
                         .HasColumnType("uuid");
@@ -800,6 +902,12 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("WorkflowId");
+
+                    b.HasIndex("WorkflowId", "Sequence")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowId", "ExecutionAttemptId", "Source", "SourceSequence")
+                        .IsUnique();
 
                     b.ToTable("workflow_logs", (string)null);
                 });
@@ -1074,6 +1182,15 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("DevOpsIntegration");
+                });
+
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.TaskRunAttempt", b =>
+                {
+                    b.HasOne("hhnl.Formicae.Application.Workflows.Workflow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowDecisionExecution", b =>

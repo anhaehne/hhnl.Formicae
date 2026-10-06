@@ -78,10 +78,74 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
     {
         var result = await jobRuntime.TryGetJobResultAsync(externalId, cancellationToken);
         if (result is null) return null;
-        var finalResponse = result.Succeeded ? ExtractFinalResponse(result.Logs, externalId.StartsWith("formicae-custom-", StringComparison.Ordinal)) : null;
-        var output = finalResponse ?? result.Logs;
-        var failureReason = result.Succeeded ? null : ExtractCheckpointFailure(result.Logs) ?? result.FailureReason;
+        var rawLogs = UnwrapRuntimeLogs(result.Logs);
+        var finalResponse = result.Succeeded ? ExtractFinalResponse(rawLogs, externalId.StartsWith("formicae-custom-", StringComparison.Ordinal)) : null;
+        var output = finalResponse ?? rawLogs;
+        var failureReason = result.Succeeded ? null : ExtractCheckpointFailure(rawLogs) ?? result.FailureReason;
         return new AgentRunResult(result.Succeeded, result.ExternalId, output, failureReason, OutputIsFinalResponse: finalResponse is not null);
+    }
+
+    public async Task<IReadOnlyList<AgentRuntimeLog>> ReadLogsAsync(string externalId, CancellationToken cancellationToken)
+    {
+        var logs = await jobRuntime.ReadJobLogsAsync(externalId, cancellationToken);
+        var result = new List<AgentRuntimeLog>();
+        var lineNumber = 0;
+        foreach (var line in logs.Split('\n'))
+        {
+            lineNumber++;
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (TryReadRuntimeLog(line, out var recovered))
+            {
+                for (var offset = 0; offset < recovered!.Message.Length; offset += 16000)
+                {
+                    var chunk = recovered.Message.Substring(offset, Math.Min(16000, recovered.Message.Length - offset));
+                    var id = offset == 0 ? recovered.MessageId : new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{recovered.MessageId}:{offset}")).AsSpan(0, 16));
+                    result.Add(recovered with { Message = chunk, MessageId = id, SourceSequence = offset == 0 ? recovered.SourceSequence : null });
+                }
+                continue;
+            }
+            // Legacy workers have no identities or stream metadata. Preserve that distinction explicitly.
+            for (var offset = 0; offset < line.Length; offset += 16000)
+            {
+                var chunk = line.Substring(offset, Math.Min(16000, line.Length - offset));
+                var identity = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{externalId}:{lineNumber}:{offset}:{chunk}"));
+                result.Add(new AgentRuntimeLog("runtime", chunk, DateTimeOffset.UtcNow, new Guid(identity.AsSpan(0, 16))));
+            }
+        }
+        return result;
+    }
+
+    public Task CancelAsync(string externalId, CancellationToken cancellationToken)
+        => jobRuntime.CancelJobAsync(externalId, cancellationToken);
+
+    public Task AcknowledgeCompletionAsync(string externalId, CancellationToken cancellationToken)
+        => jobRuntime.AcknowledgeCompletionAsync(externalId, cancellationToken);
+
+    public string? ResolveExternalId(Guid workflowId, TaskRunKind kind, Guid? attemptId)
+        => attemptId is null ? null : BuildJobName(new AgentTask(workflowId, kind, "", "", "", null, ExecutionAttemptId: attemptId));
+
+    internal static string UnwrapRuntimeLogs(string logs)
+        => string.Join('\n', logs.Split('\n').Select(line => TryReadRuntimeLog(line, out var entry) ? entry!.Message : line));
+
+    private static bool TryReadRuntimeLog(string line, out AgentRuntimeLog? entry)
+    {
+        entry = null;
+        try
+        {
+            using var json = JsonDocument.Parse(line);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("formicaeLog", out var marker)
+                || marker.ValueKind != JsonValueKind.Number || !marker.TryGetInt32(out var version) || version != 1
+                || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("line", out var message) || message.ValueKind != JsonValueKind.String
+                || !data.TryGetProperty("stream", out var source) || source.ValueKind != JsonValueKind.String
+                || !data.TryGetProperty("messageId", out var id) || id.ValueKind != JsonValueKind.String || !id.TryGetGuid(out var messageId)
+                || !data.TryGetProperty("timestamp", out var time) || time.ValueKind != JsonValueKind.String || !time.TryGetDateTimeOffset(out var timestamp)) return false;
+            long? sequence = data.TryGetProperty("sequence", out var seq) && seq.ValueKind == JsonValueKind.Number && seq.TryGetInt64(out var value) ? value : null;
+            entry = new AgentRuntimeLog(source.GetString()!, message.GetString()!, timestamp, messageId, sequence);
+            return true;
+        }
+        catch (JsonException) { return false; }
     }
 
     private RuntimeJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
@@ -156,6 +220,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     internal static string? ExtractFinalResponse(string logs, bool includeOpenHands = true)
     {
+        logs = UnwrapRuntimeLogs(logs);
         string? lastMessage = null;
         string? terminalResponse = null;
         var hasTerminalResponse = false;
@@ -298,6 +363,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
             ["FORMICAE_CONTEXT_PATH"] = "/workspace/formicae/context"
         };
 
+        if (task.ExecutionAttemptId is { } attemptId) environment["FORMICAE_EXECUTION_ATTEMPT_ID"] = attemptId.ToString("D");
         if (!string.IsNullOrWhiteSpace(gitAccessToken)) environment["FORMICAE_GIT_ACCESS_TOKEN"] = gitAccessToken;
         if (!string.IsNullOrWhiteSpace(options.WorkerCallbackUrl)) environment["FORMICAE_WORKER_CALLBACK_URL"] = options.WorkerCallbackUrl;
         if (!string.IsNullOrWhiteSpace(options.WorkerCallbackSecret)) environment["FORMICAE_WORKER_CALLBACK_SECRET"] = options.WorkerCallbackSecret;

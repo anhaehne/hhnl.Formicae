@@ -7,6 +7,11 @@ public interface IJobRuntime
     Task<RuntimeJobResult?> TryGetJobResultAsync(string externalId, CancellationToken cancellationToken);
 
     Task<string> ReadJobLogsAsync(string externalId, CancellationToken cancellationToken);
+
+    Task CancelJobAsync(string externalId, CancellationToken cancellationToken)
+        => Task.FromException(new NotSupportedException("This runtime does not support cancellation."));
+
+    Task AcknowledgeCompletionAsync(string externalId, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed record RuntimeJobSpec(
