@@ -20,12 +20,12 @@ Scripts are first-class builtins.script tasks with sh/bash, body, bounded timeou
 
 | Issue | Required result | Verified |
 | --- | --- | --- |
-| #12 | Script editor/validation; isolated worker execution; output and actual exit code retained; deterministic failure/timeout/cancel/retry tests | Pending |
-| #16 | Restricted capabilities configurable; launch/bootstrap/MCP/browser/container provisioning honors limits; effective selections visible in run audit | Pending |
-| #18 | Only selected external secret keys injected; missing keys fail preflight; values masked in all operator evidence; reference-only UI/API | Pending |
-| #20 | Typed environment MCP catalog/editor/snapshot; native selected-harness injection; scoped credentials; real adapter tests | Pending |
-| #21 | Environment-specific worker image/pull settings; validated references before launch; visible pinned/runtime settings; default behavior preserved | Pending |
-| #22 | Named bootstrap installs before task; bounded output and timeout; failure stops task; documented executable example | Pending |
+| #12 | Script editor/validation; isolated worker execution; output and actual exit code retained; deterministic failure/timeout/cancel/retry tests | Yes; see verification.md |
+| #16 | Restricted capabilities configurable; launch/bootstrap/MCP/browser/container provisioning honors limits; effective selections visible in run audit | Yes; see verification.md |
+| #18 | Only selected external secret keys injected; missing keys fail preflight; values masked in all operator evidence; reference-only UI/API | Yes; see verification.md |
+| #20 | Typed environment MCP catalog/editor/snapshot; native selected-harness injection; scoped credentials; real adapter tests | Yes; see verification.md |
+| #21 | Environment-specific worker image/pull settings; validated references before launch; visible pinned/runtime settings; default behavior preserved | Yes; see verification.md |
+| #22 | Named bootstrap installs before task; bounded output and timeout; failure stops task; documented executable example | Yes; see verification.md |
 
 Preserve existing disabled drafts, immutable/deleted snapshots, revision conflicts, typed custom-task data passing, editor undo/redo, viewers, default workflows and runtime cleanup ordering. One aligned minor version bump to 0.20.0 on this branch.
 
