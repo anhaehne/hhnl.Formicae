@@ -84,6 +84,9 @@ export type WorkflowDefinitionStep = {
   environmentId?: string | null;
   environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
+  script?: WorkflowScriptSettings | null;
+  capabilities?: string[] | null;
+  secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
@@ -167,6 +170,7 @@ export type TaskRun = {
   customTaskExecution?: PreparedCustomTaskExecution | null;
   structuredOutputs?: Record<string, CustomTaskScalar> | null;
   failureReason?: string | null;
+  exitCode?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   createdAt: string;
@@ -675,7 +679,12 @@ export const createCustomTask = (input: CustomTaskInput) => send<CustomTaskDefin
 export const updateCustomTask = (id: string, input: CustomTaskInput, expectedRevision: number) => send<CustomTaskDefinition>(`/api/custom-tasks/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
 export const deleteCustomTask = (id: string, expectedRevision: number) => sendNoContent(`/api/custom-tasks/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });
 
-export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: null; tools: never[]; mcpServers: never[] };
+export type StepSecretReference = { environmentName: string; secretName: string; key: string };
+export type WorkflowScriptSettings = { shell: "sh" | "bash"; script: string; timeoutSeconds: number; workingDirectory: "workspace" | "repository" };
+export type EnvironmentImage = { reference: string; pullPolicy: "Always" | "IfNotPresent" | "Never"; pullSecretNames: string[] };
+export type EnvironmentTool = { name: string; script: string; shell: "sh" | "bash"; timeoutSeconds: number };
+export type EnvironmentMcpServer = { name: string; transport: "stdio" | "http"; command?: string | null; arguments: string[]; url?: string | null; environmentVariables: Record<string, string>; bearerTokenEnvironmentVariable?: string | null; headerEnvironmentVariables: Record<string, string> };
+export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: EnvironmentImage | null; tools: EnvironmentTool[]; mcpServers: EnvironmentMcpServer[] };
 export type EnvironmentSnapshot = { id: string; revision: number; name: string; description: string; configuration: EnvironmentConfiguration };
 export type EnvironmentProfile = EnvironmentSnapshot & { builtIn: boolean; createdAt: string; updatedAt: string };
 export type EnvironmentInput = Pick<EnvironmentSnapshot, "name" | "description" | "configuration">;
@@ -686,7 +695,7 @@ export const deleteEnvironment = (id: string, expectedRevision: number) => sendN
 
 export type TaskRunAttempt = {
  id: string; workflowId: string; taskRunId: string; executionAttemptId: string; attemptNumber: number;
- status: string | number; externalId?: string | null; output?: string | null; failureReason?: string | null;
+ status: string | number; externalId?: string | null; output?: string | null; failureReason?: string | null; exitCode?: number | null;
  structuredOutputsJson?: string | null; customTaskExecutionJson?: string | null; definitionStepId: string;
  loopIteration?: number | null; startedAt?: string | null; completedAt?: string | null; createdAt: string; updatedAt: string;
 };
@@ -694,7 +703,7 @@ export type WorkflowExecution = {
  workflow: WorkflowSummary; definitionVersionId?: string | null; definition: WorkflowDefinitionDocument | null;
  runs: TaskRun[]; attempts: TaskRunAttempt[]; loops: WorkflowLoopIteration[]; decisions: WorkflowDecisionExecution[];
  parallels?: Array<{ id: string; workflowId: string; nodeId: string; outcome: string; startedAt: string; completedAt?: string | null }>;
- resolvedSettings?: Array<{ taskRunId: string; executionAttemptId?: string | null; aiSettingsId?: string | null; model?: string | null; personaId?: string | null; personaRevision?: number | null; personaName?: string | null; environment?: unknown }>;
+ resolvedSettings?: Array<{ taskRunId: string; executionAttemptId?: string | null; aiSettingsId?: string | null; model?: string | null; personaId?: string | null; personaRevision?: number | null; personaName?: string | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null; environment?: unknown }>;
  control: { isPaused: boolean; cancelRequestedAt?: string | null; cancelCompletedAt?: string | null; canPause: boolean; canResume: boolean; canCancel: boolean };
 };
 export type WorkflowFilters = { active?: string; search?: string; status?: string; repositoryUrl?: string; definitionId?: string; from?: string; to?: string };

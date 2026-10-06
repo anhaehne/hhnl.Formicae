@@ -1755,3 +1755,7 @@ pre.collapsed-content::after {
 .execution-log-entry pre { margin-bottom: 0; }
 @media (max-width: 1100px) { .execution-investigator { grid-template-columns: 1fr; } .execution-inspector { max-height: none; border-left: 0; border-top: 1px solid #dce4d6; } .execution-graph { height: 460px; } }
 @media (max-width: 600px) { .execution-filters { grid-template-columns: 1fr; } .execution-graph { height: 360px; } }
+
+.environment-extension { border-top: 1px solid #d7dbd2; margin-top: 24px; padding-top: 12px; }
+.environment-extension fieldset { display: grid; gap: 12px; min-width: 0; border: 1px solid #d7dbd2; border-radius: 8px; margin: 16px 0; padding: 16px; }
+.environment-extension .form-row > button { justify-self: start; align-self: end; }

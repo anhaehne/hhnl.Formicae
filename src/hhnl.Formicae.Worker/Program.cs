@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using hhnl.Formicae.Application.Workflows;
 
 var environment = WorkerEnvironment.Load();
 using var reporter = new WorkerReporter(environment.CallbackUrl, environment.CallbackSecret, environment.WorkflowId, environment.TaskKind, environment.ExternalId, environment.ExecutionAttemptId);
@@ -25,12 +26,14 @@ try
 {
     await reporter.ReportAsync("worker", "Formicae worker started.");
     var exitCode = await WorkerCommand.RunAsync(environment, reporter, shutdown.Token);
+    if (environment.TaskKind == "Script") await reporter.ReportScriptResultAsync(exitCode);
     await reporter.ReportAsync("worker", $"Formicae worker finished with exit code {exitCode}.");
     return exitCode;
 }
 catch (Exception exception)
 {
     await reporter.ReportAsync("worker-error", exception.ToString());
+    if (environment.TaskKind == "Script") await reporter.ReportScriptResultAsync(1);
     return 1;
 }
 
@@ -59,7 +62,9 @@ internal sealed record WorkerEnvironment(
     int? JobTimeoutSeconds,
     int CheckpointGraceSeconds,
     bool EnvironmentTimeoutLimit = false,
-    Guid? ExecutionAttemptId = null)
+    Guid? ExecutionAttemptId = null,
+    EnvironmentConfiguration? ExecutionConfiguration = null,
+    WorkflowScriptSettings? Script = null)
 {
     public static WorkerEnvironment Load()
     {
@@ -84,12 +89,14 @@ internal sealed record WorkerEnvironment(
             OptionalPositiveInt("FORMICAE_JOB_TIMEOUT_SECONDS"),
             OptionalNonNegativeInt("FORMICAE_CHECKPOINT_GRACE_SECONDS"),
             IsTrue("FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"),
-            Guid.TryParse(Optional("FORMICAE_EXECUTION_ATTEMPT_ID"), out var attempt) ? attempt : null);
+            Guid.TryParse(Optional("FORMICAE_EXECUTION_ATTEMPT_ID"), out var attempt) ? attempt : null,
+            JsonSerializer.Deserialize<EnvironmentConfiguration>(Optional("FORMICAE_EXECUTION_CONFIGURATION") ?? "{}", JsonSerializerOptions.Web),
+            Optional("FORMICAE_SCRIPT_SETTINGS") is { } script ? JsonSerializer.Deserialize<WorkflowScriptSettings>(script, JsonSerializerOptions.Web) : null);
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
     public bool IsCodexAuthSetup => TaskKind is "CodexAuthSetup" || string.Equals(AuthMethod, "CodexSubscriptionSetup", StringComparison.OrdinalIgnoreCase);
-    public bool RequiresRepositoryCheckout => TaskKind is "Plan" or "Implement" or "AddressComments";
+    public bool RequiresRepositoryCheckout => TaskKind is "Plan" or "Implement" or "AddressComments" || TaskKind == "Script" && Script?.WorkingDirectory == "repository";
     public bool CanCommitRepositoryChanges => TaskKind is "Implement" or "AddressComments";
     public bool RequiresHardEnvironmentDeadline => EnvironmentTimeoutLimit && TaskKind != "Custom"
         && (!UsesCodexSubscription || !CanCommitRepositoryChanges || CheckpointGraceSeconds <= 0);
@@ -141,7 +148,7 @@ internal static class WorkerCommand
             return await RunCodexAuthSetupAsync(environment, reporter, cancellationToken);
         }
 
-        if (environment.RequiresHardEnvironmentDeadline)
+        if (environment.RequiresHardEnvironmentDeadline || environment.TaskKind is "Script" or "Custom")
             return await RunWithHardDeadlineAsync(environment.JobTimeoutSeconds, reporter, timeProvider ?? TimeProvider.System,
                 cancellationToken, token => RunTaskAsync(environment, reporter, token, timeProvider));
         return await RunTaskAsync(environment, reporter, cancellationToken, timeProvider);
@@ -150,6 +157,11 @@ internal static class WorkerCommand
     private static async Task<int> RunTaskAsync(WorkerEnvironment environment, WorkerReporter reporter,
         CancellationToken cancellationToken, TimeProvider? timeProvider)
     {
+
+        var bootstrapExit = await WorkerExtensions.InstallToolsAsync(environment.ExecutionConfiguration?.Tools ?? [], reporter,
+            timeProvider ?? TimeProvider.System, cancellationToken);
+        if (bootstrapExit != 0) return bootstrapExit;
+        if (environment.TaskKind != "Script" && !environment.UsesCodexSubscription) WorkerExtensions.ConfigureOpenHands(environment.ExecutionConfiguration?.McpServers ?? [], environment.RequiresBrowser);
 
         if (environment.RequiresNestedContainers && !await WaitForDockerAsync(reporter, cancellationToken))
         {
@@ -171,6 +183,10 @@ internal static class WorkerCommand
         {
             return await RunCustomCommandAsync(environment, workingDirectory, reporter, timeProvider ?? TimeProvider.System, cancellationToken);
         }
+
+        if (environment.TaskKind == "Script")
+            return await WorkerExtensions.RunScriptAsync(environment.Script ?? throw new InvalidOperationException("Script configuration is missing."),
+                workingDirectory, reporter, cancellationToken);
 
         if (environment.UsesCodexSubscription)
         {
@@ -210,7 +226,7 @@ internal static class WorkerCommand
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         if (execute is null)
         {
-            if (environment.UsesCodexSubscription) CodexWorkspace.Prepare(false);
+            if (environment.UsesCodexSubscription) CodexWorkspace.Prepare(environment.RequiresBrowser, environment.ExecutionConfiguration?.McpServers ?? []);
             execute = (file, arguments, directory, token) => RunProcessAsync(file, arguments, directory, reporter, token);
         }
         try
@@ -256,7 +272,7 @@ internal static class WorkerCommand
         TimeProvider timeProvider,
         CancellationToken shutdownToken)
     {
-        CodexWorkspace.Prepare(environment.RequiresBrowser);
+        CodexWorkspace.Prepare(environment.RequiresBrowser, environment.ExecutionConfiguration?.McpServers ?? []);
 
         var args = BuildCodexArguments(environment, workingDirectory);
         var deadline = WorkerDeadlinePolicy.From(environment);
@@ -417,6 +433,7 @@ internal static class WorkerCommand
             args.Add(environment.Model);
         }
 
+        args.AddRange(["-c", $"projects={{{JsonSerializer.Serialize(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
         args.AddRange(["-C", workingDirectory, "--skip-git-repo-check", "--json", "--dangerously-bypass-approvals-and-sandbox", environment.Prompt]);
         return args;
     }
@@ -424,6 +441,7 @@ internal static class WorkerCommand
     internal static List<string> BuildCodexResumeArguments(WorkerEnvironment environment, string workingDirectory, string threadId)
     {
         var args = new List<string> { "-y", "@openai/codex", "exec" };
+        args.AddRange(["-c", $"projects={{{JsonSerializer.Serialize(workingDirectory)}={{trust_level=\"untrusted\"}}}}"]);
         if (!string.IsNullOrWhiteSpace(environment.Model))
         {
             args.Add("-m");
@@ -733,36 +751,21 @@ internal sealed record WorkerCheckpointResult(
 
 internal static class CodexWorkspace
 {
-    public static void Prepare(bool requiresBrowser)
+    public static void Prepare(bool requiresBrowser) => Prepare(requiresBrowser, []);
+
+    public static void Prepare(bool requiresBrowser, IReadOnlyList<EnvironmentMcpServer> servers)
     {
         var targetHome = Environment.GetEnvironmentVariable("CODEX_HOME") ?? "/tmp/codex-home";
         var sourceDirectory = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_MOUNT_PATH") ?? "/root/.codex";
         var sourceFileName = Environment.GetEnvironmentVariable("FORMICAE_CODEX_AUTH_FILE_NAME") ?? "auth.json";
         Directory.CreateDirectory(targetHome);
-
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(targetHome, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         CopyIfPresent(Path.Combine(sourceDirectory, sourceFileName), Path.Combine(targetHome, "auth.json"));
-        var localConfig = Path.Combine(targetHome, "config.toml");
-        CopyIfPresent(Path.Combine(sourceDirectory, "config.toml"), localConfig);
-
-        if (!requiresBrowser)
-        {
-            return;
-        }
-
-        var existing = File.Exists(localConfig) ? File.ReadAllText(localConfig) : string.Empty;
-        if (existing.Contains("[mcp_servers.playwright]", StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var separator = string.IsNullOrWhiteSpace(existing) || existing.EndsWith('\n') ? string.Empty : Environment.NewLine;
-        var lines = new[]
-        {
-            "[mcp_servers.playwright]",
-            "command = \"playwright-mcp\"",
-            "args = [\"--headless\", \"--browser\", \"chromium\", \"--no-sandbox\", \"--output-dir\", \"test-results/agent-browser\", \"--allowed-origins\", \"http://127.0.0.1:*;http://localhost:*\", \"--caps\", \"core,network,devtools\"]"
-        };
-        File.AppendAllText(localConfig, separator + string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        var auth = Path.Combine(targetHome, "auth.json");
+        if (File.Exists(auth)) WorkerExtensions.SecureFile(auth);
+        var config = Path.Combine(targetHome, "config.toml");
+        File.WriteAllText(config, WorkerExtensions.BuildCodexConfiguration(servers, requiresBrowser));
+        WorkerExtensions.SecureFile(config);
     }
 
     private static void CopyIfPresent(string source, string target)
@@ -785,6 +788,10 @@ internal sealed class WorkerReporter : IDisposable
     private readonly HttpClient http;
     private readonly TextWriter? runtimeWriter;
     private readonly string[] secrets;
+    private readonly StringBuilder scriptOutput = new();
+    private int scriptOutputBytes;
+    private bool scriptOutputTruncated;
+    private string? scriptFailureReason;
     private readonly Channel<WorkerAgentMessage> pending;
     private readonly CancellationTokenSource shutdown = new();
     private readonly Task delivery;
@@ -802,10 +809,20 @@ internal sealed class WorkerReporter : IDisposable
         http = handler is null ? new HttpClient() : new HttpClient(handler);
         http.Timeout = TimeSpan.FromSeconds(3);
         secrets = (knownSecrets ?? LoadKnownSecrets()).Append(callbackSecret ?? "")
-            .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().OrderByDescending(value => value.Length).ToArray();
+            .Where(value => !string.IsNullOrWhiteSpace(value)).SelectMany(SecretVariants).Distinct().OrderByDescending(value => value.Length).ToArray();
         pending = Channel.CreateBounded<WorkerAgentMessage>(new BoundedChannelOptions(Math.Max(1, capacity))
         { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         delivery = DeliverAsync(shutdown.Token);
+    }
+
+    private static IEnumerable<string> SecretVariants(string value)
+    {
+        yield return value;
+        yield return JsonSerializer.Serialize(value)[1..^1];
+        yield return Uri.EscapeDataString(value);
+        yield return Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+        foreach (var line in value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            if (line.Length >= 4) yield return line;
     }
 
     public string Sanitize(string text)
@@ -818,6 +835,8 @@ internal sealed class WorkerReporter : IDisposable
     {
         var values = new List<string>();
         foreach (var name in new[] { "FORMICAE_GIT_ACCESS_TOKEN", "FORMICAE_WORKER_CALLBACK_SECRET", "LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY" })
+            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value) values.Add(value);
+        foreach (var name in JsonSerializer.Deserialize<string[]>(Environment.GetEnvironmentVariable("FORMICAE_SECRET_ENVIRONMENT_NAMES") ?? "[]") ?? [])
             if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value) values.Add(value);
         try
         {
@@ -841,9 +860,33 @@ internal sealed class WorkerReporter : IDisposable
     }
 
     public Task ReportAsync(string stream, string line, CancellationToken cancellationToken = default)
+        => ReportLineAsync(stream, line, sanitize: true, cancellationToken);
+
+    public void CaptureScriptOutput(string line)
+    {
+        if (scriptOutputTruncated) return;
+        line = Sanitize(line);
+        var lineBytes = Encoding.UTF8.GetByteCount(line) + Encoding.UTF8.GetByteCount(Environment.NewLine);
+        if (scriptOutputBytes + lineBytes > 262144)
+        {
+            scriptOutput.AppendLine("[Script output truncated: 256 KiB limit exceeded.]");
+            scriptOutputTruncated = true;
+            return;
+        }
+        scriptOutput.AppendLine(line);
+        scriptOutputBytes += lineBytes;
+    }
+
+    public Task ReportScriptResultAsync(int exitCode) => ReportLineAsync("worker",
+        JsonSerializer.Serialize(new { formicaeScriptResult = new { exitCode, output = scriptOutput.ToString(), truncated = scriptOutputTruncated, failureReason = scriptFailureReason } },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web) { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }),
+        sanitize: false, CancellationToken.None);
+
+    private Task ReportLineAsync(string stream, string line, bool sanitize, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(line)) return Task.CompletedTask;
-        var sanitized = Sanitize(line);
+        var sanitized = sanitize ? Sanitize(line) : line;
+        if (stream == "worker-error") scriptFailureReason = sanitized;
         // Keep complete supported agent final responses in runtime evidence; callbacks remain small.
         if (sanitized.Length > 1048576) sanitized = sanitized[..1048576] + "\n[Message truncated: runtime line limit exceeded]";
         var message = new WorkerAgentMessage(workflowId, taskKind, externalId, stream, sanitized,

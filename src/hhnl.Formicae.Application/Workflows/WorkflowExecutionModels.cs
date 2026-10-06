@@ -23,6 +23,7 @@ public sealed class TaskRunAttempt
     public TaskRunStatus Status { get; init; }
     public string? ExternalId { get; init; }
     public string? Output { get; init; }
+    public int? ExitCode { get; init; }
     public string? FailureReason { get; init; }
     public string? StructuredOutputsJson { get; init; }
     public string? CustomTaskExecutionJson { get; init; }
@@ -35,7 +36,7 @@ public sealed class TaskRunAttempt
     {
         WorkflowId = run.WorkflowId, TaskRunId = run.Id, ExecutionAttemptId = run.ExecutionAttemptId ?? run.Id,
         AttemptNumber = number, DefinitionStepId = run.DefinitionStepId, LoopIteration = run.LoopIteration,
-        Status = run.Status, ExternalId = run.ExternalId, Output = run.Output, FailureReason = run.FailureReason,
+        Status = run.Status, ExternalId = run.ExternalId, Output = run.Output, ExitCode = run.ExitCode, FailureReason = run.FailureReason,
         StructuredOutputsJson = run.StructuredOutputsJson, CustomTaskExecutionJson = run.CustomTaskExecutionJson,
         StartedAt = run.StartedAt, CompletedAt = run.CompletedAt, CreatedAt = run.CreatedAt, UpdatedAt = run.UpdatedAt
     };
@@ -50,6 +51,7 @@ public sealed record WorkflowExecutionResponse(WorkflowSummaryResponse Workflow,
 public sealed record WorkflowParallelExecutionResponse(Guid Id, Guid WorkflowId, string NodeId,
     WorkflowParallelExecutionOutcome Outcome, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt);
 public sealed record WorkflowResolvedSettings(Guid TaskRunId, Guid? ExecutionAttemptId, string? AiSettingsId, string? Model,
-    string? PersonaId, int? PersonaRevision, string? PersonaName, System.Text.Json.JsonElement? Environment);
+    string? PersonaId, int? PersonaRevision, string? PersonaName, System.Text.Json.JsonElement? Environment, IReadOnlyList<string>? Capabilities = null,
+    IReadOnlyList<WorkflowSecretReference>? SecretReferences = null);
 public sealed record WorkflowEvidenceResponse(WorkflowExecutionResponse Execution, IReadOnlyList<WorkflowEventResponse> Events,
     IReadOnlyList<WorkflowLog> Logs, bool LogsTruncated, bool EventsTruncated);

@@ -7,4 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../hhnl.Formicae.Application/hhnl.Formicae.Application.csproj" />
+  </ItemGroup>
+
 </Project>

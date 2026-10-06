@@ -20,6 +20,8 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
     public string RepositoryRoot { get; } = FindRepositoryRoot();
     public string TempRoot { get; } = Path.Combine(Path.GetTempPath(), "formicae-e2e");
     public string KubeconfigPath => Path.Combine(TempRoot, "kubeconfig");
+    public string WorkerImage => Environment.GetEnvironmentVariable("FORMICAE_E2E_WORKER_IMAGE") is { Length: > 0 } image
+        ? image : "localhost/hhnl-formicae-worker:e2e";
     public string ContainerCli => Environment.GetEnvironmentVariable("FORMICAE_CONTAINER_CLI") switch
     {
         { Length: > 0 } value => value,
@@ -164,6 +166,17 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 
         await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", apiArchive, ApiImage], RepositoryRoot, TimeSpan.FromMinutes(3));
         await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", apiArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
+
+        // A supplied local image avoids rebuilding the worker during development. CI builds
+        // the actual Dockerfile so these tests exercise the published worker contract.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FORMICAE_E2E_WORKER_IMAGE")))
+            await CommandRunner.RunRequiredAsync(ContainerCli,
+                ["build", "-f", "src/hhnl.Formicae.Worker/Dockerfile", "-t", WorkerImage, "."],
+                RepositoryRoot, TimeSpan.FromMinutes(15));
+        var workerArchive = Path.Combine(TempRoot, "formicae-worker-e2e.tar");
+        File.Delete(workerArchive);
+        await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", workerArchive, WorkerImage], RepositoryRoot, TimeSpan.FromMinutes(5));
+        await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", workerArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(5), KindEnvironment());
     }
 
     private async Task DeployAsync()

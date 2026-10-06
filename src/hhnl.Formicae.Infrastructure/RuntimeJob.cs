@@ -27,7 +27,10 @@ public sealed record RuntimeJobSpec(
     RuntimeJobExecutionRequirements? ExecutionRequirements = null,
     RuntimeJobExecutionPolicy? ExecutionPolicy = null,
     bool ReuseExisting = false,
-    int? TimeoutLimitSeconds = null);
+    int? TimeoutLimitSeconds = null,
+    string ImagePullPolicy = "IfNotPresent",
+    IReadOnlyList<string>? ImagePullSecretNames = null,
+    IReadOnlyList<hhnl.Formicae.Application.Workflows.WorkflowSecretReference>? SecretReferences = null);
 
 public sealed record RuntimeJobExecutionRequirements(
     bool RequiresBrowser = false,
@@ -35,7 +38,8 @@ public sealed record RuntimeJobExecutionRequirements(
 
 public sealed record RuntimeJobExecutionPolicy(
     int TimeoutSeconds,
-    int CheckpointGraceSeconds = 0);
+    int CheckpointGraceSeconds = 0,
+    int StartupGraceSeconds = 0);
 
 public static class RuntimeJobPolicyResolver
 {
@@ -46,7 +50,7 @@ public static class RuntimeJobPolicyResolver
         var requested = spec.ExecutionPolicy ?? new RuntimeJobExecutionPolicy(runtimeDefaultTimeoutSeconds);
         var timeout = Math.Max(1, requested.TimeoutSeconds);
         if (spec.TimeoutLimitSeconds is { } limit) timeout = Math.Min(timeout, limit);
-        return new(timeout, Math.Clamp(requested.CheckpointGraceSeconds, 0, timeout - 1));
+        return new(timeout, Math.Clamp(requested.CheckpointGraceSeconds, 0, timeout - 1), Math.Clamp(requested.StartupGraceSeconds, 0, 60));
     }
 }
 
@@ -58,7 +62,7 @@ public sealed record RuntimeJobSecretEnvironment(string SecretName, IReadOnlyDic
 
 public sealed record RuntimeJobStartResult(string ExternalId);
 
-public sealed record RuntimeJobResult(bool Succeeded, string ExternalId, string Logs, string? FailureReason);
+public sealed record RuntimeJobResult(bool Succeeded, string ExternalId, string Logs, string? FailureReason, int? ExitCode = null);
 
 public static class RuntimeJobAuthMethods
 {

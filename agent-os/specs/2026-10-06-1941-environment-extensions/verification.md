@@ -1,0 +1,11 @@
+# Verification and acceptance evidence
+
+Implementation covers #12, #16, #18, #20, #21 and #22. Final integration verification and deployment are in progress.
+
+- Large-model consultation: GPT-6 Astra reviewed contracts, native Codex/OpenHands configuration, provisioning boundaries, scoped secrets and real runtime acceptance tests. Its findings were implemented, including whole-project trust overrides, HTTP alias restrictions and UI transport cleanup.
+- Focused application/orchestrator suite: 44/44 passed before the final image validation additions. Focused real-worker/runtime suite: 31/31 passed. Actual subprocess tests cover stdout, exit17, timeout124, cancellation, install failure/timeout, output bounds, encoded-value masking and MCP alias resolution.
+- Full backend/migration suite: 965/965 passed before final image-grammar additions. An earlier run exposed two legacy snapshot comparisons and three JSON log assertions; their expectations were corrected without editing generated migrations.
+- Focused browser suite: 6/6 passed. Native Playwright MCP inspected saved environment image/tool/MCP references and a Script graph with a connected scalar output; console had zero errors/warnings and network requests succeeded. Artifacts are `.artifacts/environment-extensions/browser/` (screenshots, snapshots, trace, console and network captures).
+- `npm run build`, `helm lint deploy/helm/formicae` and `git diff --check` passed. The worker Docker build passed. Full browser and Kubernetes suites are running. A parallel browser run was stopped after host contention caused navigation timeouts; final verification uses one browser worker.
+
+Exact final commands and results will be recorded after completion. No checks are waived.

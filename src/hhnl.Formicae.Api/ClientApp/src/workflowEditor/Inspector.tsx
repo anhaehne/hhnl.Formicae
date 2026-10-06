@@ -1,3 +1,4 @@
+import { ScriptSettings, ExecutionSettings, defaultScript } from "./ExecutionSettings";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { CustomTaskSettings } from "./CustomTaskSettings";
 import { PersonaPicker } from "./PersonaPicker";
@@ -7,7 +8,7 @@ import { useEffect, useState } from "react";
 import type { Edge } from "@xyflow/react";
 import { getIntegration, listIntegrations, type IntegrationDetail, type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot, type EnvironmentProfile, type EnvironmentSnapshot } from "../api";
 import { StepModelSettings } from "../StepModelSettings";
-import { loopUses, triggerUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
+import { scriptUses, loopUses, triggerUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
 import { titleFor } from "./catalog";
 
 type Props = { workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
@@ -19,6 +20,9 @@ export function Inspector({ workflowStart, environments, defaultEnvironmentId, s
   const [repositoryError, setRepositoryError] = useState("");
   useEffect(() => { if (node.data.uses !== triggerUses) return; let canceled = false; listIntegrations().then(items => Promise.all(items.map(item => getIntegration(item.id)))).then(items => { if (!canceled) setIntegrations(items); }).catch(() => { if (!canceled) setRepositoryError("Could not load connected repositories. Reopen this inspector to retry."); }); return () => { canceled = true; }; }, []);
   const data = node.data;
+  const workerTask = ![loopUses, triggerUses, parallelUses, decisionUses, "builtins.create-pull-request"].includes(data.uses);
+  const profileId = data.environmentId ?? defaultEnvironmentId ?? "default";
+  const profile = environments.find(item => item.id === profileId) ?? (savedEnvironmentSnapshot?.id === profileId ? savedEnvironmentSnapshot : undefined);
   const connection = (port: string, label: string) => {
     const edge = edges.find(edge => edge.source === node.id && edge.sourceHandle === port);
     return <label><span>{label}</span><select aria-label={label} disabled={disabled} value={edge ? JSON.stringify([edge.target, edge.targetHandle || "input"]) : ""} onChange={event => { const value = event.target.value; if (!value) connect(port); else { const [target, targetPort] = JSON.parse(value); connect(port, target, targetPort); } }}>
@@ -37,11 +41,13 @@ export function Inspector({ workflowStart, environments, defaultEnvironmentId, s
     <section className="editor-property-section"><h4>General</h4>
     <label><span>Display Name</span><input disabled={disabled} value={data.displayName} onChange={event => update({ displayName: event.target.value })} /></label>
     {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && <>
-      <label><span>Task</span><select aria-label="Task" value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, customTask: event.target.value === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, ...(event.target.value === "builtins.create-pull-request" ? { personaId: undefined, personaSnapshot: undefined, environmentId: undefined, environmentSnapshot: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
+      <label><span>Task</span><select aria-label="Task" value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, customTask: event.target.value === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, script: event.target.value === scriptUses ? defaultScript : undefined, ...(event.target.value === scriptUses ? { aiSettingsId: undefined, model: undefined, personaId: undefined, personaSnapshot: undefined, capabilities: null } : {}), ...(event.target.value === "builtins.create-pull-request" ? { personaId: undefined, personaSnapshot: undefined, environmentId: undefined, environmentSnapshot: undefined, capabilities: undefined, secretReferences: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
 
     </>}
     </section>
-    {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>Model & configuration</h4><StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} /><EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} /><PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} /></section>}
+    {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
+    {data.uses === scriptUses && <ScriptSettings value={data.script} disabled={disabled} onChange={script => update({ script })} />}
+    {workerTask && <ExecutionSettings capabilities={data.capabilities} references={data.secretReferences} environment={profile} script={data.uses === scriptUses} disabled={disabled} onChange={update} />}
     {data.uses === "builtins.custom-task" && <CustomTaskSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.customTask} tasks={customTasks} savedSnapshot={savedCustomSnapshot} disabled={disabled} onChange={customTask => update({ customTask })} />}
     {data.decision && <DecisionSettings condition={data.decision.condition} nodes={nodes} edges={edges} disabled={disabled} update={condition => update({ decision: { ...data.decision!, condition } })} />}
     {data.parallel && <section className="editor-property-section"><h4>Parallel branches</h4>

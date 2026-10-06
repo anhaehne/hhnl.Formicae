@@ -34,6 +34,15 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     public async Task<AgentRunStartResult> StartAsync(AgentTask task, CancellationToken cancellationToken)
     {
+        if (task.Kind == TaskRunKind.Script)
+        {
+            var scriptSpec = BuildScriptSpec(task, await CreateGitAccessTokenAsync(task, cancellationToken));
+            RuntimeJobStartResult scriptStart;
+            try { scriptStart = await jobRuntime.StartJobAsync(scriptSpec, cancellationToken); }
+            catch (Exception error) when (task.ExecutionAttemptId is not null && !cancellationToken.IsCancellationRequested && IsUncertainLaunch(error))
+            { throw new AgentLaunchUncertainException("Script runtime launch outcome is unknown; this attempt can be resumed.", error); }
+            return new(scriptStart.ExternalId);
+        }
         var settings = aiSettingsService is null
             ? string.IsNullOrWhiteSpace(task.AiSettingsId) ? ResolveSettingsFromOptions(openHandsOptions.Value) : throw new InvalidOperationException("Named AI configurations require the AI settings service.")
             : string.IsNullOrWhiteSpace(task.AiSettingsId)
@@ -79,10 +88,15 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var result = await jobRuntime.TryGetJobResultAsync(externalId, cancellationToken);
         if (result is null) return null;
         var rawLogs = UnwrapRuntimeLogs(result.Logs);
+        if (externalId.StartsWith("formicae-script-", StringComparison.Ordinal) && TryReadScriptResult(result.Logs, out var scriptOutput, out var scriptExit, out var scriptFailure))
+            return new(result.Succeeded && scriptExit == 0, result.ExternalId, scriptOutput,
+                scriptExit == 0 ? result.FailureReason : scriptFailure ?? $"Script exited with code {scriptExit}.", ExitCode: scriptExit);
+        if (externalId.StartsWith("formicae-script-", StringComparison.Ordinal) && result.Succeeded)
+            return new(false, result.ExternalId, rawLogs, "Worker completed without a valid script result; use a compatible Formicae worker image.", ExitCode: result.ExitCode);
         var finalResponse = result.Succeeded ? ExtractFinalResponse(rawLogs, externalId.StartsWith("formicae-custom-", StringComparison.Ordinal)) : null;
         var output = finalResponse ?? rawLogs;
         var failureReason = result.Succeeded ? null : ExtractCheckpointFailure(rawLogs) ?? result.FailureReason;
-        return new AgentRunResult(result.Succeeded, result.ExternalId, output, failureReason, OutputIsFinalResponse: finalResponse is not null);
+        return new AgentRunResult(result.Succeeded, result.ExternalId, output, failureReason, OutputIsFinalResponse: finalResponse is not null, ExitCode: result.ExitCode);
     }
 
     public async Task<IReadOnlyList<AgentRuntimeLog>> ReadLogsAsync(string externalId, CancellationToken cancellationToken)
@@ -150,6 +164,7 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private RuntimeJobSpec BuildSpec(AgentTask task, ResolvedAiSettings settings, string? gitAccessToken)
     {
+        var capabilities = ResolveTaskCapabilities(task);
         if (task.EnvironmentSnapshot is { } profile)
         {
             var validation = EnvironmentDefinitions.ValidateConfiguration(profile.Configuration);
@@ -162,22 +177,101 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var environment = BuildEnvironment(task, jobName, model, settings, authMethod, jobOptions.Value, gitAccessToken);
         var secretFiles = BuildSecretFiles(jobName, settings, authMethod, jobOptions.Value);
         var secretEnvironment = BuildSecretEnvironment(jobName, settings, authMethod);
+        AddExecutionConfiguration(environment, task, capabilities);
         return new RuntimeJobSpec(
             jobName,
-            jobOptions.Value.Image,
+            task.EnvironmentSnapshot?.Configuration.Image?.Reference ?? jobOptions.Value.Image,
             environment,
             WorkerCommand,
             ToRuntimeAuthMethod(authMethod),
             task.ContextFiles?.Select(file => new RuntimeJobContextFile(file.FileName, file.Content)).ToArray(),
             SecretFiles: secretFiles,
             SecretEnvironment: secretEnvironment,
-            ExecutionRequirements: BuildExecutionRequirements(task.Kind),
+            ExecutionRequirements: new(capabilities.Contains("browser"), capabilities.Contains("nested-containers")),
             ExecutionPolicy: task.Kind == TaskRunKind.Custom
                 ? new RuntimeJobExecutionPolicy(task.TimeoutSeconds is >= 1 and <= 3600
                     ? task.TimeoutSeconds.Value : throw new InvalidOperationException("Custom tasks require a timeout between 1 and 3600 seconds."), 0)
                 : BuildExecutionPolicy(task.Kind, jobOptions.Value),
             ReuseExisting: task.ExecutionAttemptId is not null,
-            TimeoutLimitSeconds: task.EnvironmentSnapshot?.Configuration.Runtime?.TimeoutLimitSeconds);
+            TimeoutLimitSeconds: task.EnvironmentSnapshot?.Configuration.Runtime?.TimeoutLimitSeconds,
+            ImagePullPolicy: task.EnvironmentSnapshot?.Configuration.Image?.PullPolicy ?? "IfNotPresent",
+            ImagePullSecretNames: task.EnvironmentSnapshot?.Configuration.Image?.PullSecretNames,
+            SecretReferences: task.SecretReferences);
+    }
+
+    private RuntimeJobSpec BuildScriptSpec(AgentTask task, string? gitAccessToken)
+    {
+        var capabilities = ResolveTaskCapabilities(task);
+        var script = task.Script ?? throw new InvalidOperationException("Script settings are required.");
+        var name = BuildJobName(task);
+        var environment = new Dictionary<string, string>
+        {
+            ["FORMICAE_WORKFLOW_ID"] = task.WorkflowId.ToString("D"), ["FORMICAE_TASK_KIND"] = "Script",
+            ["FORMICAE_REPOSITORY_URL"] = task.RepositoryUrl, ["FORMICAE_BRANCH"] = task.BranchName,
+            ["FORMICAE_TASK_PROMPT"] = "Execute the configured workflow script.", ["FORMICAE_EXTERNAL_ID"] = name,
+            ["FORMICAE_OPENHANDS_AUTH_METHOD"] = RuntimeJobAuthMethods.None,
+            ["FORMICAE_SCRIPT_SETTINGS"] = JsonSerializer.Serialize(script, JsonSerializerOptions.Web)
+        };
+        if (task.ExecutionAttemptId is { } attempt) environment["FORMICAE_EXECUTION_ATTEMPT_ID"] = attempt.ToString("D");
+        if (!string.IsNullOrWhiteSpace(gitAccessToken)) environment["FORMICAE_GIT_ACCESS_TOKEN"] = gitAccessToken;
+        if (!string.IsNullOrWhiteSpace(jobOptions.Value.WorkerCallbackUrl)) environment["FORMICAE_WORKER_CALLBACK_URL"] = jobOptions.Value.WorkerCallbackUrl;
+        if (!string.IsNullOrWhiteSpace(jobOptions.Value.WorkerCallbackSecret)) environment["FORMICAE_WORKER_CALLBACK_SECRET"] = jobOptions.Value.WorkerCallbackSecret;
+        AddExecutionConfiguration(environment, task, capabilities);
+        var configuration = task.EnvironmentSnapshot?.Configuration;
+        return new(name, configuration?.Image?.Reference ?? jobOptions.Value.Image, environment, WorkerCommand,
+            AuthMethod: RuntimeJobAuthMethods.None, ExecutionRequirements: new(),
+            ExecutionPolicy: new(script.TimeoutSeconds, StartupGraceSeconds: 30), ReuseExisting: task.ExecutionAttemptId is not null,
+            TimeoutLimitSeconds: configuration?.Runtime?.TimeoutLimitSeconds, ImagePullPolicy: configuration?.Image?.PullPolicy ?? "IfNotPresent",
+            ImagePullSecretNames: configuration?.Image?.PullSecretNames, SecretReferences: task.SecretReferences);
+    }
+
+    private static IReadOnlyList<string> ResolveTaskCapabilities(AgentTask task)
+    {
+        var uses = task.Kind switch
+        {
+            TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses, TaskRunKind.Custom => CustomTaskDefinitions.Uses,
+            TaskRunKind.Implement => "builtins.implement", TaskRunKind.AddressComments => "builtins.address-comments", _ => "builtins.plan"
+        };
+        var step = new WorkflowDefinitionStep("launch", uses, Capabilities: task.Capabilities, SecretReferences: task.SecretReferences, Script: task.Script);
+        var validation = WorkflowExecutionExtensions.ValidateStep(step, task.EnvironmentSnapshot);
+        if (task.EnvironmentSnapshot is { } profile)
+            validation = new([.. validation.Errors, .. EnvironmentDefinitions.ValidateConfiguration(profile.Configuration).Errors]);
+        if (!validation.IsValid) throw new InvalidOperationException(string.Join(" ", validation.Errors.Select(error => error.Message)));
+        return WorkflowExecutionExtensions.ResolveCapabilities(step, task.EnvironmentSnapshot);
+    }
+
+    private static void AddExecutionConfiguration(Dictionary<string, string> environment, AgentTask task, IReadOnlyList<string> capabilities)
+    {
+        var configuration = task.EnvironmentSnapshot?.Configuration ?? new EnvironmentConfiguration();
+        configuration = configuration with
+        {
+            Tools = configuration.Tools.Where(tool => capabilities.Contains("tool:" + tool.Name)).ToArray(),
+            McpServers = configuration.McpServers.Where(server => capabilities.Contains("mcp:" + server.Name)).ToArray()
+        };
+        environment["FORMICAE_EXECUTION_CONFIGURATION"] = JsonSerializer.Serialize(configuration, JsonSerializerOptions.Web);
+        environment["FORMICAE_SECRET_ENVIRONMENT_NAMES"] = JsonSerializer.Serialize((task.SecretReferences ?? []).Select(reference => reference.EnvironmentName));
+        environment["FORMICAE_CAPABILITIES"] = JsonSerializer.Serialize(capabilities);
+    }
+
+    internal static bool TryReadScriptResult(string logs, out string output, out int exitCode, out string? failureReason)
+    {
+        output = ""; exitCode = 0; failureReason = null;
+        foreach (var line in logs.Split('\n').Reverse())
+        {
+            try
+            {
+                if (!TryReadRuntimeLog(line, out var entry) || entry!.Source != "worker") continue;
+                using var json = JsonDocument.Parse(entry.Message);
+                if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("formicaeScriptResult", out var result)
+                    || result.ValueKind != JsonValueKind.Object || !result.TryGetProperty("exitCode", out var code) || code.ValueKind != JsonValueKind.Number || !code.TryGetInt32(out exitCode)
+                    || !result.TryGetProperty("output", out var text) || text.ValueKind != JsonValueKind.String) continue;
+                output = text.GetString() ?? "";
+                if (result.TryGetProperty("failureReason", out var reason) && reason.ValueKind == JsonValueKind.String) failureReason = reason.GetString();
+                return true;
+            }
+            catch (JsonException) { }
+        }
+        return false;
     }
 
     private static RuntimeJobExecutionRequirements BuildExecutionRequirements(TaskRunKind taskKind)
@@ -194,7 +288,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
 
     private async Task<string?> CreateGitAccessTokenAsync(AgentTask task, CancellationToken cancellationToken)
     {
-        if (task.Kind is not (TaskRunKind.Plan or TaskRunKind.Implement or TaskRunKind.AddressComments) || integrationStore is null || gitHubAppClient is null) return null;
+        if (!(task.Kind is TaskRunKind.Plan or TaskRunKind.Implement or TaskRunKind.AddressComments
+            || task.Kind == TaskRunKind.Script && task.Script?.WorkingDirectory == "repository") || integrationStore is null || gitHubAppClient is null) return null;
         var connectedRepository = await integrationStore.GetRepositoryByUrlAsync(task.RepositoryUrl, cancellationToken);
         if (connectedRepository?.InstallationId is not { } installationId) return null;
         var integration = connectedRepository.DevOpsIntegration ?? await integrationStore.GetAsync(connectedRepository.DevOpsIntegrationId, cancellationToken);

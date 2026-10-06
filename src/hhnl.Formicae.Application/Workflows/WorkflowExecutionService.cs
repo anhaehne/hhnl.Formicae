@@ -100,7 +100,9 @@ public sealed class WorkflowExecutionService(IWorkflowStore store, IClock clock)
             var environment = Field("environment");
             // This audit payload contains only runtime identity/name/timeout, never the AI settings entity or credentials.
             return new(evt.TaskRunId!.Value, attempt, Text("aiSettingsId"), Text("model"), Text("personaId"), revision, Text("personaName"),
-                environment.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined) ? environment.Clone() : null);
+                environment.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined) ? environment.Clone() : null,
+                Field("capabilities").ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<string[]>(Field("capabilities").GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
+                Field("secretReferences").ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<WorkflowSecretReference[]>(Field("secretReferences").GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null);
         }
         catch (JsonException) { return null; }
     }

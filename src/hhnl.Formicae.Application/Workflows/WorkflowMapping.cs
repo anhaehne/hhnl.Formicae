@@ -35,7 +35,7 @@ public static class WorkflowMapping
             run.LoopIteration,
             ReadCustomExecution(run.CustomTaskExecutionJson),
             run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson),
-            run.ExecutionAttemptId);
+            run.ExecutionAttemptId, ExitCode: run.ExitCode);
 
     private static PreparedCustomTaskExecution? ReadCustomExecution(string? json)
     {

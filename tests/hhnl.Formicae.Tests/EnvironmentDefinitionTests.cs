@@ -100,12 +100,13 @@ public sealed class EnvironmentDefinitionTests
     [InlineData("builtins.implement", true)]
     [InlineData("builtins.address-comments", true)]
     [InlineData("builtins.custom-task", true)]
+    [InlineData("builtins.script", true)]
     [InlineData("builtins.create-pull-request", false)]
     [InlineData("builtins.trigger", false)]
     [InlineData("builtins.loop", false)]
     [InlineData("builtins.parallel", false)]
     [InlineData("builtins.decision", false)]
-    public void Only_ai_tasks_receive_the_selected_environment(string uses, bool receivesEnvironment)
+    public void Only_execution_tasks_receive_the_selected_environment(string uses, bool receivesEnvironment)
     {
         var snapshot = Snapshot();
         var result = EnvironmentDefinitions.ResolveForTask(Document("custom") with { DefaultEnvironmentSnapshot = snapshot }, new("node", uses));
@@ -139,7 +140,7 @@ public sealed class EnvironmentDefinitionTests
             "cap" => Snapshot() with { Configuration = new() { Runtime = new(3601) } },
             "tools-null" => Snapshot() with { Configuration = new() { Tools = null! } },
             "mcp-null" => Snapshot() with { Configuration = new() { McpServers = null! } },
-            _ => Snapshot() with { Configuration = new() { Image = JsonSerializer.SerializeToElement("image:tag") } }
+            _ => Snapshot() with { Configuration = new() { Image = new("") } }
         };
         var document = Document("custom") with { DefaultEnvironmentSnapshot = snapshot };
         Assert.False(EnvironmentDefinitions.ValidateRuntime(document).IsValid);

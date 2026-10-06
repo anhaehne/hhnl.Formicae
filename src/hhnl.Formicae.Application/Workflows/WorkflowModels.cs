@@ -24,7 +24,8 @@ public enum WorkflowStep
     CreatePullRequest,
     AddressComments,
     Done,
-    Custom
+    Custom,
+    Script
 }
 
 public enum TaskRunKind
@@ -33,7 +34,8 @@ public enum TaskRunKind
     Implement,
     CreatePullRequest,
     AddressComments,
-    Custom
+    Custom,
+    Script
 }
 
 public enum TaskRunStatus
@@ -145,7 +147,10 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("personaSnapshot")] PersonaSnapshot? PersonaSnapshot = null,
     [property: JsonPropertyName("customTask")] WorkflowCustomTaskSettings? CustomTask = null,
     [property: JsonPropertyName("environmentId")] string? EnvironmentId = null,
-    [property: JsonPropertyName("environmentSnapshot")] EnvironmentSnapshot? EnvironmentSnapshot = null);
+    [property: JsonPropertyName("environmentSnapshot")] EnvironmentSnapshot? EnvironmentSnapshot = null,
+    [property: JsonPropertyName("script")] WorkflowScriptSettings? Script = null,
+    [property: JsonPropertyName("capabilities")] IReadOnlyList<string>? Capabilities = null,
+    [property: JsonPropertyName("secretReferences")] IReadOnlyList<WorkflowSecretReference>? SecretReferences = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -213,6 +218,7 @@ public sealed class TaskRun
     public TaskRunStatus Status { get; set; } = TaskRunStatus.Queued;
     public string? ExternalId { get; set; }
     public string? Output { get; set; }
+    public int? ExitCode { get; set; }
     public string? FailureReason { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
@@ -456,7 +462,7 @@ public sealed record TaskRunResponse(
     string DefinitionStepId,
     int? LoopIteration,
     PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null,
-    Guid? ExecutionAttemptId = null, int AttemptCount = 1);
+    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,
@@ -651,7 +657,9 @@ public sealed record AgentTask(
     string? AiSettingsId = null,
     Guid? ExecutionAttemptId = null,
     int? TimeoutSeconds = null,
-    EnvironmentSnapshot? EnvironmentSnapshot = null);
+    EnvironmentSnapshot? EnvironmentSnapshot = null,
+    IReadOnlyList<string>? Capabilities = null, IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
+    WorkflowScriptSettings? Script = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 
@@ -662,7 +670,7 @@ public sealed record AgentRunResult(
     string ExternalId,
     string Output,
     string? FailureReason,
-    bool OutputIsFinalResponse = true);
+    bool OutputIsFinalResponse = true, int? ExitCode = null);
 
 public sealed record PullRequestResult(string Url);
 

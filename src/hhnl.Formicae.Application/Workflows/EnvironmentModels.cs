@@ -12,10 +12,20 @@ public sealed record EnvironmentConfiguration
     [JsonNumberHandling(JsonNumberHandling.Strict)]
     public int SchemaVersion { get; init; } = 1;
     public EnvironmentRuntimeSettings? Runtime { get; init; }
-    public JsonElement? Image { get; init; }
-    public IReadOnlyList<JsonElement> Tools { get; init; } = [];
-    public IReadOnlyList<JsonElement> McpServers { get; init; } = [];
+    public EnvironmentImageSettings? Image { get; init; }
+    public IReadOnlyList<EnvironmentToolInstall> Tools { get; init; } = [];
+    public IReadOnlyList<EnvironmentMcpServer> McpServers { get; init; } = [];
 }
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record EnvironmentImageSettings(string Reference, string PullPolicy = "IfNotPresent", IReadOnlyList<string>? PullSecretNames = null);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record EnvironmentToolInstall(string Name, string Script, string Shell = "sh", [property: JsonNumberHandling(JsonNumberHandling.Strict)] int TimeoutSeconds = 300);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record EnvironmentMcpServer(string Name, string Transport = "stdio", string? Command = null,
+    IReadOnlyList<string>? Arguments = null, string? Url = null,
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null, string? BearerTokenEnvironmentVariable = null,
+    IReadOnlyDictionary<string, string>? HeaderEnvironmentVariables = null);
 
 public sealed record EnvironmentSnapshot(string Id, int Revision, string Name, string Description, EnvironmentConfiguration Configuration);
 public sealed record EnvironmentResponse(string Id, int Revision, string Name, string Description, EnvironmentConfiguration Configuration,

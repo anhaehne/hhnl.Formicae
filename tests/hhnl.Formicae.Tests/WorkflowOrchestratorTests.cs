@@ -2988,11 +2988,11 @@ public sealed class AdapterContractTests
         var start = await runtime.StartJobAsync(new RuntimeJobSpec(
             "formicae-plan-test",
             "worker:test",
-            new Dictionary<string, string> { ["FORMICAE_TASK_KIND"] = "Plan" },
+            new Dictionary<string, string> { ["FORMICAE_TASK_KIND"] = "Plan", ["FORMICAE_GIT_ACCESS_TOKEN"] = "private-git-token-value", ["FORMICAE_WORKER_CALLBACK_SECRET"] = "private-callback-value" },
             ["dotnet", "hhnl.Formicae.Worker.dll"],
             ContextFiles: [new RuntimeJobContextFile("pull-request-conversation.md", "# Conversation")],
             SecretFiles: [new RuntimeJobSecretFile("codex-auth", "/root/.codex", new Dictionary<string, string> { ["auth.json"] = "{}" })],
-            SecretEnvironment: new RuntimeJobSecretEnvironment("api-auth", new Dictionary<string, string> { ["LLM_API_KEY"] = "secret" })), CancellationToken.None);
+            SecretEnvironment: new RuntimeJobSecretEnvironment("api-auth", new Dictionary<string, string> { ["LLM_API_KEY"] = "private-api-key-value" })), CancellationToken.None);
 
         Assert.Equal("formicae-plan-test", start.ExternalId);
         var run = Assert.Single(cli.Calls, call => call.Arguments.FirstOrDefault() == "run");
@@ -3004,7 +3004,14 @@ public sealed class AdapterContractTests
         Assert.Contains("FORMICAE_TASK_KIND=Plan", run.Arguments);
         Assert.DoesNotContain(run.Arguments, argument => argument.StartsWith("FORMICAE_JOB_TIMEOUT_SECONDS=", StringComparison.Ordinal));
         Assert.DoesNotContain(run.Arguments, argument => argument.StartsWith("FORMICAE_CHECKPOINT_GRACE_SECONDS=", StringComparison.Ordinal));
-        Assert.Contains("LLM_API_KEY=secret", run.Arguments);
+        Assert.Contains("LLM_API_KEY", run.Arguments);
+        Assert.DoesNotContain(run.Arguments, argument => argument.Contains("private-api-key-value", StringComparison.Ordinal));
+        Assert.Equal("private-api-key-value", run.Environment!["LLM_API_KEY"]);
+        foreach (var pair in new Dictionary<string,string> { ["FORMICAE_GIT_ACCESS_TOKEN"] = "private-git-token-value", ["FORMICAE_WORKER_CALLBACK_SECRET"] = "private-callback-value" })
+        {
+            Assert.Contains(pair.Key, run.Arguments); Assert.Equal(pair.Value, run.Environment[pair.Key]);
+            Assert.DoesNotContain(run.Arguments, argument => argument.Contains(pair.Value, StringComparison.Ordinal));
+        }
         Assert.Contains("formicae-net", run.Arguments);
         Assert.Contains("worker:test", run.Arguments);
         Assert.Contains("dotnet", run.Arguments);
@@ -3266,6 +3273,13 @@ public sealed class AdapterContractTests
         public Queue<string> InspectResults { get; } = new();
         public string Logs { get; init; } = string.Empty;
 
+        public Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken)
+        {
+            var result = RunAsync(executable, arguments, cancellationToken);
+            Calls[^1] = Calls[^1] with { Environment = new Dictionary<string, string>(environment) };
+            return result;
+        }
+
         public Task<ContainerCliResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
         {
             Calls.Add(new ContainerCliCall(executable, arguments.ToArray()));
@@ -3278,7 +3292,7 @@ public sealed class AdapterContractTests
         }
     }
 
-    private sealed record ContainerCliCall(string Executable, IReadOnlyList<string> Arguments);
+    private sealed record ContainerCliCall(string Executable, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string>? Environment = null);
 
     private sealed class TemporaryDirectory : IDisposable
     {

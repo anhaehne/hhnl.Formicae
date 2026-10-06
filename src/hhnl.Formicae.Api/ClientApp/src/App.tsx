@@ -86,7 +86,7 @@ const pageDescriptions: Record<Page, string> = {
   integrations: "Connect the services your workflows use.",
   repositories: "Manage repositories available to your workflows.",
   users: "Manage workspace access and permissions.",
-  environments: "Manage reusable runtime profiles for agent tasks.",
+  environments: "Manage reusable runtime profiles for agent and script tasks.",
   "custom-tasks": "Define reusable agent tasks with typed inputs and recorded outputs.",
   personas: "Define reusable instructions and operating styles for agents.",
   settings: "Configure agents and AI providers."

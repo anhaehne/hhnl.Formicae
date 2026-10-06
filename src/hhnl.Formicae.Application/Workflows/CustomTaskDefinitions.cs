@@ -167,6 +167,9 @@ public static class CustomTaskDefinitions
         return errors;
     }
 
+    public static IReadOnlyList<CustomTaskOutputDefinition> OutputSchemaFor(WorkflowDefinitionStep step) =>
+        step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
+
     public static IReadOnlyDictionary<string, JsonElement> ParseOutputs(string response, IReadOnlyList<CustomTaskOutputDefinition> schema)
     {
         if (Encoding.UTF8.GetByteCount(response) > MaximumInputBytes) throw new InvalidOperationException("Custom task outputs exceed 65536 UTF-8 bytes.");
@@ -247,7 +250,7 @@ public static class CustomTaskDefinitions
             if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) continue;
             var input = consumer.CustomTask?.Snapshot?.Inputs?.FirstOrDefault(input => input?.Name == name);
             nodes.TryGetValue(binding.StepId, out var producer);
-            var output = producer?.CustomTask?.Snapshot?.Outputs?.FirstOrDefault(output => output?.Name == binding.OutputName);
+            var output = producer is null ? null : OutputSchemaFor(producer).FirstOrDefault(output => output?.Name == binding.OutputName);
             if (input is null || output is null || input.ValueType != output.ValueType)
                 errors.Add(Error(consumer.Id, $"Binding '{name}' must reference a declared producer output with the same scalar type."));
             else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id) || entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))

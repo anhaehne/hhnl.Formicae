@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   registry: docker.io
   repositoryPrefix: limeray
-  tag: "0.19.0"
+  tag: "0.20.0"
   pullPolicy: IfNotPresent
 
 api:

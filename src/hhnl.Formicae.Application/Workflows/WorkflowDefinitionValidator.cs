@@ -8,7 +8,8 @@ public sealed class WorkflowDefinitionValidator
         ["builtins.implement"] = TaskRunKind.Implement,
         ["builtins.create-pull-request"] = TaskRunKind.CreatePullRequest,
         ["builtins.address-comments"] = TaskRunKind.AddressComments,
-        [CustomTaskDefinitions.Uses] = TaskRunKind.Custom
+        [CustomTaskDefinitions.Uses] = TaskRunKind.Custom,
+        [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script
     };
 
     public WorkflowDefinitionValidationResult ValidateDefinitionName(string? name)
@@ -47,6 +48,7 @@ public sealed class WorkflowDefinitionValidator
             return new([new("definition.step.required", "Each step must be a node object.", "steps")]);
         foreach (var step in document.Steps)
         {
+            errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
             if (step.CustomTask is not null && step.Uses != CustomTaskDefinitions.Uses)
                 errors.Add(new("definition.customTask.invalid", "Only Custom task nodes may carry custom task settings.", "steps[].customTask", step.Id));
             if (step.Uses == CustomTaskDefinitions.Uses && string.IsNullOrWhiteSpace(step.CustomTask?.TaskId))
@@ -284,6 +286,7 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.CreatePullRequest => "builtins.create-pull-request",
             TaskRunKind.AddressComments => "builtins.address-comments",
             TaskRunKind.Custom => CustomTaskDefinitions.Uses,
+            TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 }

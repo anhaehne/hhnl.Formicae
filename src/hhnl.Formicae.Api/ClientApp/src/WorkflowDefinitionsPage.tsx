@@ -104,9 +104,9 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   const validConnection = (connection: Connection | Edge) => {
     const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
     if (connection.sourceHandle?.startsWith("output:") || connection.targetHandle?.startsWith("data:")) {
-      if (!source || !target || source.data.uses !== "builtins.custom-task" || target.data.uses !== "builtins.custom-task" || !connection.sourceHandle?.startsWith("output:") || !connection.targetHandle?.startsWith("data:")) return false;
+      if (!source || !target || !["builtins.custom-task", "builtins.script"].includes(source.data.uses) || target.data.uses !== "builtins.custom-task" || !connection.sourceHandle?.startsWith("output:") || !connection.targetHandle?.startsWith("data:")) return false;
       const schemaFor = (node: WorkflowStepNode) => customTasks.find(task => task.id === node.data.customTask?.taskId) ?? node.data.customTask?.snapshot;
-      const output = schemaFor(source)?.outputs?.find(output => output.name === connection.sourceHandle!.slice(7));
+      const output = source.data.uses === "builtins.script" && connection.sourceHandle === "output:output" ? { name: "output", valueType: "string" } : schemaFor(source)?.outputs?.find(output => output.name === connection.sourceHandle!.slice(7));
       const input = schemaFor(target)?.inputs.find(input => input.name === connection.targetHandle!.slice(5));
       return !!output && !!input && output.valueType === input.valueType && eligibleProducer(draft.nodes, draft.edges, draft.start, source.id, target.id);
     }
@@ -140,7 +140,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     while (draft.nodes.some(node => node.id === id)) id = `step${draft.nodes.length + 1}-${suffix++}`;
     const bounds = canvas.current!.getBoundingClientRect();
     const source = draft.nodes.find(node => node.id === context?.source);
-    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { customTask: uses === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
+    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { script: uses === "builtins.script" ? { shell: "sh", script: "", timeoutSeconds: 300, workingDirectory: "workspace" } : undefined, customTask: uses === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
       decision: uses === decisionUses ? { condition: { source: "literal", valueType: "string", operator: "equals", value: "", compareTo: "", missingValue: "error" }, trueStepId: "", falseStepId: "" } : undefined,
       parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,

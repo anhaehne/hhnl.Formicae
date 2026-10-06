@@ -84,6 +84,8 @@ public sealed partial class WorkflowOrchestrator(
                     return await CreatePullRequestAsync(workflow, cancellationToken);
                 case TaskRunKind.AddressComments:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
+                case TaskRunKind.Script:
+                    return await RunScriptTaskAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.Custom:
                     return await RunCustomTaskAsync(workflow, context.Step, cancellationToken);
             }
@@ -694,7 +696,7 @@ public sealed partial class WorkflowOrchestrator(
                 new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
                     personaName = prepared.Persona?.Name ?? "Default behavior", externalId = started.ExternalId,
-                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot) }, cancellationToken);
+                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot, task.Capabilities), capabilities = task.Capabilities, secretReferences = task.SecretReferences }, cancellationToken);
             return started;
         }
         catch (Exception exception) when (launchAccepted || IsUncertainParallelTransport(exception, cancellationToken))
@@ -720,18 +722,23 @@ public sealed partial class WorkflowOrchestrator(
             AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
             Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim(),
             EnvironmentSnapshot = step is null ? null : EnvironmentDefinitions.ResolveForTask(document, step),
+            Capabilities = step is null ? null : WorkflowExecutionExtensions.ResolveCapabilities(step, EnvironmentDefinitions.ResolveForTask(document, step)),
+            SecretReferences = step?.SecretReferences ?? [],
+            Script = step?.Script,
             Prompt = PersonaPromptComposer.Compose(task.Prompt, persona)
         }, persona);
     }
 
-    private static object? EnvironmentAudit(EnvironmentSnapshot? snapshot) => snapshot is null ? null : new
+    private static object? EnvironmentAudit(EnvironmentSnapshot? snapshot, IReadOnlyList<string>? capabilities) => snapshot is null ? null : new
     {
         id = snapshot.Id, revision = snapshot.Revision, name = snapshot.Name,
-        timeoutLimitSeconds = snapshot.Configuration.Runtime?.TimeoutLimitSeconds
+        timeoutLimitSeconds = snapshot.Configuration.Runtime?.TimeoutLimitSeconds,
+        image = snapshot.Configuration.Image, tools = snapshot.Configuration.Tools.Where(tool => capabilities?.Contains("tool:" + tool.Name) == true).Select(tool => tool.Name).ToArray(),
+        mcpServers = snapshot.Configuration.McpServers.Where(server => capabilities?.Contains("mcp:" + server.Name) == true).Select(server => server.Name).ToArray()
     };
 
     private Task CompleteTaskRunAsync(Workflow workflow, TaskRun run, AgentRunResult result, CancellationToken cancellationToken)
-        => CompleteTaskRunAsync(workflow, run, result.Output, result.Succeeded, result.FailureReason, cancellationToken, result.ExternalId);
+        => CompleteTaskRunAsync(workflow, run, result.Output, result.Succeeded, result.FailureReason, cancellationToken, result.ExternalId, result.ExitCode);
 
     private async Task CompleteTaskRunAsync(
         Workflow workflow,
@@ -740,12 +747,13 @@ public sealed partial class WorkflowOrchestrator(
         bool succeeded,
         string? failureReason,
         CancellationToken cancellationToken,
-        string? externalId = null)
+        string? externalId = null, int? exitCode = null)
     {
         run.ExternalId = externalId ?? run.ExternalId;
         await CaptureRuntimeLogsAsync(workflow, run, cancellationToken);
         run.Status = succeeded ? TaskRunStatus.Succeeded : TaskRunStatus.Failed;
         run.Output = output;
+        run.ExitCode = exitCode;
         run.FailureReason = failureReason;
         run.StartedAt ??= clock.UtcNow;
         run.CompletedAt = clock.UtcNow;
@@ -864,7 +872,7 @@ public sealed partial class WorkflowOrchestrator(
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
         if (workflow.CurrentDefinitionStepId is null)
         {
-            if (workflow.CurrentStep == WorkflowStep.Custom)
+            if (workflow.CurrentStep is WorkflowStep.Custom or WorkflowStep.Script)
                 throw new InvalidOperationException("Custom task execution requires an exact definition step cursor.");
             var legacyKind = workflow.CurrentStep switch
             {
@@ -961,7 +969,7 @@ public sealed partial class WorkflowOrchestrator(
         if (context is null) return null;
         var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
         if (execution is not null) return execution;
-        if (context.Kind == TaskRunKind.Custom) return null;
+        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script) return null;
         var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
         return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
     }
@@ -1014,6 +1022,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.CreatePullRequest => WorkflowStatus.CreatingPullRequest,
         TaskRunKind.AddressComments => WorkflowStatus.Reviewing,
         TaskRunKind.Custom => WorkflowStatus.Running,
+        TaskRunKind.Script => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -1024,6 +1033,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.CreatePullRequest => WorkflowStep.CreatePullRequest,
         TaskRunKind.AddressComments => WorkflowStep.AddressComments,
         TaskRunKind.Custom => WorkflowStep.Custom,
+        TaskRunKind.Script => WorkflowStep.Script,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
