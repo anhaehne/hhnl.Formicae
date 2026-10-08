@@ -1,0 +1,9 @@
+# Task graph connections
+
+Version 0.21.0 supports multiple ordinary task output connections. Connect an output to several task inputs to run those tasks concurrently. A task with several incoming connections waits until every predecessor succeeds. Nested forks, joins and multiple terminal tasks are supported; the execution completes only when every reachable task succeeds.
+
+In v1alpha3 definition JSON, `nextStepId` retains the first successor and `nextStepIds` contains additional successors. The editor preserves these connections when saving and reloading. Each connection can be disconnected separately. Named data output connections remain separate from execution dependencies. A custom-task input may bind to any ancestor whose completion is guaranteed by the dependency graph.
+
+Tasks persist their own execution attempts, outputs and runtime identity. Restarting orchestration reattaches to existing jobs. A failed task blocks dependent work; retrying keeps successful sibling results. Planning inputs are assembled deterministically from the latest completed planning ancestors, and the entry planning context is frozen.
+
+Task graphs support all ordinary task types and single-entry trigger nodes. A join cannot depend on a task unreachable from its execution entry. Cycles and combining these graphs with loop, decision or explicit parallel control nodes are rejected during validation. Existing explicit controls retain their behavior in workflows without multiple ordinary output connections.

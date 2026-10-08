@@ -34,6 +34,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Add a workflow editor.
 - Support loops and triggers as configurable workflow nodes (available).
 - Support parallel planning branches with an explicit join (available in 0.12.0); parallel shared-branch writes remain deferred.
+- Support ordinary task outputs with multiple connections and all-input dependency joins, including nested task branches and multiple terminal tasks (available in 0.21.0). Mixing these task graphs with loop, decision or explicit parallel control nodes remains future work.
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).
 - Support customizable personas with immutable per-version task context (available in 0.14.0).

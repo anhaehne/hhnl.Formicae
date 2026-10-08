@@ -59,6 +59,9 @@ public sealed class WorkflowDefinitionValidator
         if (document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema)
             return WorkflowNodeDefinitions.Validate(document);
 
+        if (WorkflowGraphDefinitions.IsGraph(document))
+            errors.Add(new("definition.graph.schema.required", "Multiple outgoing connections require v1alpha3.", "steps"));
+
         if (document.Steps.Any(step => step.Decision is not null))
             errors.Add(new("definition.decision.schema.required", "Decision settings require v1alpha3 Decision nodes.", "steps"));
 

@@ -138,7 +138,8 @@ public sealed class WorkflowService
             throw new InvalidOperationException("Only tasks in the active parallel group can be retried while that group is active.");
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
-        if (parallel is null && definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or WorkflowExecutionExtensions.ScriptUses) == true
+        if (parallel is null && definition is not null && !WorkflowGraphDefinitions.IsGraph(definition)
+            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or WorkflowExecutionExtensions.ScriptUses)
             && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
                 || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
         {
@@ -328,15 +329,21 @@ public sealed class WorkflowService
         {
             return null;
         }
-        var execution = await store.GetParallelExecutionAsync(workflow.Id, workflow.CurrentDefinitionStepId, cancellationToken);
-        if (execution is null)
-        {
-            return null;
-        }
         var version = await store.GetWorkflowDefinitionVersionAsync(versionId, cancellationToken)
             ?? throw new InvalidOperationException("The parallel workflow definition version is missing.");
         var document = WorkflowDefinitionJson.Deserialize(version.DefinitionJson)
             ?? throw new InvalidOperationException("The parallel workflow definition is missing.");
+        if (WorkflowGraphDefinitions.IsGraph(document))
+        {
+            foreach (var step in document.Steps)
+            {
+                var graph = await store.GetParallelExecutionAsync(workflow.Id, step.Id, cancellationToken);
+                if (graph is not null) return (graph, WorkflowGraphDefinitions.Reachable(document, graph.NodeId));
+            }
+            return null;
+        }
+        var execution = await store.GetParallelExecutionAsync(workflow.Id, workflow.CurrentDefinitionStepId, cancellationToken);
+        if (execution is null) return null;
         var group = document.Steps.Single(step => step.Id == execution.NodeId);
         var stepIds = WorkflowParallelDefinitions.Branches(document, group)
             .SelectMany(branch => branch).Select(step => step.Id).ToHashSet(StringComparer.Ordinal);

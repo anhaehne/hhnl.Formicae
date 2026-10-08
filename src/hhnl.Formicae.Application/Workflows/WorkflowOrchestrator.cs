@@ -51,6 +51,8 @@ public sealed partial class WorkflowOrchestrator(
         try
         {
             var definition = await ResolveDefinitionAsync(workflow, cancellationToken);
+            if (WorkflowGraphDefinitions.IsGraph(definition))
+                return await AdvanceGraphAsync(workflow, definition, cancellationToken);
             var current = definition.Steps.SingleOrDefault(step => step.Id == (workflow.CurrentDefinitionStepId ?? definition.StartStepId));
             if (current?.Uses == WorkflowDecisionDefinitions.Uses)
                 return await AdvanceDecisionAsync(workflow, definition, current, cancellationToken);
@@ -307,6 +309,7 @@ public sealed partial class WorkflowOrchestrator(
         if (planRun is not null)
         {
             var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+            if (WorkflowGraphDefinitions.IsGraph(document)) return [];
             if (document.Steps.Any(step => step.Uses == WorkflowDecisionDefinitions.Uses))
                 return []; // Committed decisions must not be replayed by legacy feedback rewinds.
             if (document.Steps.Where(step => step.Parallel is not null)
@@ -984,6 +987,20 @@ public sealed partial class WorkflowOrchestrator(
     private async Task AdvanceDefinitionCursorAsync(Workflow workflow, string message, CancellationToken cancellationToken)
     {
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+        // Graph completion and successor activation belong to the dependency scheduler.
+        if (WorkflowGraphDefinitions.IsGraph(document))
+        {
+            // Built-in review steps may finish without launching a worker (for example, an already merged PR).
+            var completed = await GetCurrentTaskRunAsync(workflow, cancellationToken);
+            if (completed is null)
+            {
+                var graphStep = document.Steps.Single(item => item.Id == workflow.CurrentDefinitionStepId);
+                WorkflowDefinitionValidator.TryMapUsesToTaskKind(graphStep.Uses, out var kind);
+                completed = await CreateCurrentTaskRunAsync(workflow, kind, cancellationToken);
+                await CompleteTaskRunAsync(workflow, completed, message, true, null, cancellationToken);
+            }
+            return;
+        }
         var step = document.Steps.Single(item => item.Id == workflow.CurrentDefinitionStepId);
         var loop = document.Loops?.SingleOrDefault(item => item.BodyStepIds.Contains(step.Id, StringComparer.Ordinal));
         string? nextStepId;

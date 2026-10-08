@@ -14,8 +14,8 @@ import { titleFor } from "./catalog";
 type Props = { workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
   update: (values: Partial<WorkflowStepNodeData>) => void; rename: (id: string) => void; move: (axis: "x" | "y", value: number) => void;
   resizeBranches: (count: number) => void;
-  connect: (port: string, target?: string, targetPort?: string) => void; start: () => void; close: () => void; begin: () => void; commit: () => void };
-export function Inspector({ workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, resizeBranches, start, close, begin, commit }: Props) {
+  connect: (port: string, target?: string, targetPort?: string) => void; disconnect: (edgeId: string) => void; start: () => void; close: () => void; begin: () => void; commit: () => void };
+export function Inspector({ workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, start, close, begin, commit }: Props) {
   const [integrations, setIntegrations] = useState<IntegrationDetail[]>([]);
   const [repositoryError, setRepositoryError] = useState("");
   useEffect(() => { if (node.data.uses !== triggerUses) return; let canceled = false; listIntegrations().then(items => Promise.all(items.map(item => getIntegration(item.id)))).then(items => { if (!canceled) setIntegrations(items); }).catch(() => { if (!canceled) setRepositoryError("Could not load connected repositories. Reopen this inspector to retry."); }); return () => { canceled = true; }; }, []);
@@ -78,6 +78,13 @@ export function Inspector({ workflowStart, environments, defaultEnvironmentId, s
     </section>}
     <section className="editor-property-section"><h4>Flow connections</h4>
     {data.decision ? <>{connection("true", "True route")}{connection("false", "False route")}</> : data.parallel ? <>{data.parallel.branchStepIds.map((_, index) => <div key={index}>{connection(`branch:${index}`, `Branch ${index + 1}`)}</div>)}{connection("next", "Next step")}</> : data.loop ? <>{connection("body", "Loop body")}{connection("exit", "Loop exit")}<p className="muted">Connect the last body task to Return. Exit runs after all repetitions.</p></> : connection("next", "Next step")}
+    {!data.decision && !data.parallel && !data.loop && !data.trigger && <>
+      <p className="muted">Connect multiple next steps to run them in parallel. Each step waits for all incoming tasks to succeed.</p>
+      {edges.filter(edge => edge.source === node.id && edge.sourceHandle === "next").map(edge => <div key={edge.id}>
+        <span>{nodes.find(other => other.id === edge.target)?.data.displayName ?? edge.target}</span>
+        <button type="button" disabled={disabled} aria-label={`Disconnect ${edge.target}`} onClick={() => disconnect(edge.id)}>Disconnect</button>
+      </div>)}
+    </>}
     <button type="button" disabled={disabled || data.uses === triggerUses} onClick={start}>Set as Start Step</button>
     </section>
     <details className="optional-settings editor-property-advanced"><summary>Advanced</summary>

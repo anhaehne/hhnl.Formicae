@@ -76,6 +76,7 @@ export type WorkflowDefinitionStep = {
   id: string;
   uses: string;
   nextStepId?: string | null;
+  nextStepIds?: string[] | null;
   displayName?: string | null;
   aiSettingsId?: string | null;
   model?: string | null;

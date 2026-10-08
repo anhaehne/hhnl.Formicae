@@ -9,7 +9,7 @@ description: Use when the user wants to shape a feature spec and implementation 
 
 This skill is project-local to this repository. When this workflow requires user input, ask one concise question at a time and wait for the answer before proceeding.
 
-Gather context and structure planning for significant work. **Run this command while in plan mode.**
+Gather context and structure planning for significant work in either execution or plan mode.
 
 ## Important Guidelines
 
@@ -17,19 +17,9 @@ Gather context and structure planning for significant work. **Run this command w
 - **Offer suggestions** — Present options the user can confirm, adjust, or correct
 - **Keep it lightweight** — This is shaping, not exhaustive documentation
 
-## Prerequisites
+## Execution Mode
 
-This command **must be run in plan mode**.
-
-**Before proceeding, check if you are currently in plan mode.**
-
-If NOT in plan mode, **stop immediately** and tell the user:
-
-```
-Shape-spec must be run in plan mode. Please enter plan mode with `/plan` first, then run `$agent-os-shape-spec` again.
-```
-
-Do not proceed with any steps below until confirmed to be in plan mode.
+Plan mode is optional. When the user authorizes implementation, gather available repository and conversation context, save a lightweight spec, and proceed with the work. Ask only for missing decisions that materially affect the scope; do not require a mode switch or repeat authorization already given.
 
 ## Process
 

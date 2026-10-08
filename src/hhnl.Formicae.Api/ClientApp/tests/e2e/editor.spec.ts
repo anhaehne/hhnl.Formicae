@@ -142,9 +142,12 @@ test("large workflow arranges without overlaps and remains searchable at respons
 });
 
 
-test("replacing connections is explicit and reversible", async ({ page, request }, testInfo) => {
-  const item = await seed(request); await open(page, item.name); await find(page, "n0");
-  const next = page.getByLabel("Next step", { exact: true });
+test("replacing exclusive control connections is explicit and reversible", async ({ page, request }, testInfo) => {
+  const item = await seed(request); await open(page, item.name);
+  await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /^Loop / }).click();
+  const next = page.getByLabel("Loop exit", { exact: true });
+  await next.selectOption(JSON.stringify(["n1", "input"]));
   await next.selectOption(JSON.stringify(["n2", "input"]));
   const dialog = page.getByRole("dialog", { name: "Replace connection?" });
   await expect(dialog.getByRole("button", { name: "Stay", exact: true })).toHaveCount(0);

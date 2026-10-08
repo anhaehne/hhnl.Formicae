@@ -8,6 +8,7 @@ public static class WorkflowNodeDefinitions
 
     public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document)
     {
+        if (WorkflowGraphDefinitions.IsGraph(document)) return WorkflowGraphDefinitions.Validate(document);
         if (document.Steps.Any(n => n.Uses == WorkflowDecisionDefinitions.Uses || n.Decision is not null)) return WorkflowDecisionDefinitions.Validate(document);
         if (document.Steps.Any(n => n.Uses == WorkflowParallelDefinitions.Uses || n.Parallel is not null)) return WorkflowParallelDefinitions.Validate(document);
         var errors = new List<WorkflowDefinitionValidationError>();
@@ -97,6 +98,12 @@ public static class WorkflowNodeDefinitions
 
     public static WorkflowDefinitionDocument Normalize(WorkflowDefinitionDocument document)
     {
+        if (WorkflowGraphDefinitions.IsGraph(document)) return document with
+        {
+            Triggers = document.Steps.Where(step => step.Trigger is not null).Select(step => new WorkflowDefinitionTrigger(
+                step.Id, step.Trigger!.Type, step.Trigger.Enabled, step.Trigger.RepositoryIds, step.Trigger.Label,
+                step.Trigger.BaseBranch, step.Trigger.Model, step.NextStepId)).ToArray()
+        };
         if (document.Schema != DefaultWorkflowDefinitions.V1Alpha3Schema) return document;
         var nodes = document.Steps.ToDictionary(n => n.Id, StringComparer.Ordinal);
         string Entry(string id)

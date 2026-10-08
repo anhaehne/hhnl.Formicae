@@ -230,7 +230,7 @@ public static class CustomTaskDefinitions
             if (loop is not null) return [loop.ExitStepId];
             if (node.Decision is { } decision) return [decision.TrueStepId, decision.FalseStepId];
             if (node.Parallel is { } parallel) return parallel.BranchStepIds.Concat(node.NextStepId is null ? [] : new[] { node.NextStepId });
-            return node.NextStepId is null ? [] : [node.NextStepId];
+            return WorkflowGraphDefinitions.Successors(node);
         }
         bool Reach(string start, string target, string? blocked = null)
         {
@@ -253,7 +253,8 @@ public static class CustomTaskDefinitions
             var output = producer is null ? null : OutputSchemaFor(producer).FirstOrDefault(output => output?.Name == binding.OutputName);
             if (input is null || output is null || input.ValueType != output.ValueType)
                 errors.Add(Error(consumer.Id, $"Binding '{name}' must reference a declared producer output with the same scalar type."));
-            else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id) || entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))
+            else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
+                || (!WorkflowGraphDefinitions.IsGraph(plan) && entries.Any(entry => Reach(entry, consumer.Id, producer.Id))))
                 errors.Add(Error(consumer.Id, $"Producer '{producer.Id}' must be guaranteed to execute before consumer '{consumer.Id}'; self, downstream and conditional sources are invalid."));
             else if (LoopFor(producer.Id) is { } producerLoop && producerLoop != LoopFor(consumer.Id))
                 errors.Add(Error(consumer.Id, "Bindings cannot leave a loop body or cross loops."));

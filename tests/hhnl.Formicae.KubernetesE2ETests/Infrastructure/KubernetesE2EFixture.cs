@@ -204,7 +204,7 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
             await db.GetService<IMigrator>().MigrateAsync("20260709152649_AddWorkflowTriggerEvents");
             await db.Database.ExecuteSqlRawAsync(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "legacy-0.7.4.sql")));
         }
-        // The fixed image must migrate on startup using the same PostgreSQL PVC.
+        // The fixed image must migrate on startup using the same PostgreSQL pod's test volume.
         await KubectlRequiredAsync(["scale", "deployment/formicae-api", "-n", Namespace, "--replicas=1"], TimeSpan.FromMinutes(1));
         await KubectlRequiredAsync(["rollout", "status", "deployment/formicae-api", "-n", Namespace, "--timeout=180s"], TimeSpan.FromMinutes(4));
     }

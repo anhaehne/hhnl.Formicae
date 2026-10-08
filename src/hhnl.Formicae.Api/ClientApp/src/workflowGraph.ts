@@ -63,7 +63,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
   const edges: Edge[] = [];
   for (const step of document.steps) {
     for (const [name, binding] of Object.entries(step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
-    if (step.nextStepId) edges.push({ id: `${step.id}:next`, source: step.id, target: step.nextStepId,
+    for (const target of [step.nextStepId, ...(step.nextStepIds ?? [])].filter((id): id is string => !!id)) edges.push({ id: `${step.id}:next:${target}`, source: step.id, target,
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
       label: step.nextStepPort === "join" ? "Join" : step.nextStepPort === "return" ? "Return" : step.uses === loopUses ? "Exit" : undefined });
@@ -82,11 +82,13 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
 export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string): WorkflowDefinitionDocument {
   return { schema: workflowSchema, startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
+    const additional = edges.filter(edge => edge.source === node.id && edge !== next && (edge.sourceHandle === "next" || !edge.sourceHandle)).map(edge => edge.target);
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
     const bindings = Object.fromEntries(edges.filter(edge => isDataEdge(edge) && edge.target === node.id).map(edge => [edge.targetHandle!.slice(5), { stepId: edge.source, outputName: edge.sourceHandle!.slice(7) }]));
     const customTask = node.data.customTask ? { ...node.data.customTask, bindings, inputs: Object.fromEntries(Object.entries(node.data.customTask.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined;
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
       nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
+      nextStepIds: additional.length ? additional : undefined,
       personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? customTask : undefined,
       aiSettingsId: node.data.uses === scriptUses ? undefined : node.data.aiSettingsId || undefined, model: node.data.uses === scriptUses ? undefined : node.data.model || undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,
@@ -141,5 +143,6 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
     return false;
   };
   const entries = [start, ...nodes.filter(node => node.data.uses === triggerUses).flatMap(node => next(node.id))];
-  return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && !entries.some(entry => reach(entry, producer));
+  const graph = nodes.some(node => node.data.uses !== parallelUses && control.filter(edge => edge.source === node.id && edge.sourceHandle === "next").length > 1);
+  return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph || !entries.some(entry => reach(entry, producer)));
 }

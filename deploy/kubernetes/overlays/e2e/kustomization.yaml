@@ -4,6 +4,26 @@ resources:
   - ../../base
   - gitea.yaml
 patches:
+  # Test databases need to survive API restarts, but not PostgreSQL pod replacement.
+  # Keep production storage in the base manifest; only E2E uses an ephemeral volume.
+  - target:
+      kind: PersistentVolumeClaim
+      name: formicae-postgres-data
+    patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: formicae-postgres-data
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: formicae-postgres
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes
+        value:
+          - name: postgres-data
+            emptyDir: {}
   - target:
       kind: ConfigMap
       name: formicae-config

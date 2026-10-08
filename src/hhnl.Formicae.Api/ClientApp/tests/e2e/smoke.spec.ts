@@ -12,6 +12,57 @@ async function addStep(page: Page, type: string) {
 }
 const apiUrl = "http://127.0.0.1:5000";
 
+test("ordinary outputs preserve parallel connections and joins when saved and reloaded", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  const name = `Task graph ${Date.now()}`;
+  const definition = await (await request.post(`${apiUrl}/api/workflow-definitions`, { data: { name } })).json();
+  const created = await request.post(`${apiUrl}/api/workflow-definitions/${definition.id}/versions`, { data: {
+    isEnabled: true, isDefault: false, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "start",
+      steps: [{ id: "start", uses: "builtins.plan", nextStepId: "a", nextStepIds: ["b"], displayName: "Start" },
+        { id: "a", uses: "builtins.plan", nextStepId: "join", displayName: "Branch A" },
+        { id: "b", uses: "builtins.plan", nextStepId: "join", displayName: "Branch B" },
+        { id: "join", uses: "builtins.plan", displayName: "Join" }] }
+  } });
+  expect(created.ok()).toBe(true);
+  await page.goto("/workflow-definitions"); await openWorkflow(page, name);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(4);
+  await page.locator('.react-flow__node[data-id="start"]').click();
+  await expect(page.getByRole("button", { name: "Disconnect a", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Disconnect b", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect b", exact: true }).click();
+  await expect(page.locator(".react-flow__edge")).toHaveCount(3);
+  await page.getByRole("combobox", { name: "Next step", exact: true }).selectOption(JSON.stringify(["b", "input"]));
+  await expect(page.locator(".react-flow__edge")).toHaveCount(4);
+  await expect(page.getByRole("button", { name: "Replace", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  await page.reload(); await openWorkflow(page, name);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(4);
+  const saved = await (await request.get(`${apiUrl}/api/workflow-definitions/${definition.id}`)).json();
+  const document = saved.versions[0].definition;
+  expect(document.steps.find((step: { id: string }) => step.id === "start").nextStepIds).toEqual(["b"]);
+  expect(document.steps.filter((step: { nextStepId: string }) => step.nextStepId === "join")).toHaveLength(2);
+  const started = await request.post(`${apiUrl}/api/workflows/github-issue`, { data: {
+    issueUrl: `https://example.test/issues/${Date.now()}`, repositoryUrl: "https://example.test/repository",
+    workflowDefinitionId: definition.id, workflowDefinitionVersionId: saved.versions[0].id
+  } });
+  expect(started.ok()).toBe(true);
+  const workflow = await started.json();
+  await expect.poll(async () => (await (await request.get(`${apiUrl}/api/workflows/${workflow.workflowId}`)).json()).status,
+    { timeout: 25_000 }).toBe(5);
+  const runs = await (await request.get(`${apiUrl}/api/workflows/${workflow.workflowId}/runs`)).json();
+  expect(runs).toHaveLength(4);
+  const joined = runs.find((run: { definitionStepId: string }) => run.definitionStepId === "join");
+  for (const run of runs.filter((run: { definitionStepId: string }) => ["a", "b"].includes(run.definitionStepId))) {
+    expect(run.status).toBe(2);
+    expect(Date.parse(run.completedAt)).toBeLessThanOrEqual(Date.parse(joined.startedAt));
+  }
+  await page.screenshot({ path: testInfo.outputPath("task-graph.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("step model picker discovers through CLI jobs and preserves saved selections", async ({ page, request }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

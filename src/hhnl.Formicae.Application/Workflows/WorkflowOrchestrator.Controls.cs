@@ -117,6 +117,25 @@ public sealed partial class WorkflowOrchestrator
             var running = (await store.ListTaskRunsAsync(workflow.Id, token)).Where(run => run.Status == TaskRunStatus.Running).ToArray();
             if (running.Length == 0) return false;
             var definition = await ResolveDefinitionAsync(workflow, token);
+            if (WorkflowGraphDefinitions.IsGraph(definition))
+            {
+                var changed = false;
+                foreach (var run in running)
+                {
+                    var result = await TryGetRunningAgentResultAsync(run, token);
+                    if (result is null) continue;
+                    if (run.Kind == TaskRunKind.Plan) result = ValidatePlanningResult(result);
+                    if (run.Kind == TaskRunKind.Custom) result = await ValidateCustomTaskResultAsync(workflow, run, result, token);
+                    if (run.Kind == TaskRunKind.Script && result.Succeeded)
+                        run.StructuredOutputsJson = System.Text.Json.JsonSerializer.Serialize(new { output = result.Output }, CustomExecutionJsonOptions);
+                    await CompleteTaskRunAsync(workflow, run, result, token);
+                    await AddAgentOutputLogAsync(workflow.Id, run, result, token);
+                    if (run.Kind == TaskRunKind.AddressComments && result.Succeeded)
+                        await sourceControl.UpsertPullRequestCommentAsync(workflow, PullRequestCommentMarkers.BuildAddressCommentsBody(workflow, result), token);
+                    changed = true;
+                }
+                return changed;
+            }
             var current = definition.Steps.SingleOrDefault(step => step.Id == workflow.CurrentDefinitionStepId);
             if (current?.Uses == WorkflowParallelDefinitions.Uses)
             {

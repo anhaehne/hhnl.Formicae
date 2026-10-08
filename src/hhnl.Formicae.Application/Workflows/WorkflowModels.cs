@@ -150,7 +150,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("environmentSnapshot")] EnvironmentSnapshot? EnvironmentSnapshot = null,
     [property: JsonPropertyName("script")] WorkflowScriptSettings? Script = null,
     [property: JsonPropertyName("capabilities")] IReadOnlyList<string>? Capabilities = null,
-    [property: JsonPropertyName("secretReferences")] IReadOnlyList<WorkflowSecretReference>? SecretReferences = null);
+    [property: JsonPropertyName("secretReferences")] IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
+    [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
