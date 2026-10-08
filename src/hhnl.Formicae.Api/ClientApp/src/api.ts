@@ -673,7 +673,8 @@ export type CustomTaskRunnerSettings = { kind: "agent"; timeoutSeconds: number }
 export type CustomTaskSnapshot = { id: string; revision: number; name: string; description: string; promptTemplate: string; inputs: CustomTaskInputDefinition[]; outputs?: CustomTaskOutputDefinition[]; runner: CustomTaskRunnerSettings };
 export type CustomTaskDefinition = CustomTaskSnapshot & { createdAt: string; updatedAt: string };
 export type CustomTaskInput = Omit<CustomTaskSnapshot, "id" | "revision">;
-export type WorkflowCustomTaskSettings = { taskId: string; bindings?: Record<string, CustomTaskInputBinding> | null; inputs?: Record<string, CustomTaskScalar> | null; snapshot?: CustomTaskSnapshot | null };
+export type AgentTaskDefinition = { promptTemplate: string; inputs: CustomTaskInputDefinition[]; runner: CustomTaskRunnerSettings; outputs?: CustomTaskOutputDefinition[] };
+export type WorkflowCustomTaskSettings = { taskId: string; definition?: AgentTaskDefinition | null; bindings?: Record<string, CustomTaskInputBinding> | null; inputs?: Record<string, CustomTaskScalar> | null; snapshot?: CustomTaskSnapshot | null };
 export type PreparedCustomTaskExecution = { taskId: string; revision: number; name: string; inputs: Record<string, CustomTaskScalar>; workflowFields: Record<string, CustomTaskScalar | null>; timeoutSeconds: number; prompt: string; formatVersion: number; provenance?: Record<string, CustomTaskInputProvenance> | null };
 export const listCustomTasks = () => send<CustomTaskDefinition[]>("/api/custom-tasks");
 export const createCustomTask = (input: CustomTaskInput) => send<CustomTaskDefinition>("/api/custom-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });

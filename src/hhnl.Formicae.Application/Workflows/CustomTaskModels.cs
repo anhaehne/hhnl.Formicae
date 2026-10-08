@@ -12,7 +12,8 @@ public sealed record CustomTaskSnapshot(string Id, int Revision, string Name, st
 {
     public IReadOnlyList<CustomTaskOutputDefinition> Outputs { get; init; } = Outputs ?? [];
 }
-public sealed record WorkflowCustomTaskSettings(string TaskId, IReadOnlyDictionary<string, JsonElement>? Inputs = null, CustomTaskSnapshot? Snapshot = null, IReadOnlyDictionary<string, CustomTaskInputBinding>? Bindings = null);
+public sealed record AgentTaskDefinition(string PromptTemplate, IReadOnlyList<CustomTaskInputDefinition> Inputs, CustomTaskRunnerSettings Runner, IReadOnlyList<CustomTaskOutputDefinition>? Outputs = null);
+public sealed record WorkflowCustomTaskSettings(string TaskId, IReadOnlyDictionary<string, JsonElement>? Inputs = null, CustomTaskSnapshot? Snapshot = null, IReadOnlyDictionary<string, CustomTaskInputBinding>? Bindings = null, AgentTaskDefinition? Definition = null);
 public sealed record CustomTaskResponse(string Id, int Revision, string Name, string Description, string PromptTemplate,
     IReadOnlyList<CustomTaskInputDefinition> Inputs, CustomTaskRunnerSettings Runner, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, IReadOnlyList<CustomTaskOutputDefinition>? Outputs = null)
 {

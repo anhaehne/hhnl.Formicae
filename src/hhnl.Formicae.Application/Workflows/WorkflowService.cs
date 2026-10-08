@@ -139,7 +139,7 @@ public sealed class WorkflowService
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
         if (parallel is null && definition is not null && !WorkflowGraphDefinitions.IsGraph(definition)
-            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or WorkflowExecutionExtensions.ScriptUses)
+            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses)
             && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
                 || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
         {
@@ -268,7 +268,7 @@ public sealed class WorkflowService
             }, cancellationToken);
             return workflow.ToSummary();
         }
-        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or WorkflowExecutionExtensions.ScriptUses) == true;
+        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses) == true;
         var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed
             && (!requiresCurrentTask || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
         if (failedRun is not null)

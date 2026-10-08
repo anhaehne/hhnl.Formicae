@@ -2,13 +2,14 @@ import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, StepSecretReference } from "./api";
 
 export const scriptUses = "builtins.script";
+export const agentTaskUses = "builtins.agent-task";
 export const customTaskUses = "builtins.custom-task";
 export const triggerUses = "builtins.trigger";
 export const decisionUses = "builtins.decision";
 export const parallelUses = "builtins.parallel";
 export const loopUses = "builtins.loop";
 export const workflowSchema = "formicae.workflow/v1alpha3";
-export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, scriptUses] as const;
+export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, agentTaskUses, scriptUses] as const;
 export type WorkflowStepNodeData = {
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
   personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
@@ -85,11 +86,11 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
     const additional = edges.filter(edge => edge.source === node.id && edge !== next && (edge.sourceHandle === "next" || !edge.sourceHandle)).map(edge => edge.target);
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
     const bindings = Object.fromEntries(edges.filter(edge => isDataEdge(edge) && edge.target === node.id).map(edge => [edge.targetHandle!.slice(5), { stepId: edge.source, outputName: edge.sourceHandle!.slice(7) }]));
-    const customTask = node.data.customTask ? { ...node.data.customTask, bindings, inputs: Object.fromEntries(Object.entries(node.data.customTask.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined;
+    const customTask = node.data.customTask ? { ...node.data.customTask, taskId: node.data.uses === agentTaskUses ? `agent:${node.id}` : node.data.customTask.taskId, bindings, inputs: Object.fromEntries(Object.entries(node.data.customTask.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined;
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
       nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
       nextStepIds: additional.length ? additional : undefined,
-      personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? customTask : undefined,
+      personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: [customTaskUses, agentTaskUses].includes(node.data.uses) ? customTask : undefined,
       aiSettingsId: node.data.uses === scriptUses ? undefined : node.data.aiSettingsId || undefined, model: node.data.uses === scriptUses ? undefined : node.data.model || undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
