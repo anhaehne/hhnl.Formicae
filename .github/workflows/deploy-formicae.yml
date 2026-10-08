@@ -110,7 +110,8 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.value }}"
-          worker_image="${REGISTRY}/${DOCKERHUB_NAMESPACE}/hhnl-formicae-worker:${version}"
+          image_tag="${version}"
+          worker_image="${REGISTRY}/${DOCKERHUB_NAMESPACE}/hhnl-formicae-worker:${image_tag}"
 
           release_values='{}'
           if helm status "${RELEASE_NAME}" --namespace "${RELEASE_NAMESPACE}" >/dev/null 2>&1; then
@@ -143,8 +144,8 @@ jobs:
           helm upgrade "${RELEASE_NAME}" "${CHART_DIR}" \
             --namespace "${RELEASE_NAMESPACE}" \
             --create-namespace \
-            --reuse-values \
-            --set "image.tag=${version}" \
+            --reset-then-reuse-values \
+            --set "image.tag=${image_tag}" \
             --set "config.jobRuntime=Kubernetes" \
             --set "config.kubernetesJobsImage=${worker_image}"
 
@@ -155,6 +156,19 @@ jobs:
           kubectl rollout status "deployment/${RELEASE_NAME}-api" \
             --namespace "${RELEASE_NAMESPACE}" \
             --timeout=180s
+
+      - name: Verify deployed revision and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${REGISTRY}/${DOCKERHUB_NAMESPACE}/hhnl-formicae-api:${{ steps.version.outputs.value }}"
+          actual="$(kubectl get deployment "${RELEASE_NAME}-api" --namespace "${RELEASE_NAMESPACE}" --output jsonpath='{.spec.template.spec.containers[0].image}')"
+          test "$actual" = "$expected"
+          echo "Verified API image: $actual"
+          kubectl port-forward "deployment/${RELEASE_NAME}-api" --namespace "${RELEASE_NAMESPACE}" 18080:8080 >/tmp/formicae-deployment-health.log 2>&1 &
+          forward_pid=$!
+          trap 'kill "$forward_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:18080/healthz
 
       - name: Capture failed rollout diagnostics
         if: failure()

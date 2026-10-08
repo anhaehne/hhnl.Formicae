@@ -48,7 +48,7 @@ test("Agent task pins an exact prepared build through rebuild reload and platfor
     await page.getByRole("complementary", { name: "Choose workflow" }).getByRole("button", { name: item.name, exact: true }).click();
     await page.getByLabel("Find a node").fill("agent"); await page.locator(".editor-search-results").getByRole("button", { name: /\(agent\)$/ }).click();
   }
-  async function latest() { return (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition.steps[0]; }
+  async function latest() { return (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition.steps.find((step: { id: string }) => step.id === "agent"); }
   await open(); await page.getByLabel("Execution image", { exact: true }).selectOption("managed");
   await page.getByLabel("Prepared image", { exact: true }).selectOption(image.id);
   await page.getByLabel("Prepared build", { exact: true }).selectOption(build.id);

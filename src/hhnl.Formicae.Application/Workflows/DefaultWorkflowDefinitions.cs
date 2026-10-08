@@ -14,7 +14,7 @@ public static class DefaultWorkflowDefinitions
     public static (WorkflowDefinition Definition, WorkflowDefinitionVersion Version) CreateMvp(DateTimeOffset? createdAt = null)
     {
         var now = createdAt ?? DateTimeOffset.UtcNow;
-        var document = CreateMvpDocument();
+        var document = CreateMvpEventDocument();
         var definition = new WorkflowDefinition
         {
             Id = MvpDefinitionId,
@@ -37,6 +37,12 @@ public static class DefaultWorkflowDefinitions
         return (definition, version);
     }
 
+    public static WorkflowDefinitionDocument CreateMvpEventDocument()
+        => new(V1Alpha3Schema, "manual-start", [
+            new("manual-start", "builtins.start", "plan", "Start", Event: WorkflowEventDefinitions.Configuration(new ManualEventSettings())),
+            .. CreateMvpDocument().Steps]);
+
+    // Legacy template retained for compatibility fixtures and old serialized definitions.
     public static WorkflowDefinitionDocument CreateMvpDocument()
         => new(
             V1Alpha1Schema,

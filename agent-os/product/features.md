@@ -1,0 +1,446 @@
+# Application feature baseline
+
+Scope: application behavior at version **0.23.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+
+This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
+
+Before implementing any feature or change, including fixes, refactoring, configuration, infrastructure or removals:
+
+1. Update the affected requirements and interactions here, identifying the proposed change and its implementation status.
+2. Obtain explicit product-owner approval of that revision; record the approver, date and approval reference in this document. Approval of a spec, issue or pull request must explicitly cover the baseline revision; silence is not approval.
+3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
+
+Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+
+Revision **workflow-start-nodes**, dated **2026-10-08**: **Approved for implementation**. Covers the start-node requirements and interactions below only; the remaining baseline draft is unchanged. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the summary of revision `workflow-start-nodes`.
+
+Revision **integration-event-nodes**, dated **2026-10-08**: **Approved for implementation**. Revises workflow start-node terminology and extensibility as specified below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the revised event-node baseline and implementation plan.
+
+Revision **managed-agent-images integration**, dated **2026-10-08**: documents implementation authorized before this baseline was introduced. Approver: **Product owner (conversation user)**. Approval references: **“Go ahed” / “Continue”** for the prepared-image implementation, followed by **“Merge main, push, and validate deployment”** for integration of the concrete verified result. This entry records that existing authorization; it does not extend implementation scope.
+
+- **1. Workflow design and automation**
+  - **Definitions and visual editor**
+    - **Requirements:**
+
+      - Create named definitions with immutable enabled/disabled versions and a selectable default.
+      - Edit nodes, settings and control/data connections with selection, duplication, deletion, undo/redo, arrangement, zoom and minimap.
+      - Validate prerequisites and node-specific errors before enabling a version.
+      - Preserve editor layout and guard unsaved edits.
+      - Pin each run to its definition version while keeping legacy definitions readable.
+
+    - **Interactions with other features:**
+
+      - Saving a version snapshots **Reusable custom tasks**, **Personas** and **Reusable profiles and inheritance** so catalog edits cannot change existing executions.
+      - Node settings select configurations from **AI configuration and authentication** to determine the agent and model used during execution.
+      - **Durable orchestration and runtimes** executes the saved graph, while **Execution investigation and history** displays the same pinned version.
+
+  - **Manual and issue-label starts**
+    - **Requirements:**
+
+      - Start from an issue URL, repository, base branch and model, optionally selecting a definition/version.
+      - Enabled start-only label triggers select connected repositories and optional branch/model overrides.
+      - Validate signed deliveries, audit matches and suppress duplicate delivery/trigger pairs and existing-issue starts.
+
+    - **Interactions with other features:**
+
+      - **Connected repositories** supplies trigger repository selections and default branches, while **Webhooks and provider feedback** delivers signed label events for matching.
+      - A matched trigger or manual start selects a version from **Definitions and visual editor** and queues execution through **Durable orchestration and runtimes**.
+      - The **Built-in development workflow** checks its planning and implementation labels after a run starts, so triggering alone does not authorize those phases.
+
+  - **Workflow start nodes — Implemented in 0.22.0; approved revision workflow-start-nodes**
+    - **Requirements:**
+
+      - Represent every workflow entrypoint as a first-class start node in the saved definition and visual editor, with explicit outgoing control connections to downstream work. Start nodes have no incoming control connections and do not launch agent workers.
+      - Allow a workflow to have at most one default manual start node. Manual start enters through that node; a workflow without one is trigger-only and cannot be started manually.
+      - Allow additional start nodes for webhooks and integration-provided triggers, including the existing GitHub/Gitea issue-label triggers. Keep event matching, enabled state, repository selections and supported branch/model overrides on the relevant start node; only the matching node starts that run.
+      - Validate and execute each entrypoint independently: schedule the work reachable from the selected start node, without waiting for other start nodes or their exclusive paths. Preserve existing graph, join, loop and decision restrictions for each entrypoint.
+      - Keep existing saved definitions and pinned executions readable. Adapt legacy manual task entrypoints to explicit manual start nodes when editing, preserve existing trigger behavior, and retain the selected start-node identity in new execution history and trigger audit records.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** creates, configures and connects start nodes and validates their entry routes before enabling a version. Start-node configuration is pinned with that version.
+      - **Connected repositories**, **GitHub and Gitea connections** and **Webhooks and provider feedback** supply provider access and validated events. Integration starts retain signature verification, delivery auditing and existing duplicate suppression; generic webhook starts require authenticated delivery and duplicate suppression as part of their approved delivery contract.
+      - **Durable orchestration and runtimes**, **Ordinary task graphs** and **Typed task data** resolve scheduling and producer availability from the selected entrypoint. **Execution investigation and history** identifies the start node that launched the run; the **Built-in development workflow** retains its planning and implementation gates.
+
+  - **Integration event nodes — Implemented in 0.22.0; approved revision integration-event-nodes**
+    - **Requirements:**
+
+      - Use **event** instead of **trigger** for the workflow entrypoint concept in the editor, application contracts and documentation. Provide a shared event-node contract and an integration registration mechanism for distinct event definitions, validation, settings and delivery matching; do not expose a universal event node with a selector containing every provider's options.
+      - Provide the manual **Start** event in application code, and an authenticated **Webhook** event as a separate built-in event definition. Retain at most one manual Start event per workflow, optional for workflows started only by external events. Event nodes have no incoming control connections, launch no agent worker, and connect to one execution entry.
+      - Have the GitHub integration contribute separate **Issue created** and **Label added** event nodes, matching signed `issues/opened` and `issues/labeled` deliveries respectively. Both select connected GitHub repositories and supported branch/model overrides; only Label added exposes a label filter. Retain existing Gitea label-start behavior through a separate Gitea-owned Label added event definition.
+      - Persist each event's stable type identity and its own configuration, pin these with the workflow version, and dispatch only matching enabled event nodes. Retain independent entry scheduling, authenticated/signed delivery validation, duplicate suppression, delivery audit and selected-event execution history.
+      - Keep old serialized trigger/start definitions, pinned runs and delivery audit records readable through compatibility adapters. Adapt existing definitions in editor drafts; update the built-in workflow template to include a Start event, and create new versions when upgrading existing workflows rather than rewriting saved versions. Verify distinct event catalog entries, provider-specific settings, signed GitHub issue-created/label-added matching, webhook delivery, manual execution and compatibility with E2E coverage.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** consumes registered built-in and integration event definitions to list distinct nodes and display only that event's settings. Integration registration supplies both backend behavior and editor metadata without a central provider-type selector.
+      - **GitHub and Gitea connections**, **Connected repositories** and **Webhooks and provider feedback** supply provider registration, connected-repository selection and validated deliveries. Existing workflow progression and planning/implementation gates continue to apply after entry.
+      - **Durable orchestration and runtimes**, **Typed task data** and **Execution investigation and history** resolve execution from the selected event node, retain its identity and preserve historical evidence. Compatibility adapters retain legacy serialized field names and database records where needed without destructive migration.
+
+  - **Ordinary task graphs**
+    - **Requirements:**
+
+      - Support sequential tasks, multiple successors, concurrent branches, nested forks, all-input joins and multiple terminal tasks.
+      - Schedule tasks after all predecessors succeed.
+      - Complete an execution after every reachable task succeeds.
+      - Reject cycles and unreachable join dependencies.
+      - Reject mixing multi-connection graphs with loop, decision or explicit parallel controls.
+
+    - **Interactions with other features:**
+
+      - **Durable orchestration and runtimes** launches runnable agent and **Shell scripts** tasks concurrently and waits for every predecessor before starting a join.
+      - **Typed task data** uses graph ancestry to validate producer availability, while its data connections do not schedule tasks.
+      - **Pause, resume, cancel and retry** retries failed tasks without rerunning successful siblings, whose attempts remain visible in **Execution investigation and history**.
+
+  - **Loops and explicit parallel groups**
+    - **Requirements:**
+
+      - Persist fixed-count loops with iteration/runtime bounds and iteration history.
+      - Explicit parallel groups run independent planning branches and wait at a join.
+      - Shared-branch writes are unsupported.
+      - Validate supported nesting and task placement.
+
+    - **Interactions with other features:**
+
+      - Loop iterations and parallel planning branches apply pinned **AI configuration and authentication**, **Personas** and **Reusable profiles and inheritance** settings to each task.
+      - **Typed task data** resolves loop outputs within the permitted iteration boundaries, while **Execution investigation and history** separates iteration and branch evidence.
+      - **Pause, resume, cancel and retry** pauses subsequent scheduling or terminates active branch workers through **Durable orchestration and runtimes**.
+
+  - **Decisions**
+    - **Requirements:**
+
+      - Choose exactly one True/False route using allowlisted typed sources/operators and explicit missing-value behavior.
+      - Support nested decisions and convergence in the outer graph.
+      - Reject decisions inside loop/parallel regions.
+      - Persist selected routes atomically and preserve them during retry.
+
+    - **Interactions with other features:**
+
+      - Decisions read persisted workflow and task evidence from **Durable orchestration and runtimes** to select exactly one execution route.
+      - **Typed task data** rejects bindings from producers that are not guaranteed to execute on the selected control paths.
+      - **Execution investigation and history** displays the recorded condition and route, while **Pause, resume, cancel and retry** preserves successful routing decisions.
+
+- **2. Tasks and AI behavior**
+  - **Built-in development workflow**
+    - **Requirements:**
+
+      - Run planning, implementation, pull request creation and comment handling in that order, subject to `ready-to-plan` and `ready-to-implement` gates.
+      - Publish or update marked plans and revise them from newer issue feedback.
+      - Create or reuse the branch and open the pull request.
+      - Process newer top-level and inline PR feedback, ignore automation comments, react when work starts and post summaries.
+      - Reopen completed feedback handling when notified, complete merged PRs and cancel closed-unmerged PRs.
+
+    - **Interactions with other features:**
+
+      - **GitHub and Gitea connections** provides issue content, comments and source-control operations, while **Connected repositories** identifies the repository and base branch.
+      - **AI configuration and authentication**, **Personas** and **Reusable profiles and inheritance** determine how planning, implementation and comment-handling workers execute.
+      - **Webhooks and provider feedback** wakes orchestration for new issue or PR feedback and updates workflow outcomes when the PR merges or closes.
+      - **Pause, resume, cancel and retry** reuses successful task results, while **Execution investigation and history** retains the conversation context and attempt evidence.
+
+  - **Reusable custom tasks**
+    - **Requirements:**
+
+      - Create, edit, enable/disable and delete revisioned prompt templates with typed inputs, defaults, timeout and optional persona.
+      - Run in a scratch workspace.
+      - Validate and freeze resolved inputs, rendered prompt and catalog snapshot before launch.
+      - Protect edits/deletion with expected revisions.
+      - Retain historical snapshots.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** adds custom-task nodes and pins their catalog revisions when saving a workflow version.
+      - **Typed task data** resolves template inputs before launch and validates declared outputs before downstream consumers can use them.
+      - **AI configuration and authentication**, **Personas** and **Reusable profiles and inheritance** supply the agent settings, instructions and scratch-workspace execution environment.
+      - **Execution investigation and history** displays the frozen prompt, inputs and outputs so later catalog edits do not obscure what ran.
+
+  - **Typed task data**
+    - **Requirements:**
+
+      - Declare named string/number/boolean outputs and validate completion JSON for names, required values, types and size limits.
+      - Bind each input to one guaranteed prior producer with matching type or provide a literal.
+      - Apply the documented optional/default rules and loop/path restrictions.
+      - Keep data edges separate from scheduling.
+      - Freeze producer attempt provenance and preparation across restart/retry.
+
+    - **Interactions with other features:**
+
+      - **Reusable custom tasks** produces validated scalar outputs, and **Shell scripts** supplies stdout that consumers receive through explicit input bindings.
+      - **Ordinary task graphs**, **Loops and explicit parallel groups** and **Decisions** determine which producers are guaranteed to complete before each consumer.
+      - **Pause, resume, cancel and retry** reuses frozen consumer preparation and clears a retried producer’s outputs to prevent stale results.
+      - **Execution investigation and history** exposes resolved inputs and producer attempt identities according to the [data contracts](../../docs/task-data-passing.md).
+
+  - **Personas**
+    - **Requirements:**
+
+      - Manage revisioned named instruction profiles, active state and deletion with concurrency checks.
+      - Preserve an immutable Default persona.
+      - Allow workflow defaults and task overrides.
+      - Snapshot effective instructions into saved workflow versions.
+      - Later catalog changes do not alter existing runs.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** resolves workflow defaults and task overrides into immutable persona snapshots when saving a version.
+      - The **Built-in development workflow** and **Reusable custom tasks** compose agent prompts with those pinned instructions before launching workers.
+      - **Execution investigation and history** shows the persona identity and instructions used by each task, even after the catalog changes.
+
+  - **AI configuration and authentication**
+    - **Requirements:**
+
+      - Manage named configurations, provider/model/API endpoint, credentials and runtime options.
+      - Support OpenHands API/cloud credentials and native Codex subscription execution, credential import/connect/reconnect and model discovery.
+      - Allow per-step AI selection and resolve the model from step override to workflow model to configuration default.
+      - Expose credential presence without returning secrets.
+      - **Planned:** Add execution for other ACP providers and Claude Pro support, as saved provider choices do not imply runtime support.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** selects per-step configurations and models, with unset models falling back to workflow and configuration defaults.
+      - **Durable orchestration and runtimes** runs login and discovery jobs and supplies the chosen credentials and model to agent workers.
+      - The **Built-in development workflow** and **Reusable custom tasks** use the selected agent configuration, while **Shell scripts** executes without AI credentials.
+
+- **3. Execution environments**
+  - **Reusable profiles and inheritance**
+    - **Requirements:**
+
+      - Manage revisioned profiles, active state, history and deletion with concurrency checks while preserving the immutable Default profile.
+      - Select a workflow default and a per-agent-step inherited/default/named profile.
+      - Pin resolved configurations in enabled workflow versions.
+      - Allow disabled drafts to retain unresolved selections.
+      - Cap task runtime with the selected environment limit.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** resolves workflow defaults and step overrides into pinned environment configurations when saving enabled versions.
+      - **Durable orchestration and runtimes** applies the pinned image, tools and timeout cap when launching each task, including loop iterations and retries.
+      - **Images and tool provisioning** and **MCP and browser/container capabilities** consume the selected profile to prepare the worker environment.
+      - **Execution investigation and history** displays the saved profile revision so catalog updates cannot change the explanation of an earlier run.
+
+  - **Images and tool provisioning**
+    - **Requirements:**
+
+      - Select compatible worker images, pull policy and Kubernetes image-pull Secret references.
+      - Install enabled named tools in order with bounded shell commands.
+      - Failed/timed-out bootstrap stops execution and emits logs.
+      - Custom images preserve the worker protocol.
+
+    - **Interactions with other features:**
+
+      - **Reusable profiles and inheritance** supplies the pinned image and ordered installation commands used by **Durable orchestration and runtimes** when starting workers.
+      - **MCP and browser/container capabilities** selects which tools are installed, while **Secret references** supplies selected aliases to worker processes.
+      - Installation failures prevent agent or **Shell scripts** execution and appear in **Live and retained logs**.
+      - Provisioning consumes the task deadline enforced by **Durable orchestration and runtimes**, as described in the [environment contracts](../../docs/workflow-environment-extensions.md).
+
+  - **MCP and browser/container capabilities**
+    - **Requirements:**
+
+      - Configure native Codex/OpenHands stdio or HTTP MCP servers with selected secret aliases.
+      - Inherit or explicitly select browser, nested-containers, named MCP and tool provisioning, with an empty selection provisioning none.
+      - Reserve native Playwright configuration.
+      - Reject unsupported runtime/capability combinations.
+      - Use capabilities to control provisioning without treating them as arbitrary code isolation.
+
+    - **Interactions with other features:**
+
+      - **Reusable profiles and inheritance** supplies server definitions, and **Secret references** resolves selected aliases into MCP authentication settings.
+      - **AI configuration and authentication** determines whether native Codex or OpenHands configuration is generated for the selected MCP servers.
+      - **Durable orchestration and runtimes** provisions selected browser tools or Kubernetes nested containers and rejects capabilities unsupported by the chosen runtime.
+      - Browser tools support application checks from **Deployment, diagnostics and future operations**, while worker bootstrap messages enter **Live and retained logs**.
+
+  - **Secret references**
+    - **Requirements:**
+
+      - Select operator-managed Secret keys and non-reserved worker environment aliases.
+      - Validate keys before launch and inject only selected values.
+      - Support configured container-runtime equivalents.
+      - Keep values out of configuration/history/evidence and mask known credentials in telemetry.
+      - Preserve external Secrets after cleanup.
+
+    - **Interactions with other features:**
+
+      - **Durable orchestration and runtimes** validates selected keys and injects their values under configured aliases before launching worker processes.
+      - **MCP and browser/container capabilities**, **Images and tool provisioning** and **Shell scripts** use those aliases for authenticated external access.
+      - **Roles and administration** restricts configuration access, while **Execution investigation and history** records references rather than secret values.
+      - **Live and retained logs** masks known selected values, although arbitrary task output can still expose unrelated or obfuscated secrets.
+
+  - **Shell scripts**
+    - **Requirements:**
+
+      - Run bounded `sh`/`bash` scripts in workspace or repository directories without AI credentials.
+      - Retain stdout/stderr and the actual exit code, failing on nonzero exit or timeout.
+      - Expose sanitized, bounded stdout as a named string output with truncation marked.
+      - Leave script changes uncommitted and unpushed unless explicitly handled elsewhere.
+      - Inherit tools only and reject agent-only capabilities.
+
+    - **Interactions with other features:**
+
+      - **Connected repositories** supplies checkout context for repository scripts, while workspace scripts execute without a repository checkout.
+      - **Images and tool provisioning** prepares selected tools and **Secret references** injects aliases before the script runs.
+      - **Typed task data** binds sanitized stdout to custom-task inputs and rejects values exceeding consumer limits.
+      - **Live and retained logs** receives stdout/stderr, while **Execution investigation and history** records the script exit code.
+      - **Pause, resume, cancel and retry** controls script scheduling and attempts through **Durable orchestration and runtimes**.
+
+- **4. Integrations and access management**
+  - **GitHub and Gitea connections**
+    - **Requirements:**
+
+      - Manage GitHub App credentials, installation discovery and generated webhook/callback URLs.
+      - Mint installation tokens for repository work.
+      - Manage Gitea endpoint/token configuration and webhook secrets.
+      - Allow integration editing and removal, deleting connected repository records when their integration is removed.
+      - **Planned:** Add Azure DevOps work-item, repository and PR integration.
+
+    - **Interactions with other features:**
+
+      - **Connected repositories** uses GitHub installation access or Gitea credentials to discover and connect repositories available for workflow operations.
+      - The **Built-in development workflow** uses provider adapters to read issues, manage branches, open PRs and publish plans or feedback summaries.
+      - **Webhooks and provider feedback** uses integration secrets to validate deliveries before starting or waking workflows.
+      - **Identity and invitations** uses GitHub App callbacks to establish authenticated users through external login.
+      - Removing an integration also removes its **Connected repositories** records so they are no longer available for new trigger selections.
+
+  - **Connected repositories**
+    - **Requirements:**
+
+      - Discover GitHub installation repositories.
+      - Connect Gitea repositories, retain URL/default branch metadata and disconnect individual repositories.
+      - Restrict workflow writes to configured repository access.
+
+    - **Interactions with other features:**
+
+      - **GitHub and Gitea connections** supplies the credentials and provider access needed to connect each repository.
+      - **Manual and issue-label starts** matches trigger selections against connected repository records and uses their default branch when no override exists.
+      - The **Built-in development workflow** performs branch and PR operations in the selected repository, while **Shell scripts** uses it for repository checkout.
+
+  - **Webhooks and provider feedback**
+    - **Requirements:**
+
+      - Validate GitHub/Gitea signatures.
+      - Handle supported issue-label, issue/comment, PR/comment/review events.
+      - Wake orchestration promptly.
+      - Avoid duplicate automation work and retain trigger delivery audit.
+      - Retain periodic polling for workflow progression.
+
+    - **Interactions with other features:**
+
+      - **GitHub and Gitea connections** supplies signing secrets so unverified deliveries cannot start or wake workflows.
+      - **Manual and issue-label starts** matches validated label events to enabled triggers and records delivery-to-execution audit links.
+      - The **Built-in development workflow** uses newer comments to revise plans or address PR feedback and uses merge/closure state to complete or cancel runs.
+      - **Durable orchestration and runtimes** wakes after supported deliveries and retains periodic polling to advance workflows between events.
+
+  - **Identity and invitations**
+    - **Requirements:**
+
+      - Support GitHub external login, persistent Identity users and logout.
+      - Activate an identity provider only after successful login and grant the activating user administration.
+      - Gate anonymous management access when a provider is enabled and restrict users without permission to invite redemption.
+      - Allow admins to create and list expiring hashed invite codes, showing raw codes only once.
+      - Redeem invites after login and grant administration under the current invite contract.
+
+    - **Interactions with other features:**
+
+      - **GitHub and Gitea connections** supplies GitHub identity-provider configuration, and successful provider activation grants the signed-in user administrative access.
+      - Invite redemption grants the administration role enforced by **Roles and administration**, while users without permissions remain on the invite-only screen.
+      - **Roles and administration** then determines which configuration pages, execution views and workflow commands the authenticated user can access.
+
+  - **Roles and administration**
+    - **Requirements:**
+
+      - List users/roles and assign `WorkflowViewer`, `WorkflowOperator` and `ManagementAdmin`.
+      - Higher roles include lower capabilities.
+      - Enforce read, workflow-command and configuration permissions when management authorization is enabled.
+      - Retain explicit trusted local-development bypass configuration.
+
+    - **Interactions with other features:**
+
+      - **Identity and invitations** establishes the signed-in user, whose assigned roles determine management capabilities when authorization is enabled.
+      - Viewer access permits **Execution investigation and history** and **Live and retained logs**, while operator access permits **Pause, resume, cancel and retry**.
+      - Administrator access permits changes to **Definitions and visual editor**, **AI configuration and authentication**, integration settings and reusable catalogs.
+      - **Definitions and visual editor** and execution controls hide or disable actions that the current user’s roles do not permit.
+
+- **5. Operations and platform**
+  - **Execution investigation and history**
+    - **Requirements:**
+
+      - Search/filter by text, status, definition, repository and date.
+      - Provide Running/Failed presets and locally saved views.
+      - Show the pinned read-only execution graph, task state/timing, skipped nodes, loop iterations, attempts, worker identity, errors, decisions and typed evidence.
+      - Support links to specific tasks/attempts and bounded evidence exports without provider credentials.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** supplies the pinned graph, which is overlaid with task states and attempts from **Durable orchestration and runtimes**.
+      - **Typed task data** supplies resolved inputs, outputs and producer provenance, while **Decisions** and **Loops and explicit parallel groups** supply route and iteration evidence.
+      - Selecting a task or attempt filters **Live and retained logs** to that execution context.
+      - **Pause, resume, cancel and retry** adds replacement attempts and control outcomes without removing evidence from previous attempts.
+
+  - **Live and retained logs**
+    - **Requirements:**
+
+      - Retain stdout/stderr/errors per task/attempt and filter by source/severity/text.
+      - Page older records and download bounded logs.
+      - Follow authenticated SSE with cursor replay and allow users to pause following.
+      - Deduplicate worker callbacks and reject stale attempts.
+      - Mark overflow/truncation and capture runtime-log fallback before cleanup.
+
+    - **Interactions with other features:**
+
+      - **Durable orchestration and runtimes** ingests worker callbacks and captures fallback runtime logs before worker cleanup.
+      - **Execution investigation and history** selects task and attempt identities to filter, stream or download the corresponding records.
+      - **Roles and administration** enforces viewer access to log history and streams, while **Secret references** supplies known values for masking.
+      - **Pause, resume, cancel and retry** preserves prior-attempt logs so retries and worker termination do not erase diagnostic evidence.
+
+  - **Pause, resume, cancel and retry**
+    - **Requirements:**
+
+      - Pause only new scheduling while running workers finish.
+      - Resume subsequent work.
+      - Persist cancellation intent and reconcile runtime termination, retrying cleanup after failures/restart.
+      - Support failed workflow/task retry with immutable prior attempts and successful-step reuse.
+      - Prevent retry while cleanup is pending.
+
+    - **Interactions with other features:**
+
+      - **Durable orchestration and runtimes** applies controls under scheduler locks and reconciles worker termination before allowing a replacement attempt.
+      - **Ordinary task graphs** and **Loops and explicit parallel groups** stop scheduling new work when paused while their running workers continue.
+      - **Typed task data** preserves prepared consumer inputs during retries, while successful sibling task results remain reusable.
+      - **Execution investigation and history** and **Live and retained logs** retain prior attempts and partial evidence under the [operations semantics](../../docs/workflow-execution-operations.md).
+
+  - **Durable orchestration and runtimes**
+    - **Requirements:**
+
+      - Schedule ephemeral Kubernetes Jobs or local Docker/Podman workers asynchronously.
+      - Poll/watch completion and enforce deadlines.
+      - Persist workflow/task state in PostgreSQL, apply migrations on startup, coordinate API schedulers with a distributed lock and reattach existing jobs after restart.
+      - Use fake adapters/in-memory storage for deterministic local development.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** supplies the pinned graph, and **Ordinary task graphs** identifies tasks whose predecessors have completed successfully.
+      - **AI configuration and authentication**, **Reusable profiles and inheritance** and **Secret references** provide the selected worker configuration before runtime launch.
+      - Worker completion persists task results for **Typed task data** and **Execution investigation and history**, while telemetry feeds **Live and retained logs**.
+      - **Pause, resume, cancel and retry** changes scheduling or cleanup intent that the runtime reconciles across API restarts.
+      - **AI configuration and authentication** also schedules login and model-discovery jobs through the same runtime infrastructure.
+
+  - **Deployment, diagnostics and future operations**
+    - **Requirements:**
+
+      - Provide API/UI and worker images, Kubernetes/kustomize/Helm assets, configuration/Secrets/RBAC, health checks, version reporting and matching release versions.
+      - Supply the local API/UI harness, browser smoke tests and Kubernetes E2E tests.
+      - Supply CI image/chart publishing, Helm deployment and rollout diagnostics.
+      - **Planned:** Add automatic retry/backoff, retention pruning, notifications and artifact storage after an approved baseline update.
+      - **Planned:** Add subworkflows, compensation, parallel shared-branch writes and task graphs combined with explicit control nodes after an approved baseline update.
+
+    - **Interactions with other features:**
+
+      - Deployment provisions the API, database and worker access required by **Durable orchestration and runtimes** to persist and execute workflows.
+      - Deployment configuration supplies provider credentials for **GitHub and Gitea connections** and operator-managed keys used by **Secret references**.
+      - The local harness and browser smoke suite exercise **Definitions and visual editor** and management pages with fake adapters.
+      - Kubernetes E2E checks verify **Durable orchestration and runtimes**, **Pause, resume, cancel and retry** and environment provisioning against the [deployment](../../docs/kubernetes-deployment.md) and [runtime configuration](../../docs/job-runtimes.md) contracts.
+
+## Managed agent images — authorized integration in 0.23.0
+
+Requirements: prepare inline/file-loaded Dockerfiles or connected-repository contexts in Manage → Images; retain immutable source revisions and asynchronous build attempts, bounded logs, cancellation/timeouts and older successful artifacts. Build with isolated rootless Kubernetes BuildKit Jobs and publish to a bundled scoped-token private registry or an external registry. Only pushed, digest-verified, worker-probed linux/amd64 builds are Ready. Administrator access controls mutations. Production builds remain opt-in and need node/pod-reachable TLS, scoped Secrets and compatible build nodes.
+
+Interactions: Agent tasks and environment profiles select an exact Ready build. Save Version freezes the server-resolved digest and pull settings; rebuilds and retries retain that snapshot. Node overrides change only image settings, preserving environment tools, MCP and timeouts. Workflow event nodes remain worker-free and cannot select execution images. Archive retains artifacts referenced by saved versions/history. Kubernetes is the initial private-image runtime; automatic GC, context archives, multi-architecture and secret build arguments are deferred. See [operator documentation](../../docs/managed-agent-images.md) and the [verified feature spec](../specs/2026-10-08-1707-managed-agent-images/plan.md).
+
+Deployment validation for the user-authorized managed-image integration uses increasing semantic release versions for the matching API and worker image tags, applies new chart defaults while retaining installation overrides, and verifies the deployed image plus HTTP health. Authorization references: “Merge main, push, and validate deployment” and “It should increase with version”; no feature scope is added.

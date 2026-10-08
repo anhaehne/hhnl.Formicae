@@ -4,7 +4,7 @@ hhnl.Formicae is a Kubernetes-native MVP for running agent workflows from DevOps
 
 ## Current MVP
 
-- ASP.NET Core API for manual workflow triggers and workflow reads.
+- ASP.NET Core API for manual Start events and workflow reads.
 - Management UI for workflows, AI settings, and GitHub integration setup.
 - Background orchestration loop that advances queued workflows.
 - PostgreSQL-ready EF Core persistence with an initial migration.
@@ -171,7 +171,7 @@ The Integrations page creates GitHub App configuration records, stores the GitHu
 
 Connected repositories can be removed from the Repositories page. Removing an integration from the Integrations page also removes its connected repository records.
 
-Workflow definition issue-label triggers select repositories from these integration-managed `ConnectedRepository` records. Trigger matching uses the repository URL and label from signed GitHub or Gitea webhooks, and trigger deliveries are audited in persistence with the provider, delivery id, trigger id, and linked workflow run.
+Workflow event nodes select repositories from these integration-managed `ConnectedRepository` records. GitHub contributes separate Issue created and Label added events, and Gitea contributes Label added. Each event owns its settings and matching; signed deliveries retain delivery-to-run audit links. Built-in Start and Webhook events are separate catalog entries. See [workflow event nodes](docs/workflow-start-nodes.md).
 
 For a GitHub App, configure:
 
@@ -198,3 +198,5 @@ See [docs/job-runtimes.md](docs/job-runtimes.md) for Docker, Podman, and Kuberne
 
 Planned configurable workflow architecture is documented in [docs/configurable-workflows-architecture.md](docs/configurable-workflows-architecture.md).
 Planned realtime workflow update architecture is documented in [docs/realtime-communication-architecture.md](docs/realtime-communication-architecture.md).
+
+Application feature requirements and approval records are maintained in [the feature baseline](agent-os/product/features.md).

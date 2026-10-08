@@ -27,6 +27,8 @@ public static class DependencyInjection
         services.AddScoped<WorkflowService>();
         services.AddScoped<WorkflowExecutionService>();
         services.AddScoped<WorkflowTriggerService>();
+        services.AddScoped<WorkflowEventService>();
+        services.AddSingleton(WorkflowEventRegistry.Default);
         services.AddScoped<WorkflowDefinitionService>();
         services.AddSingleton<WorkflowDefinitionValidator>();
         services.AddScoped<WorkflowOrchestrator>();

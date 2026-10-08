@@ -1,11 +1,11 @@
-# Managed agent images (0.22.0)
+# Managed agent images (0.23.0)
 
 Manage → Images prepares custom execution images before users select them in Agent tasks or environment profiles. Save an inline/uploaded Dockerfile (empty build context), or select an already connected repository, branch, Dockerfile path and context path. Repository builds resolve the branch to a commit before queuing. GitHub and Gitea use the existing repository adapters; Azure DevOps requires its repository adapter to be implemented. Inline Dockerfiles cannot COPY local files. Build arguments are supported through the API for non-secret values; credential uploads and archive contexts are outside this release.
 
 Start with the matching Formicae worker image, preferably pinned by digest:
 
 ```dockerfile
-FROM docker.io/limeray/hhnl-formicae-worker:0.22.0
+FROM docker.io/limeray/hhnl-formicae-worker:0.23.0
 RUN apt-get update && apt-get install -y --no-install-recommends jq \
     && rm -rf /var/lib/apt/lists/*
 ```
@@ -36,7 +36,7 @@ managedImages:
   enabled: true
   registry: images.example.com
   repositoryPrefix: formicae/installation-a
-  workerBaseImage: docker.io/limeray/hhnl-formicae-worker:0.22.0
+  workerBaseImage: docker.io/limeray/hhnl-formicae-worker:0.23.0
   buildNamespace: formicae-image-builds
   nodeSelector:
     formicae.io/image-builder: "true"
@@ -61,7 +61,7 @@ For an external registry, set `registryDeployment.enabled: false`, supply `pushS
 
 ## Operation and upgrades
 
-Version 0.22.0 startup applies the generated `AddManagedAgentImages` EF migration. Deploy matching API and worker versions. Old custom images may need rebuilding after worker protocol upgrades; an incompatible image fails explicitly without platform-image fallback.
+Version 0.23.0 startup applies the generated `AddManagedAgentImages` EF migration. Deploy matching API and worker versions. Old custom images may need rebuilding after worker protocol upgrades; an incompatible image fails explicitly without platform-image fallback.
 
 Back up PostgreSQL metadata, registry storage and operator-managed keys/Secrets together. Restore metadata and blobs together so pinned digests remain available. Registry manifest deletion is disabled for the bundled service. Archiving does not delete artifacts, and automatic garbage collection is not implemented: do not remove blobs referenced by saved versions or execution history. Monitor PVC capacity and provision more storage before it fills. Publication, authentication, node trust and storage failures leave a failed build with logs while preserving older Ready builds.
 

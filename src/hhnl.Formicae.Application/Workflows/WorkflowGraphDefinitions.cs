@@ -20,7 +20,7 @@ public static class WorkflowGraphDefinitions
         return reached;
     }
 
-    public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document)
+    public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document, bool allowAlternativeEntries = false)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
         void Error(string message, string? id = null) => errors.Add(new("definition.graph.invalid", message, "steps", id));
@@ -69,7 +69,7 @@ public static class WorkflowGraphDefinitions
             reached.UnionWith(Reachable(document, trigger.Id));
         foreach (var id in nodes.Keys.Except(reached)) Error("Task is not reachable from a workflow entry.", id);
         // A join cannot wait on a task that this execution entry will never activate.
-        foreach (var entry in new[] { document.StartStepId }.Concat(nodes.Values.Where(step => step.Trigger is not null).Select(step => step.NextStepId!)))
+        foreach (var entry in allowAlternativeEntries ? Enumerable.Empty<string>() : new[] { document.StartStepId }.Concat(nodes.Values.Where(step => step.Trigger is not null).Select(step => step.NextStepId!)))
         {
             var active = Reachable(document, entry);
             foreach (var step in nodes.Values.Where(step => step.Uses != WorkflowNodeDefinitions.TriggerUses && !active.Contains(step.Id)))

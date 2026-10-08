@@ -48,12 +48,18 @@ public sealed class WorkflowService
 
         var document = WorkflowDefinitionJson.Deserialize(definitionVersion.DefinitionJson)
             ?? throw new InvalidOperationException("Workflow definition is missing.");
+        var manualStart = WorkflowStartDefinitions.ManualStart(document);
+        if (triggerNodeId is null && WorkflowStartDefinitions.HasStartNodes(document)
+            && (manualStart is null || manualStart.Trigger?.Enabled != true))
+            throw new InvalidOperationException("This workflow has no enabled manual start node.");
+        if (triggerNodeId is not null && manualStart?.Id == triggerNodeId)
+            throw new InvalidOperationException("Manual Start events cannot be invoked as external events.");
         var plan = WorkflowNodeDefinitions.Normalize(document);
         var entry = plan.StartStepId;
         if (triggerNodeId is not null)
         {
             var trigger = plan.Triggers?.SingleOrDefault(t => t.Id == triggerNodeId && t.Enabled)
-                ?? throw new InvalidOperationException("The workflow trigger was not found or is disabled.");
+                ?? throw new InvalidOperationException("The workflow event was not found or is disabled.");
             entry = document.Schema == DefaultWorkflowDefinitions.V1Alpha3Schema ? trigger.NextStepId ?? entry : entry;
         }
         var workflow = new Workflow
@@ -71,17 +77,20 @@ public sealed class WorkflowService
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
+        var startNodeId = triggerNodeId ?? manualStart?.Id;
+        var queuedMessage = startNodeId is null ? "Workflow queued from manual GitHub issue event." : $"Workflow queued from event node '{startNodeId}'.";
         await store.AddEventAsync(new WorkflowEvent
         {
             WorkflowId = workflow.Id,
             Type = WorkflowEventTypes.WorkflowQueued,
-            Message = triggerNodeId is null ? "Workflow queued from manual GitHub issue trigger." : $"Workflow queued from trigger node '{triggerNodeId}'.",
+            Message = queuedMessage,
+            DetailsJson = JsonSerializer.Serialize(new { eventNodeId = startNodeId, startNodeId, entryStepId = entry }),
             CreatedAt = clock.UtcNow
         }, cancellationToken);
         await store.AddLogAsync(new WorkflowLog
         {
             WorkflowId = workflow.Id,
-            Message = "Workflow queued from manual GitHub issue trigger."
+            Message = queuedMessage
         }, cancellationToken);
 
         return workflow.ToSummary();

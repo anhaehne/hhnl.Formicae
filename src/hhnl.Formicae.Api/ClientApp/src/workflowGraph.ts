@@ -1,11 +1,14 @@
 import type { ImageSelection, PreparedImageSnapshot } from "./api";
+import { isEventUses, adaptEventStep } from "./workflowEvents";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, StepSecretReference } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowEventSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, StepSecretReference } from "./api";
 
 export const scriptUses = "builtins.script";
 export const agentTaskUses = "builtins.agent-task";
 export const customTaskUses = "builtins.custom-task";
 export const triggerUses = "builtins.trigger";
+export const startUses = "builtins.start";
+export const isStartUses = isEventUses;
 export const decisionUses = "builtins.decision";
 export const parallelUses = "builtins.parallel";
 export const loopUses = "builtins.loop";
@@ -16,13 +19,14 @@ export type WorkflowStepNodeData = {
   imageSelection?: ImageSelection | null; imageSnapshot?: PreparedImageSnapshot | null;
   personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
   script?: WorkflowScriptSettings | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null;
-  trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
+  event?: WorkflowEventSettings | null; trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
   [key: string]: unknown;
 };
 export type WorkflowStepNode = Node<WorkflowStepNodeData, "workflowStep">;
 
 export function createDefaultDefinitionDocument(): WorkflowDefinitionDocument {
-  return { schema: workflowSchema, startStepId: "plan", steps: [
+  return { schema: workflowSchema, startStepId: "manual-start", steps: [
+    { id: "manual-start", uses: startUses, displayName: "Manual start", nextStepId: "plan", event: { enabled: true } },
     { id: "plan", uses: "builtins.plan", nextStepId: "implement", displayName: "Plan" },
     { id: "implement", uses: "builtins.implement", nextStepId: "createPullRequest", displayName: "Implement" },
     { id: "createPullRequest", uses: "builtins.create-pull-request", nextStepId: "addressComments", displayName: "Create pull request" },
@@ -31,7 +35,7 @@ export function createDefaultDefinitionDocument(): WorkflowDefinitionDocument {
 }
 
 // Convert only an editor draft; the original persisted version is never rewritten.
-export function toNodeDefinition(document: WorkflowDefinitionDocument): WorkflowDefinitionDocument {
+function toLegacyNodeDefinition(document: WorkflowDefinitionDocument): WorkflowDefinitionDocument {
   if (document.schema === workflowSchema) return document;
   const ids = new Set(document.steps.map(step => step.id));
   const allocate = (prefix: string) => {
@@ -56,12 +60,27 @@ export function toNodeDefinition(document: WorkflowDefinitionDocument): Workflow
   return { schema: workflowSchema, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
 }
 
-export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes: WorkflowStepNode[]; edges: Edge[] } {
-  const document = toNodeDefinition(original);
+export function toNodeDefinition(original: WorkflowDefinitionDocument): WorkflowDefinitionDocument {
+  let document = toLegacyNodeDefinition(original);
+  const hadEvents = document.steps.some(step => step.uses === startUses || step.event);
+  document = { ...document, steps: document.steps.map(adaptEventStep) };
+  if (hadEvents) return document;
+  const steps = document.steps.map(step => step.uses === triggerUses ? { ...step, uses: startUses } : step);
+  let id = "manual-start", suffix = 2;
+  while (steps.some(step => step.id === id)) id = `manual-start-${suffix++}`;
+  const target = document.editor?.positions[document.startStepId];
+  steps.push({ id, uses: startUses, displayName: "Manual start", nextStepId: document.startStepId,
+    event: { enabled: true } });
+  return { ...document, startStepId: id, steps, editor: document.editor ? { ...document.editor,
+    positions: { ...document.editor.positions, [id]: { x: (target?.x ?? 0) - 350, y: target?.y ?? 80 } } } : undefined };
+}
+
+export function definitionToGraph(original: WorkflowDefinitionDocument, adaptStarts = true): { nodes: WorkflowStepNode[]; edges: Edge[] } {
+  const document = adaptStarts ? toNodeDefinition(original) : toLegacyNodeDefinition(original);
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
-      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
+      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, event: step.event, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
@@ -83,7 +102,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
 }
 
 export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string): WorkflowDefinitionDocument {
-  return { schema: workflowSchema, startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
+  return { schema: workflowSchema, startStepId: nodes.some(node => isStartUses(node.data.uses)) ? nodes.find(node => node.data.uses === startUses && (node.data.event || node.data.trigger?.type === "Manual"))?.id ?? "" : startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
     const additional = edges.filter(edge => edge.source === node.id && edge !== next && (edge.sourceHandle === "next" || !edge.sourceHandle)).map(edge => edge.target);
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
@@ -99,7 +118,8 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
         trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",
         falseStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "false")?.target ?? "" } : undefined,
       parallel: node.data.uses === parallelUses ? { branchStepIds: (node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => edges.find(edge => edge.source === node.id && edge.sourceHandle === `branch:${index}`)?.target ?? "") } : undefined,
-      trigger: node.data.uses === triggerUses ? node.data.trigger : undefined,
+      event: isStartUses(node.data.uses) ? node.data.event : undefined,
+      trigger: isStartUses(node.data.uses) && !node.data.event ? node.data.trigger : undefined,
       loop: node.data.uses === loopUses && node.data.loop ? { ...node.data.loop, bodyStepId: body?.target ?? "" } : undefined };
   }) };
 }
@@ -108,7 +128,7 @@ export function getEnabledDefinitionVersions(definitions: WorkflowDefinitionResp
   const versions: Array<{ definition: WorkflowDefinitionResponse; version: WorkflowDefinitionVersionResponse }> = [];
   for (const definition of definitions) {
     for (const version of definition.versions) {
-      if (version.isEnabled) {
+      if (version.isEnabled && (!version.definition.steps.some(step => step.event || step.uses === startUses) || version.definition.steps.some(step => step.uses === startUses && (step.event?.enabled || step.trigger?.type === "Manual" && step.trigger.enabled)))) {
         versions.push({ definition, version });
       }
     }
@@ -140,12 +160,12 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
     if (node?.data.uses === loopUses) return control.filter(edge => edge.source === id && edge.sourceHandle === "body").map(edge => edge.target);
     return control.filter(edge => edge.source === id).flatMap(edge => edge.targetHandle === "return" ? control.filter(exit => exit.source === edge.target && exit.sourceHandle === "exit").map(exit => exit.target) : [edge.target]);
   };
-  const reach = (entry: string, blocked?: string) => {
+  const reach = (entry: string, blocked?: string, target = consumer) => {
     const visited = new Set<string>(), pending = [entry];
-    while (pending.length) { const id = pending.pop()!; if (id === blocked || visited.has(id)) continue; if (id === consumer) return true; visited.add(id); pending.push(...next(id)); }
+    while (pending.length) { const id = pending.pop()!; if (id === blocked || visited.has(id)) continue; if (id === target) return true; visited.add(id); pending.push(...next(id)); }
     return false;
   };
-  const entries = [start, ...nodes.filter(node => node.data.uses === triggerUses).flatMap(node => next(node.id))];
+  const entries = [start, ...nodes.filter(node => isStartUses(node.data.uses)).flatMap(node => next(node.id))];
   const graph = nodes.some(node => node.data.uses !== parallelUses && control.filter(edge => edge.source === node.id && edge.sourceHandle === "next").length > 1);
-  return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph || !entries.some(entry => reach(entry, producer)));
+  return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph ? !entries.some(entry => reach(entry) && !reach(entry, undefined, producer)) : !entries.some(entry => reach(entry, producer)));
 }

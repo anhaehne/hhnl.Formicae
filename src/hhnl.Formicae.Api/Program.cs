@@ -99,6 +99,8 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var workflowDefinitions = scope.ServiceProvider.GetRequiredService<WorkflowDefinitionService>();
     await workflowDefinitions.EnsureDefaultWorkflowDefinitionAsync(CancellationToken.None);
+    await using var upgradeLock = await scope.ServiceProvider.GetRequiredService<IWorkflowOrchestrationLock>().TryAcquireAsync(CancellationToken.None);
+    if (upgradeLock is not null) await workflowDefinitions.UpgradeBuiltInWorkflowEventsAsync(CancellationToken.None);
 }
 
 app.MapHealthChecks("/healthz");
@@ -471,6 +473,8 @@ app.MapPost("/api/webhooks/gitea", async (
     GiteaWebhookHandler handler,
     CancellationToken cancellationToken) => await handler.HandleAsync(request, cancellationToken));
 
+app.MapWorkflowWebhookEndpoints();
+
 app.MapGet("/api/personas", async (PersonaService personas, CancellationToken token) => Results.Ok(await personas.ListAsync(token)))
     .RequireAuthorization(ManagementAuthorization.WorkflowView);
 app.MapGet("/api/personas/{id}", async (string id, PersonaService personas, CancellationToken token) =>
@@ -784,6 +788,8 @@ app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId
     };
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapGet("/api/workflow-events", (WorkflowEventRegistry registry) => Results.Ok(registry.Catalog));
+
 app.MapGet("/api/workflow-definitions", async (
     WorkflowDefinitionService workflowDefinitions,
     CancellationToken cancellationToken) => Results.Ok(await workflowDefinitions.ListAsync(cancellationToken)))
@@ -945,6 +951,10 @@ app.MapPost("/api/workflows/github-issue", async (
     catch (WorkflowDefinitionValidationException exception)
     {
         return Results.BadRequest(new { errors = exception.Errors });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
     }
 }).RequireAuthorization(ManagementAuthorization.WorkflowOperate);
 
