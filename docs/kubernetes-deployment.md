@@ -9,13 +9,17 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.22.0 Agent tasks
+
+Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Agent task definitions use the existing workflow JSON and agent execution protocol; no database migration is required. See [Agent tasks](agent-tasks.md).
+
 ## 0.21.0 task dependency graphs
 
-Deploy matching **0.21.0** API and worker images with the **0.21.0** Helm chart. Ordinary task outputs accept multiple connections; independent successor workloads run concurrently and every task waits for all incoming tasks to succeed. Existing sequential definitions and explicit parallel controls remain compatible. No new database migration is required for the graph connections, which are stored in immutable definition JSON and reuse persisted task executions. See [task graph connections](workflow-task-graphs.md) for scope and configuration.
+Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Ordinary task outputs accept multiple connections; independent successor workloads run concurrently and every task waits for all incoming tasks to succeed. Existing sequential definitions and explicit parallel controls remain compatible. No new database migration is required for the graph connections, which are stored in immutable definition JSON and reuse persisted task executions. See [task graph connections](workflow-task-graphs.md) for scope and configuration.
 
 ## 0.20.0 workflow and environment extensions
 
-Deploy matching **0.21.0** API and worker images with the **0.21.0** Helm chart. Startup applies the generated nullable script exit-code migration for tasks and attempts. Existing versions remain readable. Custom execution images should extend the matching worker image so they implement the current worker protocol. Operator-managed step and image-pull Secrets must exist in the configured worker namespace; the API service account uses its existing Secret get permission to validate selected references before launch. Values are never exposed through the configuration API.
+Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Startup applies the generated nullable script exit-code migration for tasks and attempts. Existing versions remain readable. Custom execution images should extend the matching worker image so they implement the current worker protocol. Operator-managed step and image-pull Secrets must exist in the configured worker namespace; the API service account uses its existing Secret get permission to validate selected references before launch. Values are never exposed through the configuration API.
 
 See [workflow environment extensions](workflow-environment-extensions.md) for scripts, capabilities, secret bindings, MCP configuration and tool installation.
 
@@ -33,7 +37,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.21.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.22.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 

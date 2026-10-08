@@ -7,6 +7,12 @@ namespace hhnl.Formicae.Application.Workflows;
 public static class CustomTaskDefinitions
 {
     public const string Uses = "builtins.custom-task";
+    public const string AgentUses = "builtins.agent-task";
+    public static bool IsAgentTask(string? uses) => uses is Uses or AgentUses;
+
+    private static CustomTaskSnapshot InlineSnapshot(WorkflowDefinitionStep step, AgentTaskDefinition definition) =>
+        new($"agent:{step.Id}", 1, step.DisplayName ?? "Agent task", "", definition.PromptTemplate,
+            definition.Inputs, definition.Runner, definition.Outputs);
     public const int MaximumPromptBytes = 131072;
     private const int MaximumInputBytes = 65536;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -62,12 +68,27 @@ public static class CustomTaskDefinitions
         foreach (var step in document.Steps)
         {
             var settings = step.CustomTask;
-            if (step.Uses != Uses)
+            if (!IsAgentTask(step.Uses))
             {
-                if (settings is not null) errors.Add(Error(step.Id, "Only Custom task nodes may carry custom task settings."));
+                if (settings is not null) errors.Add(Error(step.Id, "Only agent task nodes may carry custom task settings."));
                 steps.Add(step with { CustomTask = settings is null ? null : settings with { Snapshot = null } });
                 continue;
             }
+            if (step.Uses == AgentUses)
+            {
+                if (settings?.Definition is not { } definition)
+                {
+                    errors.Add(Error(step.Id, "Agent task settings are required."));
+                    steps.Add(step with { CustomTask = settings is null ? null : settings with { Snapshot = null } });
+                    continue;
+                }
+                var inline = InlineSnapshot(step, definition);
+                var configured = settings with { TaskId = inline.Id, Snapshot = inline, Inputs = Clone(settings.Inputs) };
+                errors.AddRange(ValidateSettings(configured).Select(message => Error(step.Id, message)));
+                steps.Add(step with { CustomTask = configured });
+                continue;
+            }
+            if (settings?.Definition is not null) errors.Add(Error(step.Id, "Inline definitions require an Agent task node."));
             CustomTaskSnapshot? snapshot = null;
             if (!string.IsNullOrWhiteSpace(settings?.TaskId))
             {
@@ -95,8 +116,18 @@ public static class CustomTaskDefinitions
         var errors = new List<WorkflowDefinitionValidationError>();
         foreach (var step in document.Steps)
         {
-            if (step.Uses == Uses) errors.AddRange(ValidateSettings(step.CustomTask).Select(message => Error(step.Id, message)));
-            else if (step.CustomTask is not null) errors.Add(Error(step.Id, "Only Custom task nodes may carry custom task settings."));
+            if (IsAgentTask(step.Uses))
+            {
+                errors.AddRange(ValidateSettings(step.CustomTask).Select(message => Error(step.Id, message)));
+                if (step.Uses == AgentUses)
+                {
+                    if (step.CustomTask?.Definition is not { } definition || step.CustomTask.Snapshot is not { } snapshot
+                        || JsonSerializer.Serialize(InlineSnapshot(step, definition), Json) != JsonSerializer.Serialize(snapshot, Json))
+                        errors.Add(Error(step.Id, "Agent task snapshot does not match its inline definition."));
+                }
+                else if (step.CustomTask?.Definition is not null) errors.Add(Error(step.Id, "Inline definitions require an Agent task node."));
+            }
+            else if (step.CustomTask is not null) errors.Add(Error(step.Id, "Only agent task nodes may carry custom task settings."));
         }
         errors.AddRange(ValidateBindings(document));
         return new(errors);

@@ -47,7 +47,7 @@ public sealed class KubernetesImageBuildRuntime(IKubernetesJobApi api, IOptions<
     private async Task PrepareAsync(ImageBuild build, CancellationToken token)
     {
         var source=ImageJson.Source(build.SourceJson);
-        var data=new Dictionary<string,string>();
+        var data=new Dictionary<string,string> { ["buildkitd.toml"] = O.AllowInsecureRegistryForTests ? "[registry.\""+O.Registry+"\"]\n  http = true\n  insecure = true\n" : "" };
         if(source.RepositoryUrl is null) data["Dockerfile"]=source.Dockerfile;
         else data["source"]=source.RepositoryUrl;
         await IgnoreConflict(()=>api.CreateConfigMapAsync(new V1ConfigMap { Metadata=new V1ObjectMeta { Name=JobName(build.Id,false), Labels=Labels(build) }, Data=data },Namespace,token));
@@ -171,7 +171,7 @@ public sealed class KubernetesImageBuildRuntime(IKubernetesJobApi api, IOptions<
         else
         {
             volumes.AddRange([new V1Volume{Name="context",EmptyDir=new V1EmptyDirVolumeSource{SizeLimit=new ResourceQuantity("256Mi")}},new V1Volume{Name="dockerfile",EmptyDir=new()},
-                new V1Volume{Name="input",ConfigMap=new V1ConfigMapVolumeSource{Name=name}},new V1Volume{Name="cache",EmptyDir=new V1EmptyDirVolumeSource{SizeLimit=new ResourceQuantity("8Gi")}},
+                new V1Volume{Name="builder-config",ConfigMap=new V1ConfigMapVolumeSource{Name=name,Items=[new V1KeyToPath{Key="buildkitd.toml",Path="buildkitd.toml"}]}},new V1Volume{Name="input",ConfigMap=new V1ConfigMapVolumeSource{Name=name}},new V1Volume{Name="cache",EmptyDir=new V1EmptyDirVolumeSource{SizeLimit=new ResourceQuantity("8Gi")}},
                 new V1Volume{Name="push",Secret=new V1SecretVolumeSource{SecretName=o.BundledRegistry?name+"-push":o.PushSecretName,Items=[new V1KeyToPath{Key=".dockerconfigjson",Path="config.json"}]}}]);
             var prepare=source.RepositoryUrl is null?"cp /input/Dockerfile /dockerfile/Dockerfile":RepositoryPreparation(source,build);
             init.Add(new V1Container {Name="prepare",Image=o.WorkerBaseImage,Command=["/bin/sh","-ec",prepare],Resources=Resources("100m","256Mi","1","512Mi"),
@@ -181,9 +181,9 @@ public sealed class KubernetesImageBuildRuntime(IKubernetesJobApi api, IOptions<
             if(source.Target is not null) args.AddRange(["--opt","target="+source.Target]);
             foreach(var pair in source.BuildArguments??new Dictionary<string,string>()) args.AddRange(["--opt","build-arg:"+pair.Key+"="+pair.Value]);
             containers.Add(new V1Container {Name="build",Image=o.BuilderImage,Command=args,Resources=Resources("250m","512Mi","2","2Gi"),
-                Env=[new(){Name="DOCKER_CONFIG",Value="/credentials"},new(){Name="BUILDKITD_FLAGS",Value="--oci-worker-no-process-sandbox"}],
+                Env=[new(){Name="DOCKER_CONFIG",Value="/credentials"},new(){Name="BUILDKITD_FLAGS",Value="--oci-worker-no-process-sandbox --config=/etc/buildkit/buildkitd.toml"}],
                 SecurityContext=new V1SecurityContext{RunAsUser=1000,RunAsGroup=1000,SeccompProfile=new V1SeccompProfile{Type="Unconfined"},AppArmorProfile=new V1AppArmorProfile{Type="Unconfined"}},
-                VolumeMounts=[new(){Name="context",MountPath="/context",ReadOnlyProperty=true},new(){Name="dockerfile",MountPath="/dockerfile",ReadOnlyProperty=true},new(){Name="push",MountPath="/credentials",ReadOnlyProperty=true},new(){Name="cache",MountPath="/home/user/.local/share/buildkit"}]});
+                VolumeMounts=[new(){Name="context",MountPath="/context",ReadOnlyProperty=true},new(){Name="dockerfile",MountPath="/dockerfile",ReadOnlyProperty=true},new(){Name="push",MountPath="/credentials",ReadOnlyProperty=true},new(){Name="builder-config",MountPath="/etc/buildkit",ReadOnlyProperty=true},new(){Name="cache",MountPath="/home/user/.local/share/buildkit"}]});
         }
         return new V1Job {Metadata=new V1ObjectMeta{Name=name,NamespaceProperty=ns,Labels=Labels(build)},Spec=new V1JobSpec{BackoffLimit=0,ActiveDeadlineSeconds=o.TimeoutSeconds,TtlSecondsAfterFinished=86400,
             Template=new V1PodTemplateSpec{Metadata=new V1ObjectMeta{Labels=Labels(build)},Spec=new V1PodSpec{RestartPolicy="Never",AutomountServiceAccountToken=false,ServiceAccountName=o.BuildServiceAccount.Length==0?null:o.BuildServiceAccount,
