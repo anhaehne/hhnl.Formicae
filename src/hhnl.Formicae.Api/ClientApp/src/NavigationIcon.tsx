@@ -1,4 +1,5 @@
 const paths = {
+  images: "M3 7 12 3l9 4v10l-9 4-9-4ZM3 7l9 4 9-4M12 11v10",
   workflows: "M9 5 19 12 9 19ZM3 5v14",
   "workflow-definitions": "M3 3h6v6H3zM15 15h6v6h-6zM9 6h6a3 3 0 0 1 3 3v6M6 9v9h9",
   integrations: "m8 3 4 4-5 5-4-4Zm4 14 5-5 4 4-5 5ZM10 10l4 4M2 2l3 3m14 14 3 3",

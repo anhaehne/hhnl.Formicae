@@ -46,7 +46,7 @@ public sealed partial class WorkflowOrchestrator
             else await AssignExternalJobAsync(workflow, run, started.ExternalId, token);
             await AddEventAsync(workflow.Id, run.Id, "AgentSettingsResolved", "Information", "Script execution settings resolved.",
                 new { executionAttemptId = run.ExecutionAttemptId, externalId = started.ExternalId,
-                    timeoutSeconds = prepared.Task.TimeoutSeconds, environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot, prepared.Task.Capabilities),
+                    timeoutSeconds = prepared.Task.TimeoutSeconds, environment = EnvironmentAudit(prepared.Task.OriginalEnvironmentSnapshot ?? prepared.Task.EnvironmentSnapshot, prepared.Task.Capabilities), imageSelection = prepared.Task.ImageSelection, imageSnapshot = prepared.Task.ImageSnapshot, effectiveImage = prepared.Task.EnvironmentSnapshot?.Configuration.Image,
                     capabilities = prepared.Task.Capabilities, secretReferences = prepared.Task.SecretReferences,
                     shell = prepared.Task.Script!.Shell, workingDirectory = prepared.Task.Script.WorkingDirectory }, token);
             return true;

@@ -10,15 +10,15 @@ namespace hhnl.Formicae.KubernetesE2ETests.Infrastructure;
 
 public sealed class KubernetesE2EFixture : IAsyncLifetime
 {
-    private const string ClusterName = "formicae-e2e";
+    private static string ClusterName => Environment.GetEnvironmentVariable("FORMICAE_E2E_CLUSTER_NAME") ?? "formicae-e2e";
     private const string Namespace = "formicae";
-    private const string ApiImage = "localhost/hhnl-formicae-api:e2e";
+    private static string ApiImage => Environment.GetEnvironmentVariable("FORMICAE_E2E_API_IMAGE") ?? "localhost/hhnl-formicae-api:e2e";
 
     private readonly List<Process> longRunningProcesses = [];
     private bool ownsCluster;
 
     public string RepositoryRoot { get; } = FindRepositoryRoot();
-    public string TempRoot { get; } = Path.Combine(Path.GetTempPath(), "formicae-e2e");
+    public string TempRoot { get; } = Path.Combine(Path.GetTempPath(), ClusterName);
     public string KubeconfigPath => Path.Combine(TempRoot, "kubeconfig");
     public string WorkerImage => Environment.GetEnvironmentVariable("FORMICAE_E2E_WORKER_IMAGE") is { Length: > 0 } image
         ? image : "localhost/hhnl-formicae-worker:e2e";
@@ -189,6 +189,7 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         var api = manifest["items"]!.AsArray().Single(item =>
             item!["kind"]!.GetValue<string>() == "Deployment" && item["metadata"]!["name"]!.GetValue<string>() == "formicae-api")!;
         api["spec"]!["replicas"] = 0;
+        api["spec"]!["template"]!["spec"]!["containers"]![0]!["image"] = ApiImage;
         api["spec"]!["template"]!["metadata"]!["labels"]!["app.kubernetes.io/instance"] = "formicae";
         var manifestPath = Path.Combine(TempRoot, "upgrade-manifest.json");
         await File.WriteAllTextAsync(manifestPath, manifest.ToJsonString());

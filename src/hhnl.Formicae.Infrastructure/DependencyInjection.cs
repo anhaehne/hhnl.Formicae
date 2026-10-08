@@ -1,3 +1,5 @@
+using hhnl.Formicae.Application.Images;
+using hhnl.Formicae.Infrastructure.Images;
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Containers;
@@ -36,6 +38,13 @@ public static class DependencyInjection
         services.AddScoped<PersonaService>();
         services.AddScoped<CustomTaskService>();
         services.AddScoped<EnvironmentService>();
+        services.AddScoped<ImageService>();
+        services.AddScoped<ImageBuildCoordinator>();
+        services.AddSingleton<RegistryTokens>();
+        services.AddSingleton(provider => new PreparedImagePolicy(provider.GetRequiredService<IOptions<ManagedImageOptions>>().Value.PullSecretNames));
+        services.Configure<ManagedImageOptions>(configuration.GetSection("ManagedImages"));
+        services.AddHttpClient("ManagedImageRegistry").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddScoped<IImageSourceResolver, ImageSourceResolver>();
         services.AddScoped<DevOpsIntegrationService>();
         services.AddScoped<ManagementUserService>();
         services.AddScoped<InviteService>();
@@ -82,11 +91,14 @@ public static class DependencyInjection
             services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
             services.AddSingleton<ICustomTaskStore, InMemoryCustomTaskStore>();
             services.AddSingleton<IEnvironmentStore, InMemoryEnvironmentStore>();
+            services.AddSingleton<IImageStore, InMemoryImageStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
             services.AddSingleton<IWorkItemProvider, FakeWorkItemProvider>();
             services.AddSingleton<ISourceControlProvider, FakeSourceControlProvider>();
             services.AddSingleton<IAgentRunner, FakeAgentRunner>();
+            services.AddSingleton<IImageSourceResolver, FakeImageSourceResolver>();
+            services.AddSingleton<IImageBuildRuntime, FakeImageBuildRuntime>();
             return services;
         }
 
@@ -98,6 +110,7 @@ public static class DependencyInjection
             services.AddSingleton<IPersonaStore, InMemoryPersonaStore>();
             services.AddSingleton<ICustomTaskStore, InMemoryCustomTaskStore>();
             services.AddSingleton<IEnvironmentStore, InMemoryEnvironmentStore>();
+            services.AddSingleton<IImageStore, InMemoryImageStore>();
             services.AddSingleton<IDevOpsIntegrationStore, InMemoryDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, InMemoryWorkflowOrchestrationLock>();
         }
@@ -109,9 +122,15 @@ public static class DependencyInjection
             services.AddScoped<IPersonaStore, EfPersonaStore>();
             services.AddScoped<ICustomTaskStore, EfCustomTaskStore>();
             services.AddScoped<IEnvironmentStore, EfEnvironmentStore>();
+            services.AddScoped<IImageStore, EfImageStore>();
             services.AddScoped<IDevOpsIntegrationStore, EfDevOpsIntegrationStore>();
             services.AddSingleton<IWorkflowOrchestrationLock, PostgresWorkflowOrchestrationLock>();
         }
+
+        if (configuration.GetValue("ManagedImages:Enabled", false)) {
+            services.AddSingleton<IKubernetesJobApi, KubernetesJobApi>();
+            services.AddScoped<IImageBuildRuntime, KubernetesImageBuildRuntime>();
+        } else services.AddSingleton<IImageBuildRuntime, DisabledImageBuildRuntime>();
 
         if (IsMode(configuration, "WorkItemMode", "Fake"))
         {

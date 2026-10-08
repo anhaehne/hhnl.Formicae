@@ -6,6 +6,17 @@ using System.Text.Json;
 using System.Threading.Channels;
 using hhnl.Formicae.Application.Workflows;
 
+if (args is ["--check-runtime"]) {
+    if (!OperatingSystem.IsLinux() || RuntimeInformation.ProcessArchitecture != Architecture.X64) return 1;
+    foreach (var command in new[] { "git", "sh", "node", "python3" }) {
+        using var check = Process.Start(new ProcessStartInfo("/bin/sh") { ArgumentList = { "-c", "command -v " + command }, RedirectStandardOutput = true, RedirectStandardError = true });
+        if (check is null) return 1;
+        await check.WaitForExitAsync();
+        if (check.ExitCode != 0) return 1;
+    }
+    Console.WriteLine("Formicae worker runtime protocol 1: linux/amd64 compatible.");
+    return 0;
+}
 var environment = WorkerEnvironment.Load();
 using var reporter = new WorkerReporter(environment.CallbackUrl, environment.CallbackSecret, environment.WorkflowId, environment.TaskKind, environment.ExternalId, environment.ExecutionAttemptId);
 using var shutdown = new CancellationTokenSource();

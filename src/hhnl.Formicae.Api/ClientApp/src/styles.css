@@ -1759,3 +1759,13 @@ pre.collapsed-content::after {
 .environment-extension { border-top: 1px solid #d7dbd2; margin-top: 24px; padding-top: 12px; }
 .environment-extension fieldset { display: grid; gap: 12px; min-width: 0; border: 1px solid #d7dbd2; border-radius: 8px; margin: 16px 0; padding: 16px; }
 .environment-extension .form-row > button { justify-self: start; align-self: end; }
+
+.images-page .personas-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 1rem; }
+.images-page .personas-layout > .panel { min-width: 0; }
+.images-page form { display: grid; gap: 1rem; }
+.image-dockerfile { font-family: monospace; tab-size: 2; }
+.image-reference { overflow-wrap: anywhere; font-size: .85rem; }
+.image-build { border-top: 1px solid var(--border-color, #ddd); padding: 1rem 0; }
+.image-build-logs { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-picker { display: grid; gap: .5rem; margin: .5rem 0; }
+@media (max-width: 800px) { .images-page .personas-layout { grid-template-columns: 1fr; } }

@@ -82,6 +82,8 @@ export type WorkflowDefinitionStep = {
   model?: string | null;
   personaId?: string | null;
   personaSnapshot?: PersonaSnapshot | null;
+  imageSelection?: ImageSelection | null;
+  imageSnapshot?: PreparedImageSnapshot | null;
   environmentId?: string | null;
   environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
@@ -685,7 +687,7 @@ export type WorkflowScriptSettings = { shell: "sh" | "bash"; script: string; tim
 export type EnvironmentImage = { reference: string; pullPolicy: "Always" | "IfNotPresent" | "Never"; pullSecretNames?: string[] | null };
 export type EnvironmentTool = { name: string; script: string; shell: "sh" | "bash"; timeoutSeconds: number };
 export type EnvironmentMcpServer = { name: string; transport: "stdio" | "http"; command?: string | null; arguments?: string[] | null; url?: string | null; environmentVariables?: Record<string, string> | null; bearerTokenEnvironmentVariable?: string | null; headerEnvironmentVariables?: Record<string, string> | null };
-export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: EnvironmentImage | null; tools: EnvironmentTool[]; mcpServers: EnvironmentMcpServer[] };
+export type EnvironmentConfiguration = { schemaVersion: number; runtime?: { timeoutLimitSeconds?: number | null } | null; image?: EnvironmentImage | null; imageSelection?: ImageSelection | null; imageSnapshot?: PreparedImageSnapshot | null; tools: EnvironmentTool[]; mcpServers: EnvironmentMcpServer[] };
 export type EnvironmentSnapshot = { id: string; revision: number; name: string; description: string; configuration: EnvironmentConfiguration };
 export type EnvironmentProfile = EnvironmentSnapshot & { builtIn: boolean; createdAt: string; updatedAt: string };
 export type EnvironmentInput = Pick<EnvironmentSnapshot, "name" | "description" | "configuration">;
@@ -732,3 +734,19 @@ export function controlWorkflow(workflowId: string, action: "pause" | "resume" |
  return send<WorkflowSummary>(`/api/workflows/${encodeURIComponent(workflowId)}/${action}`, { method: "POST" });
 }
 export function workflowEvidenceUrl(workflowId: string) { return `/api/workflows/${encodeURIComponent(workflowId)}/evidence`; }
+
+export type ImageSource = { dockerfile: string; repositoryUrl?: string | null; ref: string; dockerfilePath: string; contextPath: string; target?: string | null; buildArguments?: Record<string, string> | null; platform: string };
+export type ManagedImage = { id: string; name: string; description: string; revision: number; source: ImageSource; isArchived: boolean; createdAt: string; updatedAt: string };
+export type ImageBuild = { id: string; imageId: string; imageName: string; sourceRevision: number; state: string; commitSha?: string | null; reference?: string | null; failure?: string | null; logs: string; createdAt: string; updatedAt: string };
+export type ImageSelection = { mode: "inherit" | "platform" | "managed"; imageId?: string | null; buildId?: string | null };
+export type PreparedImageSnapshot = { imageId: string; buildId: string; sourceRevision: number; name: string; reference: string; pullPolicy: "IfNotPresent"; pullSecretNames: string[]; workerProtocolVersion: number; platform: string };
+export type ManagedImageInput = Pick<ManagedImage, "name" | "description" | "source">;
+export type ImageConfiguration = { enabled: boolean; developmentAdapter: boolean; workerBaseImage: string; pullSecretNames: string[] };
+export const imageConfiguration = () => send<ImageConfiguration>("/api/images/configuration");
+export const listImages = () => send<ManagedImage[]>("/api/images");
+export const createImage = (input: ManagedImageInput) => send<ManagedImage>("/api/images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+export const updateImage = (id: string, input: ManagedImageInput, expectedRevision: number) => send<ManagedImage>(`/api/images/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, expectedRevision }) });
+export const archiveImage = (id: string, expectedRevision: number) => sendNoContent(`/api/images/${encodeURIComponent(id)}?expectedRevision=${expectedRevision}`, { method: "DELETE" });
+export const listImageBuilds = (id: string) => send<ImageBuild[]>(`/api/images/${encodeURIComponent(id)}/builds`);
+export const queueImageBuild = (id: string, expectedRevision: number) => send<ImageBuild>(`/api/images/${encodeURIComponent(id)}/builds`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision }) });
+export const cancelImageBuild = (id: string, buildId: string) => send<ImageBuild>(`/api/images/${encodeURIComponent(id)}/builds/${encodeURIComponent(buildId)}/cancel`, { method: "POST" });

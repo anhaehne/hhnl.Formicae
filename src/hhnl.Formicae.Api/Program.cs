@@ -25,6 +25,7 @@ const string GitHubOAuthStateCookieName = ".Formicae.GitHubOAuthState";
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHealthChecks();
+builder.Services.AddHostedService<ImageBuildBackgroundService>();
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHubWebhooks"));
 builder.Services.AddSingleton<WorkflowTickNotifier>();
 builder.Services.AddSingleton<IWorkflowTickSignal>(serviceProvider => serviceProvider.GetRequiredService<WorkflowTickNotifier>());
@@ -494,6 +495,8 @@ app.MapDelete("/api/personas/{id}", async (string id, int expectedRevision, Pers
     catch (PersonaConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
     catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
+app.MapImageEndpoints();
 
 app.MapGet("/api/environments", async (EnvironmentService environments, CancellationToken token) => Results.Ok(await environments.ListAsync(token)))
     .RequireAuthorization(ManagementAuthorization.WorkflowView);

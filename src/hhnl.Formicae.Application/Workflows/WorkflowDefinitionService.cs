@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using hhnl.Formicae.Application.Integrations;
 
 namespace hhnl.Formicae.Application.Workflows;
@@ -9,7 +10,7 @@ public sealed class WorkflowDefinitionService(
     IClock? clock = null,
     PersonaService? personas = null,
     CustomTaskService? customTasks = null,
-    EnvironmentService? environments = null)
+    EnvironmentService? environments = null, ImageService? images = null, PreparedImagePolicy? imagePolicy = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
 
@@ -92,11 +93,12 @@ public sealed class WorkflowDefinitionService(
         var resolution = await PersonaDefinitions.ResolveAsync(request.Definition, personas, cancellationToken);
         var taskResolution = await CustomTaskDefinitions.ResolveAsync(resolution.Document, customTasks, cancellationToken);
         var environmentResolution = await EnvironmentDefinitions.ResolveAsync(taskResolution.Document, environments, cancellationToken);
-        var document = environmentResolution.Document;
+        var imageResolution = await ImageDefinitions.ResolveAsync(environmentResolution.Document, images, imagePolicy, cancellationToken);
+        var document = imageResolution.Document;
         if (request.IsEnabled)
         {
             var graphValidation = await ValidateGraphAndRepositoriesAsync(document, cancellationToken);
-            var validation = new WorkflowDefinitionValidationResult([.. graphValidation.Errors, .. resolution.Validation.Errors, .. taskResolution.Validation.Errors, .. environmentResolution.Validation.Errors]);
+            var validation = new WorkflowDefinitionValidationResult([.. graphValidation.Errors, .. resolution.Validation.Errors, .. taskResolution.Validation.Errors, .. environmentResolution.Validation.Errors, .. imageResolution.Validation.Errors]);
             if (!validation.IsValid)
             {
                 throw new WorkflowDefinitionValidationException(validation.Errors);
@@ -172,6 +174,7 @@ public sealed class WorkflowDefinitionService(
         if (validation.IsValid && document is not null) validation = PersonaDefinitions.ValidateRuntime(document);
         if (validation.IsValid && document is not null) validation = CustomTaskDefinitions.ValidateRuntime(document);
         if (validation.IsValid && document is not null) validation = EnvironmentDefinitions.ValidateRuntime(document);
+        if (validation.IsValid && document is not null) validation = ImageDefinitions.ValidateRuntime(document);
         if (!validation.IsValid)
         {
             throw new WorkflowDefinitionValidationException(validation.Errors);

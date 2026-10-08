@@ -1,3 +1,4 @@
+import ImagesPage from "./ImagesPage";
 import WorkflowExecutionPage from "./WorkflowExecutionPage";
 import WorkflowHistory from "./WorkflowHistory";
 import EnvironmentsPage from "./EnvironmentsPage";
@@ -76,9 +77,9 @@ type AiSettingsFormState = {
   subscriptionCredentialMountPath: string;
 };
 
-type Page = "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "custom-tasks" | "environments" | "settings";
+type Page = "images" | "workflows" | "workflow-definitions" | "integrations" | "repositories" | "users" | "personas" | "custom-tasks" | "environments" | "settings";
 
-const pages: Page[] = ["workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "custom-tasks", "environments", "settings"];
+const pages: Page[] = ["images", "workflows", "workflow-definitions", "integrations", "repositories", "users", "personas", "custom-tasks", "environments", "settings"];
 
 const pageDescriptions: Record<Page, string> = {
   workflows: "Follow execution and manage your workflow runs.",
@@ -86,6 +87,7 @@ const pageDescriptions: Record<Page, string> = {
   integrations: "Connect the services your workflows use.",
   repositories: "Manage repositories available to your workflows.",
   users: "Manage workspace access and permissions.",
+  images: "Prepare custom Dockerfile images for agent tasks.",
   environments: "Manage reusable runtime profiles for agent and script tasks.",
   "custom-tasks": "Define reusable agent tasks with typed inputs and recorded outputs.",
   personas: "Define reusable instructions and operating styles for agents.",
@@ -100,6 +102,7 @@ const pagePaths: Record<Page, string> = {
   "users": "/users",
   "personas": "/personas",
   "custom-tasks": "/custom-tasks",
+  images: "/images",
   environments: "/environments",
   "settings": "/settings"
 };
@@ -237,6 +240,7 @@ export default function App() {
     { page: "users", label: "Users", disabled: false },
     { page: "personas", label: "Personas", disabled: !canViewWorkflows },
     { page: "custom-tasks", label: "Custom tasks", disabled: !canViewWorkflows },
+    { page: "images", label: "Images", disabled: !canViewWorkflows },
     { page: "environments", label: "Environments", disabled: !canViewWorkflows },
     { page: "settings", label: "Settings", disabled: !canAdminister }
   ] satisfies Array<{ page: Page; label: string; disabled: boolean }>;
@@ -1063,7 +1067,7 @@ export default function App() {
       );
     }
 
-    if (activePage === "workflow-definitions" || activePage === "personas" || activePage === "custom-tasks" || activePage === "environments") return null;
+    if (activePage === "images" || activePage === "workflow-definitions" || activePage === "personas" || activePage === "custom-tasks" || activePage === "environments") return null;
 
     if (activePage === "integrations") {
       return (
@@ -1131,7 +1135,7 @@ export default function App() {
   }
 
   function renderActivePage() {
-    return activePage === "environments" ? (canViewWorkflows ? <EnvironmentsPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect environments.</p>) : activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
+    return activePage === "images" ? (canViewWorkflows ? <ImagesPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect images.</p>) : activePage === "environments" ? (canViewWorkflows ? <EnvironmentsPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect environments.</p>) : activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
         <>
           <section className="workspace-grid">
         <div className="left-stack">
@@ -2332,6 +2336,8 @@ function pageTitle(page: Page) {
       return "Repositories";
     case "users":
       return "Users";
+    case "images":
+      return "Images";
     case "environments":
       return "Environments";
     case "custom-tasks":

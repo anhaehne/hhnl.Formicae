@@ -1,0 +1,160 @@
+{{ if .Values.managedImages.enabled }}
+{{- $images := .Values.managedImages -}}
+{{- $registry := $images.registryDeployment -}}
+{{- $name := include "formicae.fullname" . -}}
+{{- $buildNs := default (printf "%s-image-builds" .Release.Namespace) $images.buildNamespace -}}
+{{- $_ := required "managedImages.registry must be reachable from Kubernetes nodes and builders" $images.registry -}}
+{{- $_ := required "managedImages.pullSecretNames must reference pull-only credentials in worker and build namespaces" $images.pullSecretNames -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $buildNs }}
+  labels:
+    # Rootless BuildKit needs unconfined seccomp/AppArmor and user namespaces.
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-image-builder
+  namespace: {{ $buildNs }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-image-builds
+  namespace: {{ $buildNs }}
+rules:
+  - apiGroups: [batch]
+    resources: [jobs, jobs/status]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [create, get, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-image-builds
+  namespace: {{ $buildNs }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "formicae.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-image-builds
+{{ if $images.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-image-builds
+  namespace: {{ $buildNs }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: formicae
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    {{- toYaml $images.networkPolicy.egress | nindent 4 }}
+{{ end }}
+{{ if $registry.enabled }}
+{{- $_ := required "Bundled registry requires tlsSecretName" $registry.tlsSecretName -}}
+{{- $_ := required "Bundled registry requires tokenSigningSecretName" $registry.tokenSigningSecretName -}}
+{{- $_ := required "Bundled registry requires credentialsSecretName" $registry.credentialsSecretName -}}
+{{- $_ := required "Bundled registry requires HTTPS tokenRealm" $registry.tokenRealm -}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-registry
+spec:
+  accessModes: [ReadWriteOnce]
+  {{ if $registry.storageClassName }}
+  storageClassName: {{ $registry.storageClassName | quote }}
+  {{ end }}
+  resources:
+    requests:
+      storage: {{ $registry.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-registry
+spec:
+  type: {{ $registry.serviceType }}
+  selector:
+    app.kubernetes.io/component: managed-registry
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-registry
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: managed-registry
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: managed-registry
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: registry
+          image: {{ $registry.image | quote }}
+          ports:
+            - containerPort: 5000
+          env:
+            - { name: REGISTRY_HTTP_ADDR, value: ":5000" }
+            - { name: REGISTRY_HTTP_TLS_CERTIFICATE, value: /tls/tls.crt }
+            - { name: REGISTRY_HTTP_TLS_KEY, value: /tls/tls.key }
+            - { name: REGISTRY_AUTH, value: token }
+            - { name: REGISTRY_AUTH_TOKEN_REALM, value: {{ $registry.tokenRealm | quote }} }
+            - { name: REGISTRY_AUTH_TOKEN_SERVICE, value: {{ $registry.tokenService | quote }} }
+            - { name: REGISTRY_AUTH_TOKEN_ISSUER, value: {{ $registry.tokenIssuer | quote }} }
+            - { name: REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE, value: /token/cert.crt }
+            - { name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY, value: /var/lib/registry }
+            - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "false" }
+          readinessProbe:
+            tcpSocket: { port: 5000 }
+          livenessProbe:
+            tcpSocket: { port: 5000 }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          volumeMounts:
+            - { name: storage, mountPath: /var/lib/registry }
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: token, mountPath: /token, readOnly: true }
+      volumes:
+        - name: storage
+          persistentVolumeClaim: { claimName: {{ $name }}-registry }
+        - name: tls
+          secret: { secretName: {{ $registry.tlsSecretName }} }
+        - name: token
+          secret:
+            secretName: {{ $registry.tokenSigningSecretName }}
+            items:
+              - { key: cert.crt, path: cert.crt }
+{{ else }}
+{{- $_ := required "External registry requires managedImages.pushSecretName" $images.pushSecretName -}}
+{{ end }}
+{{ end }}

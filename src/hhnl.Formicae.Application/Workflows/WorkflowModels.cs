@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -151,7 +152,9 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("script")] WorkflowScriptSettings? Script = null,
     [property: JsonPropertyName("capabilities")] IReadOnlyList<string>? Capabilities = null,
     [property: JsonPropertyName("secretReferences")] IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
-    [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null);
+    [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null,
+    [property: JsonPropertyName("imageSelection")] ImageSelection? ImageSelection = null,
+    [property: JsonPropertyName("imageSnapshot")] PreparedImageSnapshot? ImageSnapshot = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -660,7 +663,7 @@ public sealed record AgentTask(
     int? TimeoutSeconds = null,
     EnvironmentSnapshot? EnvironmentSnapshot = null,
     IReadOnlyList<string>? Capabilities = null, IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
-    WorkflowScriptSettings? Script = null);
+    WorkflowScriptSettings? Script = null, EnvironmentSnapshot? OriginalEnvironmentSnapshot = null, PreparedImageSnapshot? ImageSnapshot = null, ImageSelection? ImageSelection = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 

@@ -1,3 +1,4 @@
+import { ImagePicker } from "./ImagePicker";
 import { ScriptSettings, ExecutionSettings, defaultScript } from "./ExecutionSettings";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { CustomTaskSettings } from "./CustomTaskSettings";
@@ -47,6 +48,7 @@ export function Inspector({ workflowStart, environments, defaultEnvironmentId, s
     </section>
     {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
     {data.uses === scriptUses && <ScriptSettings value={data.script} disabled={disabled} onChange={script => update({ script })} />}
+    {workerTask && <ImagePicker value={data.imageSelection} snapshot={data.imageSnapshot} disabled={disabled} onChange={imageSelection => update({ imageSelection, imageSnapshot: undefined })} />}
     {workerTask && <ExecutionSettings capabilities={data.capabilities} references={data.secretReferences} environment={profile} script={data.uses === scriptUses} disabled={disabled} onChange={update} />}
     {data.uses === "builtins.custom-task" && <CustomTaskSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.customTask} tasks={customTasks} savedSnapshot={savedCustomSnapshot} disabled={disabled} onChange={customTask => update({ customTask })} />}
     {data.decision && <DecisionSettings condition={data.decision.condition} nodes={nodes} edges={edges} disabled={disabled} update={condition => update({ decision: { ...data.decision!, condition } })} />}

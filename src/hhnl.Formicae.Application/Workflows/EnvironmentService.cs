@@ -1,8 +1,9 @@
+using hhnl.Formicae.Application.Images;
 using System.Text.Json;
 
 namespace hhnl.Formicae.Application.Workflows;
 
-public sealed class EnvironmentService(IEnvironmentStore store, IClock? clock = null)
+public sealed class EnvironmentService(IEnvironmentStore store, IClock? clock = null, ImageService? images = null, PreparedImagePolicy? imagePolicy = null)
 {
     public const string DefaultEnvironmentId = "default";
     public static EnvironmentSnapshot DefaultSnapshot { get; } = new(DefaultEnvironmentId, 1, "Default environment", "", new());
@@ -20,7 +21,7 @@ public sealed class EnvironmentService(IEnvironmentStore store, IClock? clock = 
     {
         var now = clock.UtcNow;
         var environment = Normalize(new ExecutionEnvironmentProfile { Id = Guid.NewGuid().ToString("N"), Name = request.Name,
-            CreatedAt = now, UpdatedAt = now }, request.Name, request.Description, request.Configuration);
+            CreatedAt = now, UpdatedAt = now }, request.Name, request.Description, await ImageDefinitions.ResolveConfigurationAsync(request.Configuration ?? new(), images, imagePolicy, token));
         return Response(await store.CreateAsync(environment, token));
     }
     public async Task<EnvironmentResponse?> UpdateAsync(string id, UpdateEnvironmentRequest request, CancellationToken token)

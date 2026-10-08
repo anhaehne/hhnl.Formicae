@@ -112,7 +112,7 @@ public sealed partial class WorkflowOrchestrator
                     model = started.Model ?? prepared.Task.Model, personaId = prepared.Persona?.Id ?? "default",
                     personaRevision = prepared.Persona?.Revision ?? 1, personaName = prepared.Persona?.Name ?? "Default behavior",
                     prepared.Task.TimeoutSeconds, externalId = started.ExternalId, executionAttemptId = run.ExecutionAttemptId,
-                    environment = EnvironmentAudit(prepared.Task.EnvironmentSnapshot, prepared.Task.Capabilities), capabilities = prepared.Task.Capabilities, secretReferences = prepared.Task.SecretReferences }, token);
+                    environment = EnvironmentAudit(prepared.Task.OriginalEnvironmentSnapshot ?? prepared.Task.EnvironmentSnapshot, prepared.Task.Capabilities), imageSelection = prepared.Task.ImageSelection, imageSnapshot = prepared.Task.ImageSnapshot, effectiveImage = prepared.Task.EnvironmentSnapshot?.Configuration.Image, capabilities = prepared.Task.Capabilities, secretReferences = prepared.Task.SecretReferences }, token);
             return true;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)

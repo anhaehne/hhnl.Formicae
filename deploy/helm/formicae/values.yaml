@@ -117,3 +117,34 @@ rbac:
   create: true
 
 imagePullSecrets: []
+
+# Opt in after validating rootless BuildKit on the configured build nodes.
+managedImages:
+  enabled: false
+  registry: "" # Canonical node-reachable hostname (no scheme).
+  repositoryPrefix: formicae/local
+  workerBaseImage: "" # Defaults to the release worker; a digest is recommended.
+  builderImage: moby/buildkit:v0.28.0-rootless
+  buildNamespace: "" # Defaults to <release namespace>-image-builds.
+  nodeSelector: {}
+  concurrency: 2
+  timeoutSeconds: 1200
+  pushSecretName: "" # External mode: existing dockerconfigjson in build namespace.
+  pullSecretNames: [] # Existing pull-only dockerconfigjson Secrets in worker AND build namespaces.
+  externalTokenHosts: [] # Explicit HTTPS token-service host allowlist for external registries.
+  networkPolicy:
+    enabled: false
+    # Enable with cluster-specific rules for DNS, registry, source control, package mirrors.
+    egress: []
+  registryDeployment:
+    enabled: true
+    image: registry:3.0.0
+    storage: 20Gi
+    storageClassName: ""
+    serviceType: ClusterIP
+    tlsSecretName: "" # tls.crt/tls.key trusted by nodes and builders.
+    tokenSigningSecretName: "" # cert.crt/key.key; signing certificate also trusted by registry.
+    credentialsSecretName: "" # pull-password, at least 24 characters; API only.
+    tokenRealm: "" # Public HTTPS /api/registry/token, reachable by nodes and builders.
+    tokenIssuer: formicae-images
+    tokenService: formicae-registry

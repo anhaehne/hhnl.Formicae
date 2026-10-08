@@ -128,7 +128,7 @@ public sealed partial class WorkflowOrchestrator
                 new { nodeId = step.Id, aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
                     personaName = prepared.Persona?.Name ?? "Default behavior", externalId = started.ExternalId,
-                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot, task.Capabilities), capabilities = task.Capabilities, secretReferences = task.SecretReferences }, cancellationToken);
+                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.OriginalEnvironmentSnapshot ?? task.EnvironmentSnapshot, task.Capabilities), imageSelection = task.ImageSelection, imageSnapshot = task.ImageSnapshot, effectiveImage = task.EnvironmentSnapshot?.Configuration.Image, capabilities = task.Capabilities, secretReferences = task.SecretReferences }, cancellationToken);
             if (started.CompletedResult is not null)
             {
                 var result = ValidatePlanningResult(started.CompletedResult);

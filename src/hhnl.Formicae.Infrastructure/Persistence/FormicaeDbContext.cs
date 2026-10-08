@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using hhnl.Formicae.Application.Integrations;
 using hhnl.Formicae.Application.Management;
 using hhnl.Formicae.Application.Workflows;
@@ -27,9 +28,25 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
     public DbSet<ConnectedRepository> ConnectedRepositories => Set<ConnectedRepository>();
     public DbSet<InviteCode> InviteCodes => Set<InviteCode>();
 
+    public DbSet<ImageDefinition> ManagedImages => Set<ImageDefinition>();
+    public DbSet<ImageRevision> ManagedImageRevisions => Set<ImageRevision>();
+    public DbSet<ImageBuild> ManagedImageBuilds => Set<ImageBuild>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<ImageDefinition>(entity => {
+            entity.ToTable("managed_images"); entity.HasKey(x => x.Id); entity.Property(x => x.Revision).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<ImageRevision>(entity => {
+            entity.ToTable("managed_image_revisions"); entity.HasKey(x => new { x.ImageId, x.Revision });
+            entity.HasOne<ImageDefinition>().WithMany().HasForeignKey(x => x.ImageId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ImageBuild>(entity => {
+            entity.ToTable("managed_image_builds"); entity.HasKey(x => x.Id); entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.State).HasConversion<string>(); entity.HasIndex(x => new { x.State, x.CreatedAt });
+            entity.HasOne<ImageDefinition>().WithMany().HasForeignKey(x => x.ImageId).OnDelete(DeleteBehavior.Restrict);
+        });
 
         modelBuilder.Entity<Workflow>(entity =>
         {

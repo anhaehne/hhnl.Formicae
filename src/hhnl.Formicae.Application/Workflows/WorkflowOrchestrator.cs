@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using System.Text;
 using System.Text.Json;
 
@@ -699,7 +700,7 @@ public sealed partial class WorkflowOrchestrator(
                 new { aiSettingsId = started.AiSettingsId ?? task.AiSettingsId ?? AiSettings.DefaultId, model = started.Model ?? task.Model,
                     personaId = prepared.Persona?.Id ?? "default", personaRevision = prepared.Persona?.Revision ?? 1,
                     personaName = prepared.Persona?.Name ?? "Default behavior", externalId = started.ExternalId,
-                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.EnvironmentSnapshot, task.Capabilities), capabilities = task.Capabilities, secretReferences = task.SecretReferences }, cancellationToken);
+                    executionAttemptId = run.ExecutionAttemptId, environment = EnvironmentAudit(task.OriginalEnvironmentSnapshot ?? task.EnvironmentSnapshot, task.Capabilities), imageSelection = task.ImageSelection, imageSnapshot = task.ImageSnapshot, effectiveImage = task.EnvironmentSnapshot?.Configuration.Image, capabilities = task.Capabilities, secretReferences = task.SecretReferences }, cancellationToken);
             return started;
         }
         catch (Exception exception) when (launchAccepted || IsUncertainParallelTransport(exception, cancellationToken))
@@ -724,7 +725,9 @@ public sealed partial class WorkflowOrchestrator(
         {
             AiSettingsId = string.IsNullOrWhiteSpace(step?.AiSettingsId) ? null : step.AiSettingsId.Trim(),
             Model = string.IsNullOrWhiteSpace(step?.Model) ? task.Model : step.Model.Trim(),
-            EnvironmentSnapshot = step is null ? null : EnvironmentDefinitions.ResolveForTask(document, step),
+            EnvironmentSnapshot = step is null ? null : ImageDefinitions.EffectiveEnvironment(document, step),
+            OriginalEnvironmentSnapshot = step is null ? null : EnvironmentDefinitions.ResolveForTask(document, step),
+            ImageSnapshot = step?.ImageSnapshot, ImageSelection = step?.ImageSelection,
             Capabilities = step is null ? null : WorkflowExecutionExtensions.ResolveCapabilities(step, EnvironmentDefinitions.ResolveForTask(document, step)),
             SecretReferences = step?.SecretReferences ?? [],
             Script = step?.Script,
@@ -960,6 +963,8 @@ public sealed partial class WorkflowOrchestrator(
         var personaValidation = PersonaDefinitions.ValidateRuntime(document);
         if (!personaValidation.IsValid) throw new InvalidOperationException(string.Join(" ", personaValidation.Errors.Select(error => error.Message)));
         var taskValidation = CustomTaskDefinitions.ValidateRuntime(document);
+        var imageValidation = ImageDefinitions.ValidateRuntime(document);
+        if (!imageValidation.IsValid) throw new InvalidOperationException(string.Join(" ", imageValidation.Errors.Select(error => error.Message)));
         var environmentValidation = EnvironmentDefinitions.ValidateRuntime(document);
         if (!environmentValidation.IsValid) throw new InvalidOperationException(string.Join(" ", environmentValidation.Errors.Select(error => error.Message)));
         if (!taskValidation.IsValid) throw new InvalidOperationException(string.Join(" ", taskValidation.Errors.Select(error => error.Message)));

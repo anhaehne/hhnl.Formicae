@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,8 @@ public sealed record EnvironmentConfiguration
     public int SchemaVersion { get; init; } = 1;
     public EnvironmentRuntimeSettings? Runtime { get; init; }
     public EnvironmentImageSettings? Image { get; init; }
+    public ImageSelection? ImageSelection { get; init; }
+    public PreparedImageSnapshot? ImageSnapshot { get; init; }
     public IReadOnlyList<EnvironmentToolInstall> Tools { get; init; } = [];
     public IReadOnlyList<EnvironmentMcpServer> McpServers { get; init; } = [];
 }

@@ -1,3 +1,4 @@
+import type { ImageSelection, PreparedImageSnapshot } from "./api";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, StepSecretReference } from "./api";
 
@@ -11,6 +12,7 @@ export const workflowSchema = "formicae.workflow/v1alpha3";
 export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, scriptUses] as const;
 export type WorkflowStepNodeData = {
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
+  imageSelection?: ImageSelection | null; imageSnapshot?: PreparedImageSnapshot | null;
   personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
   script?: WorkflowScriptSettings | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
@@ -58,7 +60,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument): { nodes
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
-      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
+      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
@@ -89,7 +91,7 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
     return { id: node.data.stepId || node.id, uses: node.data.uses, displayName: node.data.displayName,
       nextStepId: node.data.uses === decisionUses ? undefined : next?.target ?? null, nextStepPort: next?.targetHandle === "return" ? "return" : next?.targetHandle === "join" ? "join" : null,
       nextStepIds: additional.length ? additional : undefined,
-      personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? customTask : undefined,
+      personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, imageSelection: node.data.imageSelection, imageSnapshot: node.data.imageSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: node.data.uses === customTaskUses ? customTask : undefined,
       aiSettingsId: node.data.uses === scriptUses ? undefined : node.data.aiSettingsId || undefined, model: node.data.uses === scriptUses ? undefined : node.data.model || undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,

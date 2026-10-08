@@ -1,3 +1,4 @@
+using hhnl.Formicae.Application.Images;
 using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,6 +19,18 @@ public static class EnvironmentDefinitions
         if (configuration.SchemaVersion != 1) Error("Environment configuration schema version must be 1.", "schemaVersion");
         if (configuration.Runtime?.TimeoutLimitSeconds is { } cap && (cap < 1 || cap > 3600))
             Error("Maximum task runtime must be between 1 and 3600 seconds.", "runtime.timeoutLimitSeconds");
+        if (configuration.ImageSelection is { } selection) {
+            if (selection.Mode == "managed") {
+                if (!ImageDefinitions.ValidSnapshot(selection, configuration.ImageSnapshot) || configuration.Image != ImageDefinitions.Settings(configuration.ImageSnapshot!)) {
+                    // Compare structural lists through the existing configuration equality helper.
+                    if (!ImageDefinitions.ValidSnapshot(selection, configuration.ImageSnapshot) || configuration.Image is null ||
+                        configuration.Image.Reference != configuration.ImageSnapshot!.Reference || configuration.Image.PullPolicy != configuration.ImageSnapshot.PullPolicy ||
+                        !(configuration.Image.PullSecretNames ?? []).SequenceEqual(configuration.ImageSnapshot.PullSecretNames ?? []))
+                        Error("Prepared image requires matching trusted build settings.", "imageSnapshot");
+                }
+            } else if (selection.Mode != "platform" || configuration.Image is not null || configuration.ImageSnapshot is not null || selection.ImageId is not null || selection.BuildId is not null)
+                Error("Invalid platform image selection.", "imageSelection");
+        } else if (configuration.ImageSnapshot is not null) Error("Prepared snapshot requires image selection.", "imageSnapshot");
         if (configuration.Image is { } image)
         {
             if (!EnvironmentImageReferences.IsValid(image.Reference)) Error("Image reference requires a lowercase Docker repository name, an optional tag of at most 128 characters, or a SHA-256 digest of 64 hexadecimal characters.", "image.reference");

@@ -18,6 +18,32 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  ManagedImages__Enabled: {{ .Values.managedImages.enabled | quote }}
+  ManagedImages__BundledRegistry: {{ .Values.managedImages.registryDeployment.enabled | quote }}
+  ManagedImages__Registry: {{ .Values.managedImages.registry | quote }}
+  ManagedImages__RepositoryPrefix: {{ .Values.managedImages.repositoryPrefix | quote }}
+  ManagedImages__WorkerBaseImage: {{ default (include "formicae.image" (dict "root" . "repository" .Values.worker.image.repository)) .Values.managedImages.workerBaseImage | quote }}
+  ManagedImages__BuilderImage: {{ .Values.managedImages.builderImage | quote }}
+  ManagedImages__BuildNamespace: {{ default (printf "%s-image-builds" .Release.Namespace) .Values.managedImages.buildNamespace | quote }}
+  ManagedImages__BuildServiceAccount: {{ include "formicae.fullname" . }}-image-builder
+  ManagedImages__PushSecretName: {{ .Values.managedImages.pushSecretName | quote }}
+  ManagedImages__Concurrency: {{ .Values.managedImages.concurrency | quote }}
+  ManagedImages__TimeoutSeconds: {{ .Values.managedImages.timeoutSeconds | quote }}
+  ManagedImages__TokenIssuer: {{ .Values.managedImages.registryDeployment.tokenIssuer | quote }}
+  ManagedImages__TokenService: {{ .Values.managedImages.registryDeployment.tokenService | quote }}
+  ManagedImages__SigningCertificatePath: "/registry-token/cert.crt"
+  ManagedImages__SigningKeyPath: "/registry-token/key.key"
+  {{- range $index, $name := .Values.managedImages.pullSecretNames }}
+  ManagedImages__PullSecretNames__{{ $index }}: {{ $name | quote }}
+  {{- end }}
+  {{- range $index, $host := .Values.managedImages.externalTokenHosts }}
+  ManagedImages__ExternalTokenHosts__{{ $index }}: {{ $host | quote }}
+  {{- end }}
+  {{- $index := 0 }}
+  {{- range $key, $value := .Values.managedImages.nodeSelector }}
+  ManagedImages__NodeSelector__{{ $index }}: {{ printf "%s=%s" $key $value | quote }}
+  {{- $index = add1 $index }}
+  {{- end }}
   name: {{ include "formicae.fullname" . }}-config
   labels:
     {{- include "formicae.labels" . | nindent 4 }}
