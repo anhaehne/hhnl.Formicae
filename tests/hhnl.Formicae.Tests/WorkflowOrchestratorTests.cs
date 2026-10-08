@@ -2721,8 +2721,10 @@ public sealed class AdapterContractTests
         Assert.Contains(api.CreatedJob.Spec.Template.Spec.Volumes, volume => volume.Secret.SecretName == "formicae-codex-auth");
     }
 
-    [Fact]
-    public async Task Kubernetes_runner_returns_waiting_message_when_pod_logs_are_not_ready()
+    [Theory]
+    [InlineData("container \"worker\" is waiting to start: ContainerCreating")]
+    [InlineData("container \"worker\" in pod \"formicae-codex-login-pod\" is not available")]
+    public async Task Kubernetes_runner_returns_waiting_message_when_pod_logs_are_not_ready(string message)
     {
         var api = new CapturingKubernetesJobApi
         {
@@ -2737,7 +2739,7 @@ public sealed class AdapterContractTests
                     }
                 }
             ],
-            PodLogException = new InvalidOperationException("container \"worker\" is waiting to start: ContainerCreating")
+            PodLogException = new InvalidOperationException(message)
         };
         var runner = new KubernetesJobRunner(api, Options.Create(new KubernetesJobOptions
         {

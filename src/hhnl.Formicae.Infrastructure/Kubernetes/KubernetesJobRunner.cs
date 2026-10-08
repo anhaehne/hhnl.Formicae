@@ -753,6 +753,8 @@ public sealed class KubernetesJobRunner(
 
     private static bool IsPodStartingLogUnavailable(Exception exception)
         => exception.Message.Contains("waiting to start", StringComparison.OrdinalIgnoreCase)
+            || (exception.Message.Contains("container", StringComparison.OrdinalIgnoreCase)
+                && exception.Message.Contains("is not available", StringComparison.OrdinalIgnoreCase))
             || exception.Message.Contains("ContainerCreating", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("PodInitializing", StringComparison.OrdinalIgnoreCase);
 
