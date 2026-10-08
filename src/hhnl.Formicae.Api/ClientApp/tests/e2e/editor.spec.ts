@@ -107,7 +107,7 @@ test("validation locates incomplete loop and disabled version remains saveable",
   await expect(page.getByLabel("Repeat count")).toBeVisible();
   await page.getByRole("button", { name: "Workflow settings", exact: true }).click(); await page.getByLabel("Enabled", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
-  expect((await persisted(request, item.id)).steps).toHaveLength(4);
+  expect((await persisted(request, item.id)).steps).toHaveLength(5);
 });
 
 test("view-only user can inspect and navigate but cannot edit", async ({ page, request }) => {
@@ -127,7 +127,7 @@ test("large workflow arranges without overlaps and remains searchable at respons
   page.on("pageerror", error => errors.push(error.message));
   await open(page, item.name);
   const positions = await page.locator(".react-flow__node").evaluateAll(nodes => nodes.map(node => ({ id: node.getAttribute("data-id"), transform: (node as HTMLElement).style.transform, box: node.getBoundingClientRect().toJSON() })));
-  expect(positions).toHaveLength(50); expect(new Set(positions.map(item => item.transform)).size).toBe(50);
+  expect(positions).toHaveLength(51); expect(new Set(positions.map(item => item.transform)).size).toBe(51);
   for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) {
     const a = positions[i].box, b = positions[j].box;
     expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top).toBeTruthy();
@@ -189,9 +189,9 @@ test("multi-selection deletion is one undo operation", async ({ page, request })
   await page.getByRole("button", { name: "Fit All", exact: true }).click();
   await page.locator('.react-flow__node[data-id="n1"]').click({ modifiers: ["Control"] });
   await page.getByRole("button", { name: "Delete", exact: true }).click();
-  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node')).toHaveCount(2);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.locator('.react-flow__node')).toHaveCount(3);
+  await expect(page.locator('.react-flow__node')).toHaveCount(4);
 });
 
 test("stale validation responses do not overwrite newer results", async ({ page, request }) => {
@@ -215,7 +215,7 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
 
-for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Trigger", "Loop", "Parallel", "Decision", "Custom task"]) {
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Webhook", "Loop", "Parallel", "Decision", "Custom task"]) {
   test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
     const item = await seed(request, 4);
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -239,7 +239,7 @@ for (const title of ["Plan", "Implement", "Create pull request", "Address commen
     await page.getByRole("button", { name: /Problems \(/ }).click();
     await page.screenshot({ path: testInfo.outputPath("added-node.png") });
     await expect.poll(async () => (await page.locator(".editor-canvas").boundingBox())?.height ?? 0).toBeGreaterThan(200);
-    await expect(page.locator(".react-flow__node")).toHaveCount(5);
+    await expect(page.locator(".react-flow__node")).toHaveCount(6);
     await page.getByRole("button", { name: "Fit All", exact: true }).click();
     for (const id of ["n0", "n1", "n2", "n3", "step5"]) await expect(page.locator(`.react-flow__node[data-id="${id}"]`)).toBeInViewport();
     await page.getByLabel("Display Name", { exact: true }).fill(`${title} edited`);
@@ -278,7 +278,10 @@ test("parallel branches connect through the inspector and persist named joins", 
   await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /Parallel/ }).click();
   await expect(page.getByRole("button", { name: "Duplicate task", exact: true })).toBeDisabled();
   await expect(page.getByLabel("Branch count", { exact: true })).toHaveValue("2");
-  await page.getByRole("button", { name: "Set as Start Step", exact: true }).click();
+  await find(page, "manual-start");
+  await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["step4", "input"]));
+  await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click();
+  await find(page, "step4");
   await page.getByLabel("Branch 1", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
   await page.getByLabel("Branch 2", { exact: true }).selectOption(JSON.stringify(["n1", "input"]));
   await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["n2", "input"]));
@@ -290,7 +293,8 @@ test("parallel branches connect through the inspector and persist named joins", 
   await page.getByRole("button", { name: "Save Version", exact: true }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   const saved = await persisted(request, item.id);
-  expect(saved.startStepId).toBe("step4");
+  expect(saved.startStepId).toBe("manual-start");
+  expect(saved.steps.find((step: { id: string }) => step.id === "manual-start").nextStepId).toBe("step4");
   expect(saved.steps.find((step: { id: string }) => step.id === "step4").parallel.branchStepIds).toEqual(["n0", "n1"]);
   expect(saved.steps.find((step: { id: string }) => step.id === "step4").nextStepId).toBe("n2");
   expect(saved.steps.filter((step: { nextStepPort?: string }) => step.nextStepPort === "join")).toHaveLength(2);
@@ -359,7 +363,10 @@ for (const outcome of [true, false]) test(`decision ${outcome} routes persist wi
   await page.getByLabel("Source value", { exact: true }).selectOption(String(outcome));
   await page.getByLabel("Compare to", { exact: true }).selectOption("true");
   await expect(page.getByLabel("Operator", { exact: true }).getByRole("option", { name: "Contains", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Set as Start Step", exact: true }).click();
+  await find(page, "manual-start");
+  await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["step4", "input"]));
+  await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click();
+  await find(page, "step4");
   await page.getByLabel("True route", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
   await page.getByLabel("False route", { exact: true }).selectOption(JSON.stringify(["n1", "input"]));
   for (const [route, target] of [["True", "n0"], ["False", "n1"]]) {

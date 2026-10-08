@@ -17,7 +17,7 @@ public sealed class GitHubWebhookHandler(
     IWorkflowStore store,
     IOptions<GitHubWebhookOptions> options,
     ILogger<GitHubWebhookHandler> logger,
-    WorkflowTriggerService? triggerService = null)
+    WorkflowEventService? triggerService = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -59,7 +59,7 @@ public sealed class GitHubWebhookHandler(
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
         var startedWorkflowIds = triggerService is null
             ? []
-            : await HandleIssueLabelTriggerAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
         var shouldTriggerWorkflowTick = ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
         if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
         {
@@ -107,8 +107,8 @@ public sealed class GitHubWebhookHandler(
         });
     }
 
-    private static async Task<IReadOnlyList<Guid>> HandleIssueLabelTriggerAsync(
-        WorkflowTriggerService triggerService,
+    private static async Task<IReadOnlyList<Guid>> HandleIssueEventAsync(
+        WorkflowEventService triggerService,
         string eventName,
         string deliveryId,
         GitHubWebhookEnvelope? envelope,
@@ -119,22 +119,22 @@ public sealed class GitHubWebhookHandler(
         var issueUrl = envelope?.Issue?.HtmlUrl;
         var label = envelope?.Label?.Name;
         if (!string.Equals(eventName, "issues", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(action, "labeled", StringComparison.OrdinalIgnoreCase)
+            || !(string.Equals(action, "labeled", StringComparison.OrdinalIgnoreCase) || string.Equals(action, "opened", StringComparison.OrdinalIgnoreCase))
             || string.IsNullOrWhiteSpace(repositoryUrl)
             || string.IsNullOrWhiteSpace(issueUrl)
-            || string.IsNullOrWhiteSpace(label))
+            || string.Equals(action, "labeled", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(label))
         {
             return [];
         }
 
-        return await triggerService.HandleIssueLabelEventAsync(new DevOpsIssueLabelTriggerEvent(
+        return await triggerService.HandleIntegrationEventAsync(new WorkflowIntegrationEvent(
             hhnl.Formicae.Application.Integrations.DevOpsProviderType.GitHub,
             deliveryId,
             eventName,
             action!,
             repositoryUrl!,
             issueUrl!,
-            label!,
+            label ?? "",
             envelope?.Repository?.FullName), cancellationToken);
     }
 

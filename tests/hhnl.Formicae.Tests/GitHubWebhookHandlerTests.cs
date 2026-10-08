@@ -169,7 +169,7 @@ public sealed class GitHubWebhookHandlerTests
         Assert.Equal(expected, GitHubWebhookHandler.ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest));
     }
 
-    private static async Task<WorkflowTriggerService> CreateTriggerServiceAsync(
+    private static async Task<WorkflowEventService> CreateTriggerServiceAsync(
         InMemoryWorkflowStore store,
         InMemoryDevOpsIntegrationStore integrations,
         DevOpsProviderType provider,
@@ -202,6 +202,6 @@ public sealed class GitHubWebhookHandlerTests
                 [new WorkflowDefinitionTrigger("triage", WorkflowTriggerType.DevOpsIssueLabel, true, [repository.Id], "formicae")])),
             CancellationToken.None);
         var workflows = new WorkflowService(store, workflowDefinitions: definitions);
-        return new WorkflowTriggerService(store, integrations, workflows);
+        return new WorkflowEventService(store, integrations, workflows);
     }
 }

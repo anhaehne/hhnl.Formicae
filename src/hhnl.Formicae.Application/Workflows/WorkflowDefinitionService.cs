@@ -13,6 +13,21 @@ public sealed class WorkflowDefinitionService(
 {
     private readonly IClock clock = clock ?? new SystemClock();
 
+    // Called once during startup under the orchestration lock; never rewrites a pinned definition.
+    public async Task UpgradeBuiltInWorkflowEventsAsync(CancellationToken cancellationToken)
+    {
+        var latest = await store.GetLatestWorkflowDefinitionVersionAsync(DefaultWorkflowDefinitions.MvpDefinitionId, cancellationToken);
+        if (latest is null || WorkflowDefinitionJson.Deserialize(latest.DefinitionJson) is not { } document
+            || WorkflowStartDefinitions.HasStartNodes(document) || document.Triggers?.Count > 0 || document.Loops?.Count > 0) return;
+        var id = "manual-start";
+        for (var suffix = 2; document.Steps.Any(step => step.Id == id); suffix++) id = $"manual-start-{suffix}";
+        var upgraded = document with { Schema = DefaultWorkflowDefinitions.V1Alpha3Schema, StartStepId = id,
+            Steps = [new(id, "builtins.start", document.StartStepId, "Start", Event: WorkflowEventDefinitions.Configuration(new ManualEventSettings())), .. document.Steps] };
+        if (!validator.Validate(upgraded).IsValid) return;
+        await CreateVersionAsync(DefaultWorkflowDefinitions.MvpDefinitionId,
+            new(null, latest.IsEnabled, latest.IsDefault, upgraded), cancellationToken);
+    }
+
     public async Task EnsureDefaultWorkflowDefinitionAsync(CancellationToken cancellationToken)
     {
         if (await store.GetDefaultEnabledWorkflowDefinitionVersionAsync(cancellationToken) is not null)
@@ -204,7 +219,7 @@ public sealed class WorkflowDefinitionService(
         CancellationToken cancellationToken)
     {
         var repositoryIds = WorkflowNodeDefinitions.Normalize(definition).Triggers?
-            .Where(trigger => trigger.Enabled && trigger.Type == WorkflowTriggerType.DevOpsIssueLabel)
+            .Where(trigger => trigger.Enabled && trigger.Type is WorkflowTriggerType.DevOpsIssueLabel or WorkflowTriggerType.DevOpsIssueCreated)
             .SelectMany(trigger => trigger.RepositoryIds)
             .Distinct()
             .ToArray() ?? [];
@@ -213,7 +228,20 @@ public sealed class WorkflowDefinitionService(
             return;
         }
 
-        var knownRepositoryIds = (await integrationStore.ListAllRepositoriesAsync(cancellationToken))
+        var repositories = await integrationStore.ListAllRepositoriesAsync(cancellationToken);
+        var integrations = await integrationStore.ListAsync(cancellationToken);
+        foreach (var node in definition.Steps.Where(node => node.Event is not null))
+        {
+            if (!WorkflowEventRegistry.Default.TryGet(node.Uses, out var eventDefinition) || eventDefinition.Descriptor.Provider is not { } provider) continue;
+            var settings = eventDefinition.Compile(node.Event!.Value);
+            foreach (var repositoryId in settings.RepositoryIds)
+            {
+                var repository = repositories.FirstOrDefault(item => item.Id == repositoryId);
+                if (repository is not null && !integrations.Any(item => item.Id == repository.DevOpsIntegrationId && item.ProviderType.ToString() == provider))
+                    throw new WorkflowDefinitionValidationException([new("definition.event.repository.provider", $"Event requires a {provider} repository.", "steps[].event.repositoryIds", node.Id)]);
+            }
+        }
+        var knownRepositoryIds = repositories
             .Select(repository => repository.Id)
             .ToHashSet();
         var unknown = repositoryIds

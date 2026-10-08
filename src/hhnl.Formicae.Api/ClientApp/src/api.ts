@@ -46,7 +46,11 @@ export type WorkflowDefinitionLoop = {
   exitStepId: string;
 };
 
-export type WorkflowTriggerType = "Manual" | "DevOpsIssueLabel";
+export type WorkflowEventSettings = { enabled: boolean; repositoryIds?: string[]; label?: string | null; baseBranch?: string | null; model?: string | null; webhookSecretName?: string | null; [key: string]: unknown };
+export type WorkflowEventDescriptor = { uses: string; title: string; description: string; provider?: string | null; manual: boolean; webhook: boolean; legacy: boolean; fields: { name: string; label: string; kind: string; required: boolean }[] };
+export const listWorkflowEventDefinitions = () => send<WorkflowEventDescriptor[]>("/api/workflow-events");
+
+export type WorkflowTriggerType = "Manual" | "DevOpsIssueLabel" | "Webhook" | "DevOpsIssueCreated";
 
 export type WorkflowDefinitionTrigger = {
   id: string;
@@ -58,7 +62,7 @@ export type WorkflowDefinitionTrigger = {
   model?: string | null;
 };
 
-export type WorkflowTriggerNodeSettings = Omit<WorkflowDefinitionTrigger, "id">;
+export type WorkflowTriggerNodeSettings = Omit<WorkflowDefinitionTrigger, "id"> & { webhookSecretName?: string | null };
 export type DecisionCondition = {
   source: "literal" | "workflowField" | "taskOutput";
   valueType: "string" | "number" | "boolean";
@@ -89,6 +93,7 @@ export type WorkflowDefinitionStep = {
   capabilities?: string[] | null;
   secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null;
+  event?: WorkflowEventSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
   decision?: WorkflowDecisionNodeSettings | null;

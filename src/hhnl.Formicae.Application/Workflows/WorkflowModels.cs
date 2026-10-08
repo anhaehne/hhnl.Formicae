@@ -51,7 +51,9 @@ public enum TaskRunStatus
 public enum WorkflowTriggerType
 {
     Manual,
-    DevOpsIssueLabel
+    DevOpsIssueLabel,
+    Webhook,
+    DevOpsIssueCreated
 }
 
 public sealed class Workflow
@@ -151,11 +153,12 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("script")] WorkflowScriptSettings? Script = null,
     [property: JsonPropertyName("capabilities")] IReadOnlyList<string>? Capabilities = null,
     [property: JsonPropertyName("secretReferences")] IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
-    [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null);
+    [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null,
+    [property: JsonPropertyName("event")] JsonElement? Event = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
-    string? Label, string? BaseBranch = null, string? Model = null);
+    string? Label, string? BaseBranch = null, string? Model = null, string? WebhookSecretName = null);
 
 public sealed record WorkflowLoopNodeSettings(
     string BodyStepId, int RepeatCount, int MaxIterations, int? TimeoutSeconds = null);
@@ -322,6 +325,12 @@ public sealed record StartGitHubIssueWorkflowRequest(
     Guid? WorkflowDefinitionId = null,
     Guid? WorkflowDefinitionVersionId = null);
 
+public sealed record WorkflowIntegrationEvent(
+    hhnl.Formicae.Application.Integrations.DevOpsProviderType ProviderType,
+    string DeliveryId, string EventName, string Action, string RepositoryUrl, string IssueUrl,
+    string? Label = null, string? RepositoryFullName = null);
+
+// Legacy caller compatibility; new integrations use WorkflowIntegrationEvent.
 public sealed record DevOpsIssueLabelTriggerEvent(
     hhnl.Formicae.Application.Integrations.DevOpsProviderType ProviderType,
     string DeliveryId,

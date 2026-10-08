@@ -170,7 +170,7 @@ public sealed class GiteaWebhookHandlerTests
         return integrations;
     }
 
-    private static async Task<WorkflowTriggerService> CreateTriggerServiceAsync(
+    private static async Task<WorkflowEventService> CreateTriggerServiceAsync(
         InMemoryWorkflowStore store,
         InMemoryDevOpsIntegrationStore integrations,
         string repositoryUrl)
@@ -196,6 +196,6 @@ public sealed class GiteaWebhookHandlerTests
                 [new WorkflowDefinitionTrigger("triage", WorkflowTriggerType.DevOpsIssueLabel, true, [repository.Id], "formicae")])),
             CancellationToken.None);
         var workflows = new WorkflowService(store, workflowDefinitions: definitions);
-        return new WorkflowTriggerService(store, integrations, workflows);
+        return new WorkflowEventService(store, integrations, workflows);
     }
 }

@@ -67,7 +67,7 @@ test("workflow personas preserve inheritance overrides and saved revision previe
   await find(page, "n1"); await page.getByLabel("Step persona", { exact: true }).selectOption(second.id);
   await find(page, "n2"); await page.getByLabel("Step persona", { exact: true }).selectOption("default");
   await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
-  const doc = await latest(request, item.id); expect(doc.defaultPersonaId).toBe(first.id); expect(doc.steps.map((step: { personaSnapshot: { id: string } }) => step.personaSnapshot.id)).toEqual([first.id, second.id, "default"]);
+  const doc = await latest(request, item.id); expect(doc.defaultPersonaId).toBe(first.id); expect(doc.steps.filter((step: { uses: string }) => step.uses !== "builtins.start").map((step: { personaSnapshot: { id: string } }) => step.personaSnapshot.id)).toEqual([first.id, second.id, "default"]);
   await request.put(`${api}/api/personas/${first.id}`, { data: { ...first, instructions: "Updated instructions", expectedRevision: 1 } });
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.getByRole("button", { name: "Workflow settings", exact: true }).click();

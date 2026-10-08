@@ -236,7 +236,7 @@ public sealed class WorkflowDefinitionTests
         Assert.NotNull(workflow);
         Assert.Equal(DefaultWorkflowDefinitions.MvpDefinitionId, workflow.WorkflowDefinitionId);
         Assert.Equal(DefaultWorkflowDefinitions.MvpVersionId, workflow.WorkflowDefinitionVersionId);
-        Assert.Equal(DefaultWorkflowDefinitions.V1Alpha1Schema, workflow.DslSchemaVersion);
+        Assert.Equal(DefaultWorkflowDefinitions.V1Alpha3Schema, workflow.DslSchemaVersion);
     }
 
     [Fact]

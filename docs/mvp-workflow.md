@@ -5,6 +5,8 @@ Configurable workflows are planned separately in [Configurable Workflows Archite
 
 ## Trigger
 
+From 0.22.0, workflow definitions expose manual, webhook and integration entrypoints as explicit [start nodes](workflow-start-nodes.md). The default Manual start connects to the first execution node; additional starts connect to their own entry paths. Trigger-only workflows omit the Manual start. Existing saved versions keep their original behavior.
+
 `POST /api/workflows/github-issue` manually creates a workflow from:
 
 - `issueUrl`
@@ -20,9 +22,9 @@ When no definition fields are supplied, Formicae uses the enabled default MVP de
 Plan -> Implement -> CreatePullRequest -> AddressComments
 ```
 
-Enabled workflow definition versions may also define `DevOpsIssueLabel` triggers. A trigger selects one or more integration-managed `ConnectedRepository` records and a label. After GitHub or Gitea webhook signature validation, an `issues/labeled` event starts the same issue workflow path when the payload repository URL and label match the trigger. The trigger can override the repository default branch and model; otherwise Formicae uses the connected repository default branch and normal model resolution.
+Enabled workflow versions can contain integration-owned event nodes: GitHub Issue created matches `issues/opened`; GitHub or Gitea Label added matches `issues/labeled` and its selected label. Events select connected repositories for that provider and can override the repository default branch and model. Deliveries must pass signature validation before matching and starting the selected event route. See [event nodes](workflow-start-nodes.md) for configuration and compatibility.
 
-Trigger delivery handling is audited in `workflow_trigger_events`. Audit rows record the provider, external delivery id, event/action, trigger id/type, workflow definition/version ids, payload summary, and linked workflow id. Formicae skips duplicate delivery/trigger pairs and skips starting a new run when the issue URL already has a workflow.
+Event delivery handling is audited in `workflow_trigger_events`. Audit rows record the provider, external delivery id, event/action, legacy trigger id/type columns, workflow definition/version ids, payload summary, and linked workflow id. Formicae skips duplicate delivery/event-node pairs and skips starting a new run when the issue URL already has a workflow.
 
 The workflow starts in `Queued` with `CurrentStep = None` and stores the selected workflow definition id, version id, and DSL schema version. The API background orchestrator monitors the work item provider under a PostgreSQL distributed lock and advances phases only when the issue has the expected labels: `ready-to-plan` starts planning, and `ready-to-implement` starts implementation after a plan exists.
 

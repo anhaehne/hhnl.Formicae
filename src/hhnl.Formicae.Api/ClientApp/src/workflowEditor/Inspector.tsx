@@ -1,51 +1,48 @@
+import { EventSettings } from "./EventSettings";
 import { ScriptSettings, ExecutionSettings, defaultScript } from "./ExecutionSettings";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { CustomTaskSettings } from "./CustomTaskSettings";
 import { PersonaPicker } from "./PersonaPicker";
 import { DecisionSettings } from "./DecisionSettings";
 import { StepIcon } from "./StepIcon";
-import { useEffect, useState } from "react";
 import type { Edge } from "@xyflow/react";
-import { getIntegration, listIntegrations, type IntegrationDetail, type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot, type EnvironmentProfile, type EnvironmentSnapshot } from "../api";
+import { type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot, type EnvironmentProfile, type EnvironmentSnapshot } from "../api";
 import { StepModelSettings } from "../StepModelSettings";
-import { scriptUses, loopUses, triggerUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
+import { scriptUses, loopUses, isStartUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
 import { titleFor } from "./catalog";
 
-type Props = { workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
+type Props = { webhookUrl?: string; workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
   update: (values: Partial<WorkflowStepNodeData>) => void; rename: (id: string) => void; move: (axis: "x" | "y", value: number) => void;
   resizeBranches: (count: number) => void;
-  connect: (port: string, target?: string, targetPort?: string) => void; disconnect: (edgeId: string) => void; start: () => void; close: () => void; begin: () => void; commit: () => void };
-export function Inspector({ workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, start, close, begin, commit }: Props) {
-  const [integrations, setIntegrations] = useState<IntegrationDetail[]>([]);
-  const [repositoryError, setRepositoryError] = useState("");
-  useEffect(() => { if (node.data.uses !== triggerUses) return; let canceled = false; listIntegrations().then(items => Promise.all(items.map(item => getIntegration(item.id)))).then(items => { if (!canceled) setIntegrations(items); }).catch(() => { if (!canceled) setRepositoryError("Could not load connected repositories. Reopen this inspector to retry."); }); return () => { canceled = true; }; }, []);
+  connect: (port: string, target?: string, targetPort?: string) => void; disconnect: (edgeId: string) => void; close: () => void; begin: () => void; commit: () => void };
+export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, close, begin, commit }: Props) {
   const data = node.data;
-  const workerTask = ![loopUses, triggerUses, parallelUses, decisionUses, "builtins.create-pull-request"].includes(data.uses);
+  const workerTask = ![loopUses, parallelUses, decisionUses, "builtins.create-pull-request"].includes(data.uses) && !isStartUses(data.uses);
   const profileId = data.environmentId ?? defaultEnvironmentId ?? "default";
   const profile = environments.find(item => item.id === profileId) ?? (savedEnvironmentSnapshot?.id === profileId ? savedEnvironmentSnapshot : undefined);
   const connection = (port: string, label: string) => {
     const edge = edges.find(edge => edge.source === node.id && edge.sourceHandle === port);
     return <label><span>{label}</span><select aria-label={label} disabled={disabled} value={edge ? JSON.stringify([edge.target, edge.targetHandle || "input"]) : ""} onChange={event => { const value = event.target.value; if (!value) connect(port); else { const [target, targetPort] = JSON.parse(value); connect(port, target, targetPort); } }}>
       <option value="">Not connected</option>
-      {nodes.filter(other => other.id !== node.id && other.data.uses !== triggerUses && (port !== "body" || (other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || other.data.uses === "builtins.plan")).flatMap(other => [
+      {nodes.filter(other => other.id !== node.id && !isStartUses(other.data.uses) && (port !== "body" || (other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || other.data.uses === "builtins.plan")).flatMap(other => [
         <option key={other.id} value={JSON.stringify([other.id, "input"])}>{other.data.displayName} ({other.id})</option>,
-        ...(other.data.uses === loopUses && data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses ? [<option key={`${other.id}:return`} value={JSON.stringify([other.id, "return"])}>Return to {other.data.displayName} ({other.id})</option>] : [])
+        ...(other.data.uses === loopUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses ? [<option key={`${other.id}:return`} value={JSON.stringify([other.id, "return"])}>Return to {other.data.displayName} ({other.id})</option>] : [])
         , ...(other.data.uses === parallelUses && data.uses === "builtins.plan" ? [<option key={`${other.id}:join`} value={JSON.stringify([other.id, "join"])}>Join {other.data.displayName} ({other.id})</option>] : [])
       ])}
     </select></label>;
   };
   return <aside className="editor-inspector" aria-label="Step inspector" onFocusCapture={event => { if (event.target.matches("input,select,textarea")) begin(); }} onBlurCapture={event => { if (event.target.matches("input,select,textarea")) commit(); }}>
-    <div className="editor-panel-heading"><div className="editor-inspector-identity"><span className={`editor-inspector-icon ${data.loop ? "is-loop" : data.trigger ? "is-trigger" : data.parallel ? "is-parallel" : data.decision ? "is-decision" : ""}`} aria-hidden="true"><StepIcon uses={data.uses} /></span><div><span className="editor-inspector-eyebrow">Step properties</span><h3>{titleFor(data.uses)}</h3></div></div><button type="button" onClick={close} aria-label="Close inspector">×</button></div>
+    <div className="editor-panel-heading"><div className="editor-inspector-identity"><span className={`editor-inspector-icon ${data.loop ? "is-loop" : data.event ? "is-event" : data.parallel ? "is-parallel" : data.decision ? "is-decision" : ""}`} aria-hidden="true"><StepIcon uses={data.uses} /></span><div><span className="editor-inspector-eyebrow">Step properties</span><h3>{titleFor(data.uses)}</h3></div></div><button type="button" onClick={close} aria-label="Close inspector">×</button></div>
     <div className="editor-inspector-content">
     {errors.map((error, index) => <p role="alert" className="error-text" key={index}>{error.message}</p>)}
     <section className="editor-property-section"><h4>General</h4>
     <label><span>Display Name</span><input disabled={disabled} value={data.displayName} onChange={event => update({ displayName: event.target.value })} /></label>
-    {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && <>
+    {data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && <>
       <label><span>Task</span><select aria-label="Task" value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, customTask: event.target.value === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, script: event.target.value === scriptUses ? defaultScript : undefined, ...(event.target.value === scriptUses ? { aiSettingsId: undefined, model: undefined, personaId: undefined, personaSnapshot: undefined, capabilities: null } : {}), ...(event.target.value === "builtins.create-pull-request" ? { personaId: undefined, personaSnapshot: undefined, environmentId: undefined, environmentSnapshot: undefined, capabilities: undefined, secretReferences: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
 
     </>}
     </section>
-    {data.uses !== loopUses && data.uses !== triggerUses && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
+    {data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
     {data.uses === scriptUses && <ScriptSettings value={data.script} disabled={disabled} onChange={script => update({ script })} />}
     {workerTask && <ExecutionSettings capabilities={data.capabilities} references={data.secretReferences} environment={profile} script={data.uses === scriptUses} disabled={disabled} onChange={update} />}
     {data.uses === "builtins.custom-task" && <CustomTaskSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.customTask} tasks={customTasks} savedSnapshot={savedCustomSnapshot} disabled={disabled} onChange={customTask => update({ customTask })} />}
@@ -63,29 +60,16 @@ export function Inspector({ workflowStart, environments, defaultEnvironmentId, s
       {data.loop.maxIterations < data.loop.repeatCount && <p className="error-text">Maximum iterations must be at least the repeat count.</p>}
       {data.loop.timeoutSeconds != null && data.loop.timeoutSeconds < 1 && <p className="error-text">Timeout must be positive.</p>}
     </section>}
-    {data.trigger && <section className="editor-property-section"><h4>Trigger conditions</h4>
-      <p className="editor-event-label">Issue label added</p>
-      <label className="toggle-label"><input type="checkbox" checked={data.trigger.enabled} disabled={disabled} onChange={event => update({ trigger: { ...data.trigger!, enabled: event.target.checked } })} /><span>Trigger enabled</span></label>
-      <label><span>Label</span><input value={data.trigger.label ?? ""} disabled={disabled} onChange={event => update({ trigger: { ...data.trigger!, label: event.target.value } })} /></label>
-      {data.trigger.enabled && !data.trigger.label?.trim() && <p className="error-text">A label is required for an enabled trigger.</p>}
-      {repositoryError && <p role="alert">{repositoryError}</p>}
-      {integrations.map(integration => <fieldset key={integration.id}><legend>{integration.displayName}</legend>{integration.repositories.map(repository => <label className="toggle-label" key={repository.id}>
-        <input type="checkbox" disabled={disabled} checked={data.trigger!.repositoryIds.includes(repository.id)} onChange={event => update({ trigger: { ...data.trigger!, repositoryIds: event.target.checked ? [...data.trigger!.repositoryIds, repository.id] : data.trigger!.repositoryIds.filter(id => id !== repository.id) } })} /><span>{repository.owner}/{repository.name}</span>
-      </label>)}</fieldset>)}
-      {integrations.every(item => !item.repositories.length) && !repositoryError && <p className="muted">No connected repositories.</p>}
-      <label><span>Base Branch</span><input disabled={disabled} placeholder="Repository default" value={data.trigger.baseBranch ?? ""} onChange={event => update({ trigger: { ...data.trigger!, baseBranch: event.target.value } })} /></label>
-      <label><span>Workflow model</span><input disabled={disabled} placeholder="Default AI model" value={data.trigger.model ?? ""} onChange={event => update({ trigger: { ...data.trigger!, model: event.target.value } })} /></label>
-    </section>}
+    {data.event && <EventSettings uses={data.uses} value={data.event} disabled={disabled} webhookUrl={webhookUrl} onChange={event => update({ event })} />}
     <section className="editor-property-section"><h4>Flow connections</h4>
     {data.decision ? <>{connection("true", "True route")}{connection("false", "False route")}</> : data.parallel ? <>{data.parallel.branchStepIds.map((_, index) => <div key={index}>{connection(`branch:${index}`, `Branch ${index + 1}`)}</div>)}{connection("next", "Next step")}</> : data.loop ? <>{connection("body", "Loop body")}{connection("exit", "Loop exit")}<p className="muted">Connect the last body task to Return. Exit runs after all repetitions.</p></> : connection("next", "Next step")}
-    {!data.decision && !data.parallel && !data.loop && !data.trigger && <>
+    {!data.decision && !data.parallel && !data.loop && !data.event && <>
       <p className="muted">Connect multiple next steps to run them in parallel. Each step waits for all incoming tasks to succeed.</p>
       {edges.filter(edge => edge.source === node.id && edge.sourceHandle === "next").map(edge => <div key={edge.id}>
         <span>{nodes.find(other => other.id === edge.target)?.data.displayName ?? edge.target}</span>
         <button type="button" disabled={disabled} aria-label={`Disconnect ${edge.target}`} onClick={() => disconnect(edge.id)}>Disconnect</button>
       </div>)}
     </>}
-    <button type="button" disabled={disabled || data.uses === triggerUses} onClick={start}>Set as Start Step</button>
     </section>
     <details className="optional-settings editor-property-advanced"><summary>Advanced</summary>
       <label><span>Step ID</span><input key={node.id} defaultValue={node.id} disabled={disabled} onBlur={event => { rename(event.target.value.trim()); event.target.value = node.id; }} /></label>

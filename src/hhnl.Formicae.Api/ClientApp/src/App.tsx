@@ -1137,7 +1137,7 @@ export default function App() {
         <div className="left-stack">
           <form className="panel trigger-panel" onSubmit={handleSubmit}>
             <div className="panel-heading">
-              <h2>Manual Trigger</h2>
+              <h2>Manual Start</h2>
             </div>
             <label>
               <span>Issue URL</span>

@@ -8,6 +8,7 @@ public static class WorkflowNodeDefinitions
 
     public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document)
     {
+        if (WorkflowStartDefinitions.HasStartNodes(document)) return WorkflowStartDefinitions.Validate(document);
         if (WorkflowGraphDefinitions.IsGraph(document)) return WorkflowGraphDefinitions.Validate(document);
         if (document.Steps.Any(n => n.Uses == WorkflowDecisionDefinitions.Uses || n.Decision is not null)) return WorkflowDecisionDefinitions.Validate(document);
         if (document.Steps.Any(n => n.Uses == WorkflowParallelDefinitions.Uses || n.Parallel is not null)) return WorkflowParallelDefinitions.Validate(document);
@@ -98,6 +99,7 @@ public static class WorkflowNodeDefinitions
 
     public static WorkflowDefinitionDocument Normalize(WorkflowDefinitionDocument document)
     {
+        if (WorkflowStartDefinitions.HasStartNodes(document)) document = WorkflowStartDefinitions.Compile(document);
         if (WorkflowGraphDefinitions.IsGraph(document)) return document with
         {
             Triggers = document.Steps.Where(step => step.Trigger is not null).Select(step => new WorkflowDefinitionTrigger(

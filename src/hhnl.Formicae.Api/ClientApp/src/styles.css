@@ -1527,7 +1527,7 @@ pre.collapsed-content::after {
 .editor-inspector .toggle-label { display: flex; align-items: center; }
 .editor-node { position: relative; width: 240px; min-height: 120px; padding: 14px 62px 14px 14px; border: 1px solid #bdc6bd; border-left: 4px solid #12625d; border-radius: 10px; background: white; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 2px 6px #18201b14; }
 .editor-node.loop { min-height: 160px; border-left-color: #a57422; }
-.editor-node.trigger { border-left-color: #5f61a6; }
+.editor-node.event { border-left-color: #5f61a6; }
 .editor-node.selected { outline: 3px solid #218b8150; border-color: #12625d; }
 .editor-node.invalid { border-color: #ad4037; }
 .editor-node strong { font-size: .95rem; overflow-wrap: anywhere; }
@@ -1586,7 +1586,7 @@ pre.collapsed-content::after {
 .editor-inspector-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .editor-inspector-icon { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid #c7ded2; border-radius: 10px; background: #e6f0e9; color: #12625d; font-size: 21px; }
 .editor-inspector-icon.is-loop { color: #886122; background: #f6eedc; border-color: #e7d9b8; }
-.editor-inspector-icon.is-trigger { color: #765594; background: #f0eaf6; border-color: #ddd0e9; }
+.editor-inspector-icon.is-event { color: #765594; background: #f0eaf6; border-color: #ddd0e9; }
 .editor-inspector-eyebrow { display: block; font-size: .66rem; color: #71806e; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 3px; }
 .workflow-editor .editor-inspector .editor-panel-heading button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-color: transparent; background: transparent; color: #677264; font-size: 1.15rem; }
 .workflow-editor .editor-inspector .editor-panel-heading button:hover { background: #e9eee4; }

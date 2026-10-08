@@ -12,7 +12,7 @@ public sealed class GiteaWebhookHandler(
     IDevOpsIntegrationStore integrations,
     IWorkflowStore store,
     ILogger<GiteaWebhookHandler> logger,
-    WorkflowTriggerService? triggerService = null)
+    WorkflowEventService? triggerService = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -57,7 +57,7 @@ public sealed class GiteaWebhookHandler(
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
         var startedWorkflowIds = triggerService is null
             ? []
-            : await HandleIssueLabelTriggerAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
         var shouldTriggerWorkflowTick = DevOpsWebhookProcessor.ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
         if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
         {
@@ -98,8 +98,8 @@ public sealed class GiteaWebhookHandler(
         });
     }
 
-    private static async Task<IReadOnlyList<Guid>> HandleIssueLabelTriggerAsync(
-        WorkflowTriggerService triggerService,
+    private static async Task<IReadOnlyList<Guid>> HandleIssueEventAsync(
+        WorkflowEventService triggerService,
         string eventName,
         string deliveryId,
         GiteaWebhookEnvelope? envelope,
@@ -118,7 +118,7 @@ public sealed class GiteaWebhookHandler(
             return [];
         }
 
-        return await triggerService.HandleIssueLabelEventAsync(new DevOpsIssueLabelTriggerEvent(
+        return await triggerService.HandleIntegrationEventAsync(new WorkflowIntegrationEvent(
             DevOpsProviderType.Gitea,
             deliveryId,
             eventName,

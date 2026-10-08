@@ -254,7 +254,9 @@ public static class CustomTaskDefinitions
             if (input is null || output is null || input.ValueType != output.ValueType)
                 errors.Add(Error(consumer.Id, $"Binding '{name}' must reference a declared producer output with the same scalar type."));
             else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
-                || (!WorkflowGraphDefinitions.IsGraph(plan) && entries.Any(entry => Reach(entry, consumer.Id, producer.Id))))
+                || (!WorkflowGraphDefinitions.IsGraph(plan) && entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))
+                || (WorkflowGraphDefinitions.IsGraph(plan) && WorkflowStartDefinitions.HasStartNodes(document)
+                    && entries.Any(entry => Reach(entry, consumer.Id) && !Reach(entry, producer.Id))))
                 errors.Add(Error(consumer.Id, $"Producer '{producer.Id}' must be guaranteed to execute before consumer '{consumer.Id}'; self, downstream and conditional sources are invalid."));
             else if (LoopFor(producer.Id) is { } producerLoop && producerLoop != LoopFor(consumer.Id))
                 errors.Add(Error(consumer.Id, "Bindings cannot leave a loop body or cross loops."));
