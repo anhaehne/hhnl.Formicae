@@ -22,7 +22,7 @@ public sealed partial class KubernetesWorkflowE2ETests
             try
             {
                 // Reuse the image already built/loaded by this isolated fixture; no external registry or live cluster is involved.
-                var spec = new RuntimeJobSpec(name, "localhost/hhnl-formicae-api:e2e",
+                var spec = new RuntimeJobSpec(name, fixture.ApiImage,
                     new Dictionary<string, string>(), ["/bin/sh", "-c", "echo environment-cap-started; sleep 60"],
                     AuthMethod: RuntimeJobAuthMethods.None, TimeoutLimitSeconds: 10);
                 Assert.Null(spec.ExecutionPolicy);

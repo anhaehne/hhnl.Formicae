@@ -21,3 +21,11 @@ Read product mission.md/roadmap.md/tech-stack.md and the existing 2026-10-06-194
 [Distribution deployment](https://distribution.github.io/distribution/about/deploying/) and [overview](https://distribution.github.io/distribution/about/) cover maintained registry storage and TLS/authentication. [Token authentication](https://distribution.github.io/distribution/spec/auth/) describes scoped pull/push access.
 
 Design inference: BuildKit plus bundled Distribution fits the self-hosted Kubernetes runtime. Node routing/trust, isolation, retention and proposed DTOs remain Formicae integration responsibilities.
+
+## Implementation evidence
+
+- `docs/managed-agent-images.md`: operator configuration, source/build UI, pinning and retention.
+- `tests/hhnl.Formicae.Tests/ManagedImageTests.cs` and `ManagedImageApiTests.cs`: source immutability, permissions, lifecycle/races, precedence, trusted snapshots, job isolation and scoped token assertions.
+- `src/hhnl.Formicae.Api/ClientApp/tests/e2e/images.spec.ts`: Dockerfile loading, successful/failed history, archive and exact Agent task build selection.
+- `tests/hhnl.Formicae.KubernetesE2ETests/ManagedImagesE2ETests.cs`: real rootless build, native token registry publication, compatibility probe, node pull, prepared tool and pinned retry.
+- `visuals/managed-images.png`: actual page captured and inspected through the repository Playwright MCP.

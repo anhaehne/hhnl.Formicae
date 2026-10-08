@@ -70,6 +70,9 @@ spec:
 {{- $_ := required "Bundled registry requires tokenSigningSecretName" $registry.tokenSigningSecretName -}}
 {{- $_ := required "Bundled registry requires credentialsSecretName" $registry.credentialsSecretName -}}
 {{- $_ := required "Bundled registry requires HTTPS tokenRealm" $registry.tokenRealm -}}
+{{- if not (hasPrefix "https://" $registry.tokenRealm) -}}
+{{- fail "Bundled registry tokenRealm must use HTTPS" -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

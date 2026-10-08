@@ -48,9 +48,12 @@ public sealed class RegistryTokens(IOptions<ManagedImageOptions> options)
         if(scopes.Length==0) return Issue(user, "", [], TimeSpan.FromMinutes(5));
         var parts=scopes[0].Split(':',3);
         if(parts.Length!=3 || parts[0]!="repository" || !parts[1].StartsWith(O.RepositoryPrefix+"/",StringComparison.Ordinal) || parts[1].Contains("..")) return null;
-        if(canPush && permittedRepository!=parts[1]) return null;
+        // A build may extend another prepared image in this installation, but
+        // publication remains restricted to its own repository.
+        if(canPush && permittedRepository!=parts[1]) canPush=false;
         var requested=parts[2].Split(',');
         var granted=requested.Where(x=>x=="pull" || (x=="push" && canPush)).Distinct().ToArray();
+        if(granted.Length==0) return null;
         return Issue(user,parts[1],granted,TimeSpan.FromMinutes(5));
     }
     public string BuildPassword(string repository)

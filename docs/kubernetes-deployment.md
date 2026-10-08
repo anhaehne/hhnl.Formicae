@@ -9,6 +9,10 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.22.0 managed agent images
+
+Startup applies the generated managed-image catalog migration. Dockerfile builds and the bundled registry are opt-in; configure node-reachable TLS endpoints, scoped credentials and a compatible build pool before enabling them. See [managed agent images](managed-agent-images.md) for setup, retention and rollout checks.
+
 ## 0.22.0 Agent tasks
 
 Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Agent task definitions use the existing workflow JSON and agent execution protocol; no database migration is required. See [Agent tasks](agent-tasks.md).

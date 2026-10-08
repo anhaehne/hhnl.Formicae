@@ -1,6 +1,6 @@
 # Managed agent images — implementation plan
 
-Status: proposed feature; planning only. No runtime implementation or release bump is included.
+Status: implemented on `clumsy-turkey`; Agent task branch merged at `ea3d2bb`. Final integration verification passed. The combined release stays at 0.22.0.
 
 ## 1. Save spec documentation
 
@@ -14,7 +14,7 @@ Expose `/api/images` CRUD/history and `/api/images/{id}/builds` create/list/deta
 
 MVP sources: inline Dockerfile with otherwise empty context, or Dockerfile/context paths in an already connected GitHub/Azure DevOps repository. Explain that inline mode cannot COPY local files. Resolve repository refs to immutable commits before queuing; reuse source-control adapters. Respect .dockerignore; reject absolute/escaping paths and bound Dockerfile/context sizes. Allow bounded non-secret build args and target stage. Archive uploads and build-secret UI are follow-ups.
 
-Lifecycle: Queued → Preparing → Building → Publishing → Validating → Ready; active states can become Failed, Cancelled or TimedOut. Persist before submission, use deterministic job labels and reconciliation after API restarts, and prevent cancellation races from promoting a build to Ready. Ready requires successful push, verified digest, and worker compatibility. Rebuild failure retains the prior Ready artifact.
+Lifecycle implemented: Queued → Building (includes source preparation/publication) → Validating → Ready; active states can become Failed, Cancelled or TimedOut. Persist before submission, use deterministic job labels and reconciliation after API restarts, and prevent cancellation races from promoting a build to Ready. Ready requires successful push, verified digest, and worker compatibility. Rebuild failure retains the prior Ready artifact.
 
 ## 3. Build and store images in Kubernetes
 
@@ -40,7 +40,7 @@ Extend the step with imageSelection/imageSnapshot (contracts.md). Resolve exact 
 
 Resolve effective settings before OpenHandsAgentRunner.BuildSpec and reuse EnvironmentImageSettings plus RuntimeJobSpec image/pull fields. ContainerJobRuntime currently rejects Kubernetes pull-secret names: supply a runtime-specific Docker credential path or reject unsupported private managed images before scheduling. Kubernetes is the initial production target.
 
-Integrate after the Agent task branch lands. This feature owns catalog/builds/registry/new image fields/picker; the other agent owns Agent task creation and existing environment propagation. Update product roadmap/tech stack when implementation adopts BuildKit/registry. Apply one minor bump against the then-current merged base, aligning Directory.Build.props, chart, values and release/deployment docs. This planning spec is not a release.
+Integrate after the Agent task branch lands. This feature owns catalog/builds/registry/new image fields/picker; the other agent owns Agent task creation and existing environment propagation. Update product roadmap/tech stack when implementation adopts BuildKit/registry. The merged Agent task branch provides the single minor bump to 0.22.0; Directory.Build.props, chart, values and release/deployment docs are aligned.
 
 ## 5. Validate and release
 
@@ -50,4 +50,24 @@ Run targeted tests, then `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Te
 
 Extend/run `./scripts/run-k8s-e2e.sh`: real trivial compatible Dockerfile build, push, probe, fresh-node authenticated pull, Agent task launch and observed custom tool. Include invalid Dockerfile, bad trust/auth, storage failure, timeout/cancel, API restart and pinned retry. No model call required. Clean up jobs/storage/test cluster. Release only after BuildKit isolation and registry/node reachability pass; report exact commands/outcomes and tests added/removed/edited.
 
-Current planning change: 0 tests added, 0 removed, 0 edited. Runtime checks deferred to implementation.
+Implementation details and final verification are recorded below.
+
+## Implementation and verification
+
+The image catalog, immutable EF history/migration, asynchronous build reconciliation, rootless per-attempt BuildKit Jobs, registry-native scoped JWTs, Helm bundled/external modes, Manage Images page, prepared-image pickers and pinned workflow/runtime snapshots are implemented. Agent task branch `e55a52c` was merged; release versions remain aligned at 0.22.0. Added operator documentation: `docs/managed-agent-images.md`.
+
+Verified commands so far:
+
+- `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-restore`: 1,018 passed. After the registry base-image scope fix, the same command with `--filter ManagedImage`: 21 passed.
+- `dotnet build hhnl.Formicae.slnx --no-restore`: passed with 0 warnings/errors. ClientApp `npm run build`: passed (existing bundle-size warning).
+- `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-image-browsers ./scripts/formicae-dev.sh prepare`, then `start`, `status`, `logs api`, `logs ui`, `stop`: passed. The first prepare attempt failed trying to write the read-only global browser directory; a task-local browser cache resolved it.
+- ClientApp `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-image-browsers npm run test:smoke`: 71/79 passed initially with six workers alongside Kubernetes verification; eight existing tests timed out. `npm run test:smoke -- --last-failed --workers=1`: seven passed; `npm run test:smoke -- extensions.spec.ts --grep "script editor preserves" --workers=1`: remaining test passed. All 79 passed across the initial run and reruns, including both new image tests.
+- Repository Playwright MCP inspection (`node /tmp/formicae-image-mcp-check.cjs`): actual Images page loaded, 0 browser console errors/warnings, observed API requests returned 200; snapshot, network report and screenshot inspected. Evidence: `test-results/manual-images/mcp-inspection.json` and `visuals/managed-images.png`. The remote Paseo browser could not reach worker loopback; the local repository MCP package was used.
+- `helm lint deploy/helm/formicae`: passed; `helm template` with enabled bundled registry/required Secrets and with external registry/push Secret: passed. `git diff --check`: passed.
+- `docker build -f src/hhnl.Formicae.Worker/Dockerfile -t localhost/hhnl-formicae-worker:managed-images-verified .`, then `docker run --rm localhost/hhnl-formicae-worker:managed-images-verified --check-runtime`: passed. Probe checks Git, shell, Node, npx, Python and OpenHands without loading task credentials.
+
+The first isolated `./scripts/run-k8s-e2e.sh` run passed 12/14. It found an existing test hardcoded to the legacy API tag and a real private-base pull scope bug. Existing job tests now use the configurable fixture API image. Build credentials now permit installation-local base-image pulls while restricting pushes to their own repository, covered by the native JWT authorization regression assertions. The corrected full Kubernetes rerun passed **14/14** (20 minutes 18 seconds), including build/push/digest/probe, authenticated node pull, custom tool execution, failed rebuild and retry on the original digest. Exact command: `FORMICAE_E2E_CLUSTER_NAME=formicae-images-e2e FORMICAE_E2E_API_IMAGE=localhost/hhnl-formicae-api:managed-images-e2e FORMICAE_E2E_WORKER_IMAGE=localhost/hhnl-formicae-worker:managed-images-verified FORMICAE_E2E_KEEP_CLUSTER=true ./scripts/run-k8s-e2e.sh`. The preserved test cluster was explicitly removed afterward with `kind delete cluster --name formicae-images-e2e --kubeconfig /tmp/formicae-images-e2e/kubeconfig`; the disposable registry was removed by test cleanup. Other agents’ clusters were left intact.
+
+Test definitions for this feature: 17 added (14 backend methods, 2 browser tests, 1 Kubernetes scenario), 0 removed, 3 existing Kubernetes tests edited to honor the fixture image; fixture support updated. Backend theories expand to 21 cases. The merged Agent task branch adds 6 further test definitions (5 backend methods and 1 browser test).
+
+Limits: production setup needs canonical node/pod-reachable HTTPS endpoints, CA trust, scoped Secrets and compatible dedicated rootless build nodes. Dockerfiles are administrator code. Automatic artifact GC, secret build arguments, context archives, multi-architecture images and the future Azure DevOps repository adapter remain outside this release. Registry retention is intentional so archived/pinned history remains runnable.

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 using hhnl.Formicae.Application.Images;
 using hhnl.Formicae.Application.Workflows;
 using hhnl.Formicae.Infrastructure.Images;
@@ -129,7 +130,11 @@ public sealed class ManagedImageTests
             static string Basic(string user,string password)=>"Basic "+Convert.ToBase64String(Encoding.UTF8.GetBytes(user+":"+password));
             var pull=await tokens.AuthorizeAsync(Basic("agent",new string('p',32)),"formicae-registry",["repository:formicae/local/image:pull,push"]);
             Assert.NotNull(pull);var claims=new JsonWebToken(pull);Assert.True(claims.TryGetPayloadValue<System.Text.Json.JsonElement>("access",out var access));Assert.Equal("pull",access[0].GetProperty("actions")[0].GetString());Assert.Single(access[0].GetProperty("actions").EnumerateArray());
-            var password=tokens.BuildPassword("formicae/local/image");Assert.NotNull(await tokens.AuthorizeAsync(Basic("build",password),"formicae-registry",["repository:formicae/local/image:push"]));Assert.Null(await tokens.AuthorizeAsync(Basic("build",password),"formicae-registry",["repository:formicae/local/other:push"]));
+            var password=tokens.BuildPassword("formicae/local/image");
+            var inheritedBase=await tokens.AuthorizeAsync(Basic("build",password),"formicae-registry",["repository:formicae/local/base:pull,push"]);
+            Assert.NotNull(inheritedBase);Assert.Equal("pull",new JsonWebToken(inheritedBase).GetPayloadValue<JsonElement>("access")[0].GetProperty("actions")[0].GetString());
+            Assert.Single(new JsonWebToken(inheritedBase).GetPayloadValue<JsonElement>("access")[0].GetProperty("actions").EnumerateArray());
+            Assert.NotNull(await tokens.AuthorizeAsync(Basic("build",password),"formicae-registry",["repository:formicae/local/image:push"]));Assert.Null(await tokens.AuthorizeAsync(Basic("build",password),"formicae-registry",["repository:formicae/local/other:push"]));
             Assert.Null(await tokens.AuthorizeAsync(Basic("agent","wrong"),"formicae-registry",["repository:formicae/local/image:pull"]));
         }finally{Directory.Delete(root,true);}
     }

@@ -8,7 +8,7 @@ using hhnl.Formicae.Application.Workflows;
 
 if (args is ["--check-runtime"]) {
     if (!OperatingSystem.IsLinux() || RuntimeInformation.ProcessArchitecture != Architecture.X64) return 1;
-    foreach (var command in new[] { "git", "sh", "node", "python3" }) {
+    foreach (var command in new[] { "git", "sh", "node", "npx", "python3", "openhands" }) {
         using var check = Process.Start(new ProcessStartInfo("/bin/sh") { ArgumentList = { "-c", "command -v " + command }, RedirectStandardOutput = true, RedirectStandardError = true });
         if (check is null) return 1;
         await check.WaitForExitAsync();

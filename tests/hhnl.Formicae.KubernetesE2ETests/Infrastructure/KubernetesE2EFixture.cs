@@ -12,7 +12,7 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 {
     private static string ClusterName => Environment.GetEnvironmentVariable("FORMICAE_E2E_CLUSTER_NAME") ?? "formicae-e2e";
     private const string Namespace = "formicae";
-    private static string ApiImage => Environment.GetEnvironmentVariable("FORMICAE_E2E_API_IMAGE") ?? "localhost/hhnl-formicae-api:e2e";
+    public string ApiImage => Environment.GetEnvironmentVariable("FORMICAE_E2E_API_IMAGE") ?? "localhost/hhnl-formicae-api:e2e";
 
     private readonly List<Process> longRunningProcesses = [];
     private bool ownsCluster;

@@ -1,8 +1,9 @@
 using hhnl.Formicae.Application.Workflows;
+using Microsoft.Extensions.Logging;
 
 namespace hhnl.Formicae.Application.Images;
 
-public sealed class ImageBuildCoordinator(IImageStore store, IImageBuildRuntime runtime, IClock clock)
+public sealed class ImageBuildCoordinator(IImageStore store, IImageBuildRuntime runtime, IClock clock, ILogger<ImageBuildCoordinator>? logger = null)
 {
     public async Task TickAsync(int concurrency, TimeSpan deadline, CancellationToken token)
     {
@@ -28,7 +29,10 @@ public sealed class ImageBuildCoordinator(IImageStore store, IImageBuildRuntime 
             {
                 try { observation = await runtime.ReconcileAsync(build, token); }
                 catch (OperationCanceledException) when(token.IsCancellationRequested) { throw; }
-                catch (Exception) { observation = new(ImageBuildState.Failed, build.Logs, Failure: "Image build infrastructure failed. Check operator logs and registry configuration."); }
+                catch (Exception exception) {
+                    logger?.LogError(exception, "Image build infrastructure failed for build {BuildId}", build.Id);
+                    observation = new(ImageBuildState.Failed, build.Logs, Failure: "Image build infrastructure failed. Check operator logs and registry configuration.");
+                }
             }
             if (observation.State == ImageBuildState.Ready && (observation.Reference is null || !ImageService.IsDigest(observation.Reference)))
                 observation = observation with { State = ImageBuildState.Failed, Failure = "The build did not produce a verified image digest." };

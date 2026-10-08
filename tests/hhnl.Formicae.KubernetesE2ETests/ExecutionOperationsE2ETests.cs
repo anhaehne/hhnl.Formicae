@@ -66,7 +66,7 @@ public sealed partial class KubernetesWorkflowE2ETests
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
             try
             {
-                await runtime.StartJobAsync(new RuntimeJobSpec(name, "localhost/hhnl-formicae-api:e2e",
+                await runtime.StartJobAsync(new RuntimeJobSpec(name, fixture.ApiImage,
                     new Dictionary<string, string>(), ["/bin/sh", "-c", "echo live-log-evidence; sleep 10; echo completed-log-evidence"],
                     AuthMethod: RuntimeJobAuthMethods.None), timeout.Token);
                 await WaitForLogAsync(runtime, name, "live-log-evidence", timeout.Token);
@@ -104,7 +104,7 @@ public sealed partial class KubernetesWorkflowE2ETests
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
             try
             {
-                await runtime.StartJobAsync(new RuntimeJobSpec(name, "localhost/hhnl-formicae-api:e2e",
+                await runtime.StartJobAsync(new RuntimeJobSpec(name, fixture.ApiImage,
                     new Dictionary<string, string>(), ["/bin/sh", "-c", "echo cancellation-evidence; sleep 60"],
                     AuthMethod: RuntimeJobAuthMethods.None), timeout.Token);
                 var evidence = await WaitForLogAsync(runtime, name, "cancellation-evidence", timeout.Token);

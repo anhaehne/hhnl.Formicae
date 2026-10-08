@@ -47,3 +47,4 @@ This skill is project-local to this repository. When this workflow requires user
   - Native Codex and OpenHands stdio/HTTP MCP integration with selected secret aliases (available in 0.20.0).
   - Custom compatible worker images, pull policies and operator image-pull secrets (available in 0.20.0).
   - Ordered tool installation with per-tool deadlines and visible bootstrap logs (available in 0.20.0).
+- Managed Dockerfile images prepared in Manage → Images and selectable as exact builds in Agent tasks/environments (0.22.0; opt-in Kubernetes builds and bundled/external registry). Production enablement requires node trust and rootless build-pool validation. Automatic artifact garbage collection remains future work.

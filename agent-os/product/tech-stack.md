@@ -33,3 +33,10 @@ PostgreSQL is the default persistence layer for workflow definitions, task state
 - Existing CLI-based agent harness with plan mode and goal mode
 - Configurable model/API endpoint authentication
 - Support for Claude Pro and Codex Pro subscription-based usage
+
+## Managed execution images
+
+- Rootless per-attempt BuildKit Kubernetes Jobs for Dockerfile builds
+- Optional bundled CNCF Distribution registry with TLS, persistent storage and scoped token authentication; external OCI registries supported
+- PostgreSQL image catalog, immutable source revisions/build attempts and digest-pinned workflow snapshots
+- Microsoft IdentityModel for signed registry tokens and the existing Kubernetes .NET client for workload management
