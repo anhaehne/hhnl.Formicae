@@ -15,6 +15,10 @@ Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart.
 
 Webhook starts reference API configuration `WorkflowWebhooks:Secrets:<name>`. Provision each value through the API environment or mounted configuration, for example an environment variable `WorkflowWebhooks__Secrets__build-hook` backed by an operator-managed Kubernetes Secret key. Keep secret values outside workflow definitions, use HTTPS for external ingress, and retain the existing provider webhook secrets for GitHub/Gitea. See [workflow start nodes](workflow-start-nodes.md) for delivery and retry semantics.
 
+## 0.22.0 Agent tasks
+
+Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Agent task definitions use the existing workflow JSON and agent execution protocol; no database migration is required. See [Agent tasks](agent-tasks.md).
+
 ## 0.21.0 task dependency graphs
 
 Deploy matching **0.22.0** API and worker images with the **0.22.0** Helm chart. Ordinary task outputs accept multiple connections; independent successor workloads run concurrently and every task waits for all incoming tasks to succeed. Existing sequential definitions and explicit parallel controls remain compatible. No new database migration is required for the graph connections, which are stored in immutable definition JSON and reuse persisted task executions. See [task graph connections](workflow-task-graphs.md) for scope and configuration.

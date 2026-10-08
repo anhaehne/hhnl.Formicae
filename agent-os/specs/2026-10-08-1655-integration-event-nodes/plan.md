@@ -33,3 +33,25 @@ Browser/harness overrides are temporary ignored files and use randomly selected 
 The initial Kubernetes invocation failed before application startup because the interrupted session left a stopped `formicae-e2e-control-plane` container. After inspecting it, `kind delete cluster --name formicae-e2e --kubeconfig /tmp/formicae-e2e/kubeconfig` removed that disposable cluster and the complete rerun passed. The separately named `formicae-images-e2e` cluster belongs to work outside this suite and was left untouched.
 
 Recovered the four root files after explicit user instruction, preserving the known approval-gate edits in AGENTS.md and baseline link in README.md. The complete .NET rerun passed after recovery. Project, chart, image and deployment documentation remain aligned at **0.22.0**, with no second branch version bump.
+
+## Integration with completed Agent task work
+
+The user authorized merging the latest main and pushing after the Agent task agent finished. Its completion notice identified `e55a52c1304f8e9cda4525028bfb41a0913f9b63`, with passing CI and deployment verification. The event-node work was saved as `d420313` before merging that main revision.
+
+Resolved shared editor conflicts by retaining Agent task inline schemas, typed ports, persona settings and template prefilling together with the registered event catalog, event-specific inspector and event nodes without input ports. Retained both deployment documentation sections and rebuilt generated assets from the combined frontend source. Version files remain **0.22.0**. Conflict resolution itself adds/edits/removes **0 tests**; event-node feature counts remain **53 added, 21 edited, 0 removed** relative to incoming main.
+
+| Exact verification command | Outcome for the merged code |
+| --- | --- |
+| `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-restore --configuration Release --logger 'console;verbosity=minimal' > test-results/event-merge-dotnet.log 2>&1` | 1,044 passed, 0 failed, 0 skipped. |
+| `dotnet build src/hhnl.Formicae.Api/hhnl.Formicae.Api.csproj --no-restore --configuration Debug --verbosity minimal > test-results/event-merge-debug-build.log 2>&1` | Passed; 0 warnings/errors. |
+| `npm run build` from `ClientApp` | Passed; generated assets refreshed from the combined source. Existing bundle-size warnings remain. |
+| `PLAYWRIGHT_BROWSERS_PATH=/workspace/hhnl.Formicae/test-results/browsers npm run test:smoke -- --config test-results/event-port-run/playwright.config.ts --workers=2 > /workspace/hhnl.Formicae/test-results/event-merge-browser.log 2>&1` from `ClientApp` | 81 passed; initial editor navigation timed out with `ERR_NETWORK_CHANGED` recorded in its trace, and an Implement-node Fit All viewport assertion failed. Agent task prefilling/persona and all integration-event cases passed. Failure traces were preserved in `test-results/event-merge-failures/`. |
+| Targeted browser rerun from `ClientApp` (exact command below) | Both failed cases passed in isolation in 13.5s without source/test changes. All 83 browser cases passed across the full run and targeted rerun. Successful event screenshots retained in `test-results/event-merge-captures/`. |
+| `helm lint deploy/helm/formicae` and `git diff --cached --check` | Passed. |
+| `./scripts/run-k8s-e2e.sh > test-results/event-merge-k8s.log 2>&1` | 13 passed, 0 failed, 0 skipped; 12m 5s. The merged API deployment, startup/migrations, persisted workflow, rollout and worker checks passed. The suite cleaned up its temporary `formicae-e2e` cluster. |
+
+Exact targeted browser rerun command from `ClientApp`:
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH=/workspace/hhnl.Formicae/test-results/browsers npm run test:smoke -- --config test-results/event-port-run/playwright.config.ts --workers=1 --grep 'contextual insertion preserves downstream|adding Implement keeps' > /workspace/hhnl.Formicae/test-results/event-merge-browser-rerun.log 2>&1
+```

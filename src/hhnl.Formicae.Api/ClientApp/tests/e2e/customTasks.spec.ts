@@ -170,3 +170,37 @@ test("producer consumer runtime exposes validated outputs and frozen input prove
   await expect(inspector.locator("details").filter({ has: page.getByText("Prepared inputs", { exact: true }) }).locator("pre")).toContainText('"summary": "ready"');
   await page.screenshot({ path: testInfo.outputPath("task-data-history.png"), fullPage: true });
 });
+
+test("Agent task prefilling stays editable and independent and pins the selected persona", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
+  const custom = await task(request), item = await definition(request, custom.id);
+  const personaResponse = await request.post(`${api}/api/personas`, { data: { name: `Agent reviewer ${Date.now()}`, instructions: "Review carefully", tone: "Concise", operatingConstraints: "Use supplied evidence" } });
+  expect(personaResponse.ok()).toBeTruthy(); const persona = await personaResponse.json();
+  await open(page, item.name);
+  await page.getByLabel("Task", { exact: true }).selectOption("builtins.agent-task");
+  await page.getByLabel("Step persona", { exact: true }).selectOption(persona.id);
+  await page.getByLabel("Prefill from custom task", { exact: true }).selectOption(custom.id);
+  await expect(page.getByLabel("Agent prompt template")).toHaveValue(custom.promptTemplate);
+  await expect(page.getByLabel("Agent timeout seconds")).toHaveValue("90");
+  await expect(page.getByLabel("Step persona", { exact: true })).toHaveValue(persona.id);
+  await page.getByLabel("Agent prompt template").fill("Inspect {{input.topic}} carefully");
+  await page.getByLabel("Agent timeout seconds").fill("75");
+  await page.getByLabel("Provide topic", { exact: true }).check();
+  await page.getByLabel("Value for topic", { exact: true }).fill("Agent evidence");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  const saved = await latest(request, item.id), step = saved.steps[0];
+  expect(step.uses).toBe("builtins.agent-task"); expect(step.personaSnapshot.id).toBe(persona.id);
+  expect(step.customTask.definition.promptTemplate).toBe("Inspect {{input.topic}} carefully");
+  expect(step.customTask.snapshot.runner.timeoutSeconds).toBe(75);
+  expect(step.customTask.inputs).toEqual({ topic: "Agent evidence" });
+  expect((await request.delete(`${api}/api/custom-tasks/${custom.id}?expectedRevision=1`)).ok()).toBeTruthy();
+  await open(page, item.name);
+  await expect(page.getByLabel("Agent prompt template")).toHaveValue("Inspect {{input.topic}} carefully");
+  await expect(page.getByLabel("Step persona", { exact: true })).toHaveValue(persona.id);
+  await page.getByLabel("Agent timeout seconds").fill("80");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  expect((await latest(request, item.id)).steps[0].customTask.snapshot.runner.timeoutSeconds).toBe(80);
+  await page.screenshot({ path: testInfo.outputPath("agent-task-persona-prefill.png"), fullPage: true });
+});

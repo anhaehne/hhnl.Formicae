@@ -9,6 +9,7 @@ public sealed class WorkflowDefinitionValidator
         ["builtins.create-pull-request"] = TaskRunKind.CreatePullRequest,
         ["builtins.address-comments"] = TaskRunKind.AddressComments,
         [CustomTaskDefinitions.Uses] = TaskRunKind.Custom,
+        [CustomTaskDefinitions.AgentUses] = TaskRunKind.Custom,
         [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script
     };
 
@@ -49,8 +50,10 @@ public sealed class WorkflowDefinitionValidator
         foreach (var step in document.Steps)
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
-            if (step.CustomTask is not null && step.Uses != CustomTaskDefinitions.Uses)
-                errors.Add(new("definition.customTask.invalid", "Only Custom task nodes may carry custom task settings.", "steps[].customTask", step.Id));
+            if (step.CustomTask is not null && !CustomTaskDefinitions.IsAgentTask(step.Uses))
+                errors.Add(new("definition.customTask.invalid", "Only agent task nodes may carry custom task settings.", "steps[].customTask", step.Id));
+            if (step.Uses == CustomTaskDefinitions.AgentUses && step.CustomTask?.Definition is null)
+                errors.Add(new("definition.customTask.invalid", "Agent task settings are required.", "steps[].customTask.definition", step.Id));
             if (step.Uses == CustomTaskDefinitions.Uses && string.IsNullOrWhiteSpace(step.CustomTask?.TaskId))
                 errors.Add(new("definition.customTask.invalid", "Select a reusable custom task.", "steps[].customTask", step.Id));
         }

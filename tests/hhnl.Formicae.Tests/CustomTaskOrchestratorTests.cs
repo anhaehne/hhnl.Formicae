@@ -282,6 +282,38 @@ public sealed class CustomTaskOrchestratorTests
         }
     }
 
+    [Fact]
+    public async Task Inline_agent_task_executes_with_persona_and_declared_outputs()
+    {
+        var definition = new WorkflowDefinitionDocument(DefaultWorkflowDefinitions.V1Alpha3Schema, "custom",
+            [new("custom", CustomTaskDefinitions.AgentUses, PersonaId: "reviewer",
+                PersonaSnapshot: new("reviewer", 1, "Reviewer", "Check the evidence", "Concise", ""),
+                EnvironmentId: "agent-image", EnvironmentSnapshot: new("agent-image", 1, "Agent image", "", new() {
+                    Image = new("registry.example.test/agent@sha256:" + new string('a', 64), "Always", ["registry-auth"]),
+                    Runtime = new(TimeoutLimitSeconds: 50), Tools = [new("review-tool", "echo ready")],
+                    McpServers = [new("review-mcp", Command: "review-server")] }),
+                CustomTask: new("", Definition: new("Inspect {{workflow.planArtifact}}", [], new(TimeoutSeconds: 43), [new("summary", "string", true)])))]);
+        var resolved = await CustomTaskDefinitions.ResolveAsync(definition, null, default);
+        Assert.True(resolved.Validation.IsValid);
+        var (store, workflow) = await SetupAsync(steps: resolved.Document.Steps);
+        var agent = new Agent { Immediate = "{\"summary\":\"Checked\"}" };
+        Assert.True(PersonaDefinitions.ValidateRuntime(resolved.Document).IsValid);
+        Assert.True(EnvironmentDefinitions.ValidateRuntime(resolved.Document).IsValid);
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(resolved.Document).IsValid);
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.True(workflow.Status == WorkflowStatus.Completed, workflow.FailureReason + " " + string.Join("; ", (await store.ListLogsAsync(workflow.Id, default)).Select(log => log.Message)));
+        var task = Assert.Single(agent.Tasks);
+        Assert.Contains("Check the evidence", task.Prompt);
+        Assert.Contains("Inspect original plan", task.Prompt);
+        var environment = Assert.IsType<EnvironmentSnapshot>(task.EnvironmentSnapshot);
+        Assert.Equal("Always", environment.Configuration.Image!.PullPolicy);
+        Assert.Equal(["registry-auth"], environment.Configuration.Image.PullSecretNames);
+        Assert.Equal(50, environment.Configuration.Runtime!.TimeoutLimitSeconds);
+        Assert.Single(environment.Configuration.Tools); Assert.Single(environment.Configuration.McpServers);
+        var run = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
+        Assert.Contains("Checked", run.StructuredOutputsJson);
+    }
+
     private static CustomTaskSnapshot Snapshot() => new("task", 1, "Inspect", "", "Inspect {{workflow.planArtifact}}", [], new(TimeoutSeconds: 43));
     private static WorkflowDefinitionStep Custom(string id, string? next = null) => new(id, CustomTaskDefinitions.Uses, next,
         Model: "node-model", AiSettingsId: "node-ai", CustomTask: new("task", Snapshot: Snapshot()));

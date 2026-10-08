@@ -1097,7 +1097,7 @@ public sealed partial class WorkflowOrchestrator(
 
         var expectedUses = WorkflowDefinitionValidator.UsesFor(kind);
         var step = document.Steps.FirstOrDefault(step => string.Equals(step.Id, workflow.CurrentDefinitionStepId, StringComparison.Ordinal));
-        if (step is null || !string.Equals(step.Uses, expectedUses, StringComparison.Ordinal))
+        if (step is null || !WorkflowDefinitionValidator.TryMapUsesToTaskKind(step.Uses, out var actualKind) || actualKind != kind)
         {
             throw new InvalidOperationException($"Workflow definition step '{workflow.CurrentDefinitionStepId}' does not use required built-in task '{expectedUses}'.");
         }
