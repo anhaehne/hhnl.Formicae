@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.29.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
+Scope: application behavior at version **0.29.1**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -15,6 +15,8 @@ Baseline process revision dated **2026-10-09**: remove the separate explicit app
 Revision **workflow-management-layout**, dated **2026-10-09**: **Implemented in 0.27.0**. Fix output-port label overlap in running-workflow graphs, reorganize Workflow Management around a compact execution browser and adjacent execution detail, and relocate Manual Start into the selected workflow definition's panel. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Remove the explicit approval. Just make sure it is added to the document. Approved”**.
 
 Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved; implemented in 0.28.0**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
+
+Revision **workflow-group-drag-flicker**, dated **2026-10-09**: **Implemented and locally verified in 0.29.1**. User request reference: **“Groups flicker when moved”**. Group dragging must render the container, members and attached connections at consistent positions throughout the gesture, without flicker or temporary jumps. Preserve native parent dragging, relative member positions, individual member movement, undo/redo and saved layout.
 
 Revision **typed-data-variables**, dated **2026-10-09**: **Approved; implemented in 0.29.0**. Supersedes the unapproved `multiple-output-input-connections` draft. Introduce typed, data-only variable nodes with explicit combination rules instead of adding implicit aggregation to task inputs. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the revised typed-variable baseline.
 
@@ -64,7 +66,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       **Approved revision workflow-editor-groups:**
 
       - Create a group from selected workflow nodes, showing a containing background and visible name on the canvas. Allow adding nodes to an existing group and removing nodes from it; each node belongs to at most one group, with no nested groups.
-      - Drag a group to move all its members together while preserving their relative positions and existing connections. Individual member nodes remain editable and movable within the group; group bounds accommodate their positions.
+      - Drag a group to move all its members together while preserving their relative positions and existing connections. **Revision workflow-group-drag-flicker:** Keep the container, members and connections visually stable throughout every drag frame, including repeated drags. Individual member nodes remain editable and movable within the group; group bounds accommodate their positions.
       - Edit a group's non-empty name and choose its background color from a fixed preset palette: gray, blue, green, yellow, orange, purple and pink. Show the chosen color behind member nodes while keeping names, nodes and connections readable.
       - Ungroup or delete a group container without deleting its member nodes or connections. Include group creation, membership, movement, naming, color changes and ungrouping in undo/redo and unsaved-change tracking. Preserve valid membership when nodes are deleted or duplicated, and preserve groups when using Arrange.
       - Save group identifiers, names, preset colors, membership and layout with each definition version; restore them when reopening the editor and display them when viewing saved versions. Existing workflows without groups remain compatible.
