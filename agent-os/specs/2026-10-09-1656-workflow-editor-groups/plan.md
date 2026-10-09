@@ -23,3 +23,7 @@ Live Playwright MCP inspection reproduced saved groups and captured canvas/inspe
 Tests added: **3** (1 .NET, 2 browser). Tests removed: **0**. Existing tests edited: **0**.
 
 Release integration: merged main commit `c0b6b9a` (0.27.0) intentionally, preserving port layout, compact management, selected-definition Manual Start and the updated baseline documentation policy. Release version: 0.28.0. Push waits for the preceding release's explicit deployment verification and release handoff.
+
+CI follow-up: the member-drag assertion initially treated a responsive header shift as node movement. The longer Unsaved status wraps Save Version on the CI font metrics, shifting the canvas down 40 pixels. Compare member offsets relative to a sibling and assert its absolute flow coordinates are unchanged; group movement behavior remains the approved scope. This correction stays within the unreleased 0.28.0 feature release.
+
+Corrected member regression verified with `npx playwright test --config playwright.local.config.ts --workers=1 tests/e2e/groups.local.spec.ts --grep "group members"`: 1 passed. Temporary copied test and local config used isolated ports 5011/5181, installed Chromium and a 60-second local timeout while another workspace used the shared test ports. Temporary files were removed; application and repository browser configuration remain unchanged. CI repeats the full standard suite for the corrected release commit.

@@ -505,12 +505,21 @@ test("group members move individually, rename and delete safely, and remain view
   expect(response.ok()).toBeTruthy();
   await open(page, item.name);
   const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
+  const absolutePosition = (id: string) => node(id).evaluate(element => {
+    const member = new DOMMatrixReadOnly((element as HTMLElement).style.transform);
+    // React Flow renders wrapper transforms in absolute flow coordinates.
+    return { x: member.m41, y: member.m42 };
+  });
   const before0 = await node("n0").boundingBox(), before1 = await node("n1").boundingBox();
+  const siblingPosition = await absolutePosition("n1");
   await page.mouse.move(before0!.x + 50, before0!.y + 30); await page.mouse.down();
   await page.mouse.move(before0!.x + 10, before0!.y + 60, { steps: 8 }); await page.mouse.up();
-  expect((await node("n0").boundingBox())!.x - before0!.x).toBeCloseTo(-40, 0);
-  expect(Math.abs((await node("n0").boundingBox())!.y - before0!.y - 30)).toBeLessThanOrEqual(4);
-  expect((await node("n1").boundingBox())!.x).toBeCloseTo(before1!.x, 0);
+  const after0 = await node("n0").boundingBox(), after1 = await node("n1").boundingBox();
+  // Opening the inspector and the Unsaved status can reflow the header. Compare
+  // members relative to each other so canvas movement is not mistaken for a drag.
+  expect((after0!.x - after1!.x) - (before0!.x - before1!.x)).toBeCloseTo(-40, 0);
+  expect(Math.abs((after0!.y - after1!.y) - (before0!.y - before1!.y) - 30)).toBeLessThanOrEqual(5);
+  expect(await absolutePosition("n1")).toEqual(siblingPosition);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   expect((await node("n0").boundingBox())!.x).toBeCloseTo(before0!.x, 0);
   await find(page, "n0");
