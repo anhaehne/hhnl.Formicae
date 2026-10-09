@@ -18,7 +18,9 @@ public sealed class CodexAuthSetupService(
     private static readonly IReadOnlyList<string> WorkerCommand = ["dotnet", "hhnl.Formicae.Worker.dll"];
     private static readonly Regex AnsiEscapeRegex = new("\u001b\\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
     private static readonly Regex DeviceLoginUrlRegex = new(@"https://auth\.openai\.com/codex/device", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex DeviceLoginCodeRegex = new(@"\b[A-Z0-9]{4}-[A-Z0-9]{5}\b", RegexOptions.Compiled);
+    private static readonly Regex DeviceLoginCodeRegex = new(
+        @"^[^\r\n]*\bEnter this one-time code[^\r\n]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?<code>[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)[ \t]*\r?$",
+        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.IgnoreCase);
 
     public async Task<CodexAuthSetupStartResponse> StartAsync(string aiSettingsId, CancellationToken cancellationToken)
     {
@@ -77,7 +79,7 @@ public sealed class CodexAuthSetupService(
 
     private static string CleanOutput(string output)
     {
-        var withoutAnsi = AnsiEscapeRegex.Replace(output, string.Empty);
+        var withoutAnsi = AnsiEscapeRegex.Replace(OpenHandsAgentRunner.UnwrapRuntimeLogs(output), string.Empty);
         return new string(withoutAnsi.Where(character => character is '\r' or '\n' or '\t' || !char.IsControl(character)).ToArray());
     }
 
@@ -85,7 +87,7 @@ public sealed class CodexAuthSetupService(
         => DeviceLoginUrlRegex.Match(output) is { Success: true } match ? match.Value : null;
 
     private static string? ExtractDeviceLoginCode(string output)
-        => DeviceLoginCodeRegex.Match(output) is { Success: true } match ? match.Value : null;
+        => DeviceLoginCodeRegex.Match(output) is { Success: true } match ? match.Groups["code"].Value : null;
 
     private string ResolveLoginCommand()
         => string.IsNullOrWhiteSpace(openHandsOptions.Value.CodexSubscriptionLoginCommand)

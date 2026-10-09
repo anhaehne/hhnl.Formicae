@@ -9,6 +9,7 @@
 
 ## Merging Policy
 
+- After completing approved changes, merge the latest `origin/main`, increase the release version, push the result to `main`, and verify the automated deployment unless the user explicitly asks to keep the work local or changes the release scope. Do not leave merge/deployment as a suggested next step.
 - When working directly on `main`, fetch from `origin` and check for new remote changes before starting edits.
 - Update from the target base branch before merging branches.
 - Review incoming changes for conflicts with current work and repository instructions.
@@ -120,7 +121,7 @@ When invoking a skill, follow its `SKILL.md` instructions exactly.
 
 ## Versioning
 
-- Each new feature merged into `main` must increase the current release version using Semantic Versioning. A bump inherited from an earlier feature or release does not count for the new feature. Check the version on the latest `origin/main` before choosing the new version, and complete the bump before pushing the merged release.
+- Each feature, fix, or documentation-only release merged into `main` must increase the current release version using Semantic Versioning. A bump inherited from an earlier feature or release does not count for the new release. Check the version on the latest `origin/main` before choosing the new version, and complete the bump before pushing the merged release.
 - Increase the version once per feature release. Do not repeatedly bump it during development or verification unless the severity changes, for example from a patch-level bug fix to a minor feature.
 - Keep `Directory.Build.props`, `deploy/helm/formicae/Chart.yaml`, `deploy/helm/formicae/values.yaml`, and release/deployment docs aligned to the same version.
 - Use a patch bump for bug fixes and documentation-only release changes, a minor bump for backward-compatible features, and a major bump for breaking changes.

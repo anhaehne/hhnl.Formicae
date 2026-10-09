@@ -3150,7 +3150,7 @@ public sealed class AdapterContractTests
             Result = new RuntimeJobResult(
                 true,
                 "formicae-codex-login",
-                "Follow these steps\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n   \u001b[94mE4UQ-ZWLG0\u001b[0m\n",
+                "Follow these steps\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n2. Enter this one-time code (expires in 15 minutes)\n   \u001b[94mE4UQ-ZWLG0\u001b[0m\n",
                 null)
         };
         var service = new CodexAuthSetupService(
