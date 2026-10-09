@@ -27,6 +27,7 @@ public enum WorkflowStep
     Done,
     Custom,
     Script,
+    Wait,
     AddIssueComment
 }
 
@@ -38,6 +39,7 @@ public enum TaskRunKind
     AddressComments,
     Custom,
     Script,
+    Wait,
     AddIssueComment,
     Event
 }
@@ -48,7 +50,8 @@ public enum TaskRunStatus
     Running,
     Succeeded,
     Failed,
-    Canceled
+    Canceled,
+    Waiting
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -161,7 +164,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("imageSelection")] ImageSelection? ImageSelection = null,
     [property: JsonPropertyName("imageSnapshot")] PreparedImageSnapshot? ImageSnapshot = null,
     [property: JsonPropertyName("event")] JsonElement? Event = null,
-    [property: JsonPropertyName("issueComment")] WorkflowIssueCommentSettings? IssueComment = null);
+    [property: JsonPropertyName("issueComment")] WorkflowIssueCommentSettings? IssueComment = null,
+    [property: JsonPropertyName("wait")] WorkflowWaitSettings? Wait = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,

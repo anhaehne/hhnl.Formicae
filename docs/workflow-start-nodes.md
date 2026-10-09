@@ -26,7 +26,7 @@ The durable WorkflowQueued event records `eventNodeId`, compatibility `startNode
 
 Legacy saved versions and historical execution graphs remain readable without rewriting. Opening a legacy definition for editing adds a collision-safe manual Start event and adapts legacy trigger/start settings in the draft. Legacy label nodes that can select repositories from both providers use a compatibility event definition, preserving their matching behavior without offering that definition in the Add Step catalog. Saving creates a new immutable version; the original stays unchanged. The built-in template includes Start, and startup upgrades the existing simple built-in workflow by creating one new version under the orchestration lock. Existing loops/top-level triggers are adapted through the editor rather than rewritten at startup.
 
-## GitHub issue outputs (0.24.0)
+## GitHub issue outputs (0.25.0)
 
 GitHub Issue created exposes `issue` (string) containing the entire issue object from the signed webhook serialized as JSON, including nested and unrecognized fields, and **Issue id** (`issueId`, number), the repository-local issue number. Event outputs are persisted as a successful Event execution before downstream tasks are scheduled and retained across restart/retry. They are visible in execution history and bindable only on routes where this event is the guaranteed entrypoint.
 

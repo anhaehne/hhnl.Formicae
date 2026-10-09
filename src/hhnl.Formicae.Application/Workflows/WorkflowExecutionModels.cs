@@ -47,7 +47,7 @@ public sealed record WorkflowExecutionResponse(WorkflowSummaryResponse Workflow,
     WorkflowDefinitionDocument? Definition, IReadOnlyList<TaskRunResponse> Runs, IReadOnlyList<TaskRunAttempt> Attempts,
     IReadOnlyList<WorkflowLoopIterationResponse> Loops, IReadOnlyList<WorkflowDecisionExecution> Decisions,
     WorkflowExecutionControl Control, IReadOnlyList<WorkflowResolvedSettings> ResolvedSettings,
-    IReadOnlyList<WorkflowParallelExecutionResponse> Parallels);
+    IReadOnlyList<WorkflowParallelExecutionResponse> Parallels, IReadOnlyList<WorkflowNodeWait>? Waits = null);
 public sealed record WorkflowParallelExecutionResponse(Guid Id, Guid WorkflowId, string NodeId,
     WorkflowParallelExecutionOutcome Outcome, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt);
 public sealed record WorkflowResolvedSettings(Guid TaskRunId, Guid? ExecutionAttemptId, string? AiSettingsId, string? Model,

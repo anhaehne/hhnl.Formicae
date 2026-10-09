@@ -1,9 +1,10 @@
-import { issueCommentUses } from "./workflowData";
+import { issueCommentUses, waitUses } from "./workflowData";
 import type { WorkflowIssueCommentSettings, ImageSelection, PreparedImageSnapshot } from "./api";
 import { isEventUses, adaptEventStep } from "./workflowEvents";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowEventSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, StepSecretReference } from "./api";
+import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowEventSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, WorkflowWaitSettings, StepSecretReference } from "./api";
 
+export { waitUses, waitOutputs, waitSchema } from "./workflowData";
 export const scriptUses = "builtins.script";
 export const agentTaskUses = "builtins.agent-task";
 export const customTaskUses = "builtins.custom-task";
@@ -14,11 +15,12 @@ export const decisionUses = "builtins.decision";
 export const parallelUses = "builtins.parallel";
 export const loopUses = "builtins.loop";
 export const workflowSchema = "formicae.workflow/v1alpha3";
-export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, agentTaskUses, scriptUses, issueCommentUses] as const;
+export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, agentTaskUses, scriptUses, issueCommentUses, waitUses] as const;
 export type WorkflowStepNodeData = {
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
   imageSelection?: ImageSelection | null; imageSnapshot?: PreparedImageSnapshot | null;
   personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
+  wait?: WorkflowWaitSettings | null;
   issueComment?: WorkflowIssueCommentSettings | null; script?: WorkflowScriptSettings | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null;
   event?: WorkflowEventSettings | null; trigger?: WorkflowTriggerNodeSettings | null; loop?: WorkflowLoopNodeSettings | null; parallel?: WorkflowParallelNodeSettings | null; decision?: WorkflowDecisionNodeSettings | null;
   [key: string]: unknown;
@@ -81,10 +83,11 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
-      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, event: step.event, issueComment: step.issueComment, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
+      aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, wait: step.wait, event: step.event, issueComment: step.issueComment, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
   const edges: Edge[] = [];
   for (const step of document.steps) {
+    if (step.wait?.issueNumberBinding) edges.push(dataEdge(step.wait.issueNumberBinding.stepId, step.wait.issueNumberBinding.outputName, step.id, "issueNumber"));
     for (const [name, binding] of Object.entries(step.issueComment?.bindings ?? step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
     for (const target of [step.nextStepId, ...(step.nextStepIds ?? [])].filter((id): id is string => !!id)) edges.push({ id: `${step.id}:next:${target}`, source: step.id, target,
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
@@ -115,6 +118,7 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
       personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, imageSelection: node.data.imageSelection, imageSnapshot: node.data.imageSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: [customTaskUses, agentTaskUses].includes(node.data.uses) ? customTask : undefined,
       aiSettingsId: node.data.uses === scriptUses ? undefined : node.data.aiSettingsId || undefined, model: node.data.uses === scriptUses ? undefined : node.data.model || undefined,
       issueComment: node.data.uses === issueCommentUses ? { ...node.data.issueComment, bindings, inputs: Object.fromEntries(Object.entries(node.data.issueComment?.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined,
+      wait: node.data.uses === waitUses ? { ...node.data.wait, issueNumber: bindings.issueNumber ? undefined : node.data.wait?.issueNumber, issueNumberBinding: bindings.issueNumber } : undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
         trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",

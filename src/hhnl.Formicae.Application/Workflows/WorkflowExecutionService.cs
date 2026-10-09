@@ -37,7 +37,7 @@ public sealed class WorkflowExecutionService(IWorkflowStore store, IClock clock)
                 !terminal && !cancelling && !workflow.IsPaused, !terminal && !cancelling && workflow.IsPaused,
                 (!terminal || (workflow.Status == WorkflowStatus.Failed && activeWorkers)) && !cancelling),
             (await store.ListEventsAsync(id, token)).Where(evt => evt.Type == "AgentSettingsResolved" && evt.TaskRunId is not null)
-                .Select(ReadSettings).OfType<WorkflowResolvedSettings>().ToArray(), parallels);
+                .Select(ReadSettings).OfType<WorkflowResolvedSettings>().ToArray(), parallels, await store.ListWaitsAsync(id, token));
     }
 
     // Caller holds the scheduler lock, so intent cannot race a worker launch or a transition.

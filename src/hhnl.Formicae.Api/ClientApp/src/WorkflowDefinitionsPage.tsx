@@ -1,4 +1,5 @@
 import { inputsFor, outputsFor, issueCommentUses } from "./workflowData";
+import { waitUses } from "./workflowGraph";
 import { defaultEventSettings, registerEventDefinitions } from "./workflowEvents";
 import { listWorkflowEventDefinitions } from "./api";
 import { dataEdge, isDataEdge, eligibleProducer } from "./workflowGraph";
@@ -128,6 +129,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     const action = () => { state.commit(); state.update(current => ({ ...current, nodes: data && target ? current.nodes.map(node => {
         if (node.id !== target) return node;
         if (node.data.issueComment) { const inputs = { ...node.data.issueComment.inputs }; delete inputs[targetPort.slice(5)]; return { ...node, data: { ...node.data, issueComment: { ...node.data.issueComment, inputs } } }; }
+        if (node.data.uses === waitUses) return { ...node, data: { ...node.data, wait: { ...node.data.wait, issueNumber: undefined } } };
         if (!node.data.customTask) return node;
         const inputs = { ...node.data.customTask.inputs }; delete inputs[targetPort.slice(5)];
         return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
@@ -154,7 +156,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       decision: uses === decisionUses ? { condition: { source: "literal", valueType: "string", operator: "equals", value: "", compareTo: "", missingValue: "error" }, trueStepId: "", falseStepId: "" } : undefined,
       parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
-      event: isStartUses(uses) ? defaultEventSettings(uses) : undefined } };
+      wait: uses === waitUses ? { issueNumber: 1 } : undefined, event: isStartUses(uses) ? defaultEventSettings(uses) : undefined } };
     state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
     setMenu(false); setContext(undefined); reveal(id);
   }
@@ -263,10 +265,10 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         <p className="muted">Enabled versions can start workflows. Disabled versions may be saved with incomplete steps.</p>
         <label className="toggle-label"><input type="checkbox" checked={draft.isDefault} disabled={!editable} onChange={event => update(current => ({ ...current, isDefault: event.target.checked }))} /><span>Default</span></label><p className="muted">Saving a default enabled version changes the default for new runs. Existing versions and runs remain intact.</p>
         <details className="optional-settings"><summary>Advanced</summary><label><span>Schema</span><input readOnly value={workflowSchema} /></label><label><span>Version number</span><input type="number" min="1" disabled={!editable} placeholder="Automatic" value={draft.version} onChange={event => update(current => ({ ...current, version: event.target.value }))} /></label></details>
-      </aside> : inspector && selectedNode ? <Inspector workflowStart={manualStartId} webhookUrl={versionId ? `/api/webhooks/workflows/${versionId}/${encodeURIComponent(selectedNode.id)}` : undefined} key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={{ ...selectedNode, data: { ...selectedNode.data, issueComment: document.steps.find(step => step.id === selectedNode.id)?.issueComment, customTask: document.steps.find(step => step.id === selectedNode.id)?.customTask } }} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
+      </aside> : inspector && selectedNode ? <Inspector workflowStart={manualStartId} webhookUrl={versionId ? `/api/webhooks/workflows/${versionId}/${encodeURIComponent(selectedNode.id)}` : undefined} key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={{ ...selectedNode, data: { ...selectedNode.data, wait: document.steps.find(step => step.id === selectedNode.id)?.wait, issueComment: document.steps.find(step => step.id === selectedNode.id)?.issueComment, customTask: document.steps.find(step => step.id === selectedNode.id)?.customTask } }} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
         update={values => update(current => ({ ...current,
           nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node),
-          edges: values.customTask || values.issueComment ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...Object.entries(values.issueComment?.bindings ?? values.customTask?.bindings ?? {}).map(([name, binding]) => dataEdge(binding.stepId, binding.outputName, selectedNode.id, name))] : current.edges
+          edges: values.wait ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...(values.wait.issueNumberBinding ? [dataEdge(values.wait.issueNumberBinding.stepId, values.wait.issueNumberBinding.outputName, selectedNode.id, "issueNumber")] : [])] : values.customTask || values.issueComment ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...Object.entries(values.issueComment?.bindings ?? values.customTask?.bindings ?? {}).map(([name, binding]) => dataEdge(binding.stepId, binding.outputName, selectedNode.id, name))] : current.edges
         }))}
         resizeBranches={count => {
           if (count < 2 || count > 8) return;

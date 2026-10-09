@@ -201,11 +201,12 @@ public static class CustomTaskDefinitions
     public static IReadOnlyList<CustomTaskOutputDefinition> OutputSchemaFor(WorkflowDefinitionStep step) =>
         step.Uses == "github.issue-created" || step.Trigger?.Type == WorkflowTriggerType.DevOpsIssueCreated
             ? [new("issue", "string", true), new("issueId", "number", true)]
-            : step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
+            : WorkflowWaitRegistry.Default.TryGet(step.Uses, out var wait) ? wait.Outputs : step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
 
     public static IReadOnlyList<CustomTaskInputDefinition> InputSchemaFor(WorkflowDefinitionStep step) =>
-        step.Uses == IssueCommentDefinitions.Uses ? IssueCommentDefinitions.Inputs : step.CustomTask?.Snapshot?.Inputs ?? [];
+        step.Wait is not null ? [new("issueNumber", "number", true)] : step.Uses == IssueCommentDefinitions.Uses ? IssueCommentDefinitions.Inputs : step.CustomTask?.Snapshot?.Inputs ?? [];
     public static IReadOnlyDictionary<string, CustomTaskInputBinding> BindingsFor(WorkflowDefinitionStep step) =>
+        step.Wait?.IssueNumberBinding is { } waitBinding ? new Dictionary<string, CustomTaskInputBinding> { ["issueNumber"] = waitBinding } :
         (step.Uses == IssueCommentDefinitions.Uses ? step.IssueComment?.Bindings : step.CustomTask?.Bindings) ?? new Dictionary<string, CustomTaskInputBinding>();
 
     public static IReadOnlyDictionary<string, JsonElement> ParseProducerOutputs(WorkflowDefinitionStep step, string json)
@@ -262,6 +263,7 @@ public static class CustomTaskDefinitions
         }
         return values;
     }
+
 
     public static IReadOnlyList<WorkflowDefinitionValidationError> ValidateBindings(WorkflowDefinitionDocument document)
     {

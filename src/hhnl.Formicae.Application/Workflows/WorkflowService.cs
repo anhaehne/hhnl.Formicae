@@ -414,6 +414,7 @@ public sealed class WorkflowService
             TaskRunKind.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             TaskRunKind.Script => (WorkflowStatus.Running, WorkflowStep.Script),
             TaskRunKind.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            TaskRunKind.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 
@@ -428,6 +429,7 @@ public sealed class WorkflowService
             WorkflowStep.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             WorkflowStep.Script => (WorkflowStatus.Running, WorkflowStep.Script),
             WorkflowStep.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            WorkflowStep.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
 

@@ -89,6 +89,12 @@ public interface IAgentRunner
 
 public interface IWorkflowStore
 {
+    Task<WorkflowNodeWait> ArmWaitAsync(WorkflowNodeWait wait, CancellationToken token);
+    Task<WorkflowNodeWait?> GetWaitAsync(Guid attemptId, CancellationToken token);
+    Task<bool> AcceptWaitEventAsync(WorkflowWaitEvent evt, CancellationToken token);
+    Task<WorkflowWaitEvent?> ClaimWaitEventAsync(Guid waitId, CancellationToken token);
+    Task CancelWaitsAsync(Guid workflowId, CancellationToken token);
+    Task<IReadOnlyList<WorkflowNodeWait>> ListWaitsAsync(Guid workflowId, CancellationToken token);
     Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<Workflow?> GetWorkflowByIssueUrlAsync(string issueUrl, CancellationToken cancellationToken);

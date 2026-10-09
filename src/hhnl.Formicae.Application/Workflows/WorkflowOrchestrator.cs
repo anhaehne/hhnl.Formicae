@@ -11,6 +11,7 @@ public sealed partial class WorkflowOrchestrator(
     IAgentRunner agentRunner,
     IPromptRenderer promptRenderer,
     IClock? clock = null,
+    hhnl.Formicae.Application.Integrations.IDevOpsIntegrationStore? integrations = null,
     hhnl.Formicae.Application.Integrations.IDevOpsPlatformFactory? devOpsPlatforms = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
@@ -78,6 +79,8 @@ public sealed partial class WorkflowOrchestrator(
 
             switch (context.Kind)
             {
+                case TaskRunKind.Wait:
+                    return await RunWaitNodeAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.Plan:
                     return workflow.Status == WorkflowStatus.Queued
                         ? await StartPlanningIfReadyAsync(workflow, cancellationToken)
@@ -980,7 +983,7 @@ public sealed partial class WorkflowOrchestrator(
         if (context is null) return null;
         var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
         if (execution is not null) return execution;
-        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script or TaskRunKind.AddIssueComment) return null;
+        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script or TaskRunKind.AddIssueComment or TaskRunKind.Wait) return null;
         var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
         return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
     }
@@ -1049,6 +1052,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Custom => WorkflowStatus.Running,
         TaskRunKind.Script => WorkflowStatus.Running,
         TaskRunKind.AddIssueComment => WorkflowStatus.Running,
+        TaskRunKind.Wait => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -1061,6 +1065,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Custom => WorkflowStep.Custom,
         TaskRunKind.Script => WorkflowStep.Script,
         TaskRunKind.AddIssueComment => WorkflowStep.AddIssueComment,
+        TaskRunKind.Wait => WorkflowStep.Wait,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
