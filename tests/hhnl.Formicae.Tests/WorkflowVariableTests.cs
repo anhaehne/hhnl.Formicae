@@ -66,6 +66,26 @@ public sealed class WorkflowVariableTests
         Assert.Null(WorkflowDefinitionJson.Deserialize("""{"schema":"formicae.workflow/v1alpha3","startStepId":"a","steps":[{"id":"a","uses":"builtins.plan"}]}""")!.Variables);
     }
 
+    [Fact]
+    public void First_and_override_apply_string_size_limits_to_the_selected_result()
+    {
+        var largeEventSnapshot = V(new string('x', 16001));
+        Assert.Equal("small", WorkflowVariableDefinitions.Combine(new("v", "Value", "string", "first"), [V("small"), largeEventSnapshot])!.Value.GetString());
+        Assert.Equal("small", WorkflowVariableDefinitions.Combine(new("v", "Value", "string", "override"), [largeEventSnapshot, V("small")])!.Value.GetString());
+        Assert.Throws<InvalidOperationException>(() => WorkflowVariableDefinitions.Combine(new("v", "Value", "string", "first"), [largeEventSnapshot, V("small")]));
+    }
+
+    [Fact]
+    public void Event_sources_through_variables_require_the_guaranteed_selected_entrypoint()
+    {
+        var document = new WorkflowDefinitionDocument(DefaultWorkflowDefinitions.V1Alpha3Schema, "",
+            [new("created", "github.issue-created", "consumer", Event: V(new { enabled = false, repositoryIds = Array.Empty<Guid>() })), Consumer()],
+            Variables: [new("combined", "Issue", "string", Sources: [new("created", "issue")])]);
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
+        var alternate = new WorkflowDefinitionStep("manual", "builtins.start", "consumer", Event: V(new { enabled = true }));
+        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { StartStepId = "manual", Steps = [.. document.Steps, alternate] }).IsValid);
+    }
+
     [Theory]
     [InlineData("cycle")]
     [InlineData("duplicate")]

@@ -265,6 +265,7 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
             onConnect={connection => connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input")} isValidConnection={validConnection}
             onReconnect={(old, connection) => {
               if (isDataEdge(old)) {
+                if (draft.edges.some(edge => edge.id !== old.id && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && edge.target === connection.target && edge.targetHandle === connection.targetHandle)) { setNotice("That source is already connected."); return; }
                 if (!validConnection(connection)) { setNotice("That data connection is not allowed."); return; }
                 state.commit(); state.update(current => ({ ...current, nodes: current.nodes.map(node => {
                   if (node.id !== connection.target) return node;

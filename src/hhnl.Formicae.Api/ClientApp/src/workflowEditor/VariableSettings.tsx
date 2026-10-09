@@ -9,7 +9,7 @@ export function VariableSettings({ node, nodes, edges, start, tasks, disabled, e
   disabled: boolean; errors: WorkflowDefinitionValidationError[]; update: (values: Partial<WorkflowStepNodeData>) => void;
   rename: (id: string) => void; move: (axis: "x" | "y", value: number) => void; close: () => void; begin: () => void; commit: () => void;
 }) {
-  const variable = node.data.variable!;
+  const variable = { ...node.data.variable!, sources: node.data.variable!.sources ?? [] };
   const [selected, setSelected] = useState("");
   const change = (values: Partial<WorkflowDataVariable>) => update({ variable: { ...variable, ...values } });
   const candidates = nodes.filter(other => validVariableSource(nodes, edges, start, other.id, node.id)).flatMap(other =>

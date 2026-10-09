@@ -44,9 +44,9 @@ The worker extracts the authoritative final response from each successful CLI tu
 
 Correction messages, numbered progress and agent responses remain in the task attempt's live and retained evidence. Orchestration restart polls the existing worker and does not reset its correction count. Kubernetes does not restart failed worker processes; retry creates a new attempt under the existing retry rules. Downstream tasks start only after corrected output validates and is persisted. Exhaustion fails with the output-validation reason and no structured outputs. Tasks without declared outputs retain free-text completion.
 
-Deploy matching 0.28.0 API and worker images and Helm chart. Rebuild custom images from the matching worker to support correction; no database migration is added. Previously prepared prompts remain readable and gain the full output contract when launched.
+Deploy matching 0.29.0 API and worker images and Helm chart. Rebuild custom images from the matching worker to support correction; no database migration is added. Previously prepared prompts remain readable and gain the full output contract when launched.
 
-## Typed data variables (0.28.0)
+## Typed data variables (0.29.0)
 
 Add a **Variable** from the workflow editor palette. Variables appear as smaller capsules and have only data ports: one input accepts multiple outputs, and one output can feed several matching task inputs or other variables. Choose a string, number or boolean type; every connected port must have exactly that type. Variables do not run workers or affect execution order.
 

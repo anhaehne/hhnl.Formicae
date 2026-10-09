@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.28.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
+Scope: application behavior at version **0.29.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -16,7 +16,7 @@ Revision **workflow-management-layout**, dated **2026-10-09**: **Implemented in 
 
 Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved; implemented in 0.28.0**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
 
-Revision **typed-data-variables**, dated **2026-10-09**: **Approved for implementation**. Supersedes the unapproved `multiple-output-input-connections` draft. Introduce typed, data-only variable nodes with explicit combination rules instead of adding implicit aggregation to task inputs. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the revised typed-variable baseline.
+Revision **typed-data-variables**, dated **2026-10-09**: **Approved; implemented in 0.29.0**. Supersedes the unapproved `multiple-output-input-connections` draft. Introduce typed, data-only variable nodes with explicit combination rules instead of adding implicit aggregation to task inputs. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the revised typed-variable baseline.
 
 Revision **ai-setup-default-model-dropdown**, dated **2026-10-09**: **Approved; implemented in 0.26.3**. Replace AI Setup's Default Model text input with a dropdown consistent with the existing model selector. Reuse CLI model discovery for supported saved configurations, display discovered model names and CLI defaults, retain an existing saved model as an option, and allow an unset configuration default. Explain when discovery requires saving the configuration or is unsupported, and expose discovery progress and failures. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted revision approval request.
 
@@ -234,7 +234,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Keep data edges separate from scheduling.
       - Freeze producer attempt provenance and preparation across restart/retry.
 
-    - **Approved — revision typed-data-variables:**
+    - **Implemented in 0.29.0 — revision typed-data-variables:**
 
       - Place named variables in a workflow definition as compact capsule-shaped data nodes, visibly smaller and distinct from task/event/control nodes. Each variable declares exactly one scalar type (string, number or boolean), one multi-connection input port and one output port supporting fan-out. Task output → variable, variable → task input and variable → variable connections require exact type matches. Task inputs retain one source or a literal. Variables have no control ports, worker, task attempt or independent scheduling behavior; unused variables do not block workflow completion.
       - Configure an ordered source list and a combination mode on each variable. **Aggregate:** strings append with a configurable separator (default: newline), numbers sum with existing numeric bounds enforced, and booleans explicitly choose **Any (OR)** or **All (AND)** (default: Any). **Override:** select the last present value in the configured source order. **First:** select the first present value in that order and ignore the other values. Source order is editable and persisted; completion timing does not determine the result. First/Override do not cancel producers or accelerate control joins.

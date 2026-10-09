@@ -76,8 +76,14 @@ public static class WorkflowVariableDefinitions
     {
         var values = sources.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
         if (values.Length == 0) return null;
-        if (values.Any(value => !CustomTaskDefinitions.ValidScalar(value, variable.ValueType)))
-            throw new InvalidOperationException($"Variable '{variable.Name}' requires bounded {variable.ValueType} values.");
+        if (values.Any(value => variable.ValueType switch
+        {
+            "string" => value.ValueKind != JsonValueKind.String,
+            "number" => !CustomTaskDefinitions.ValidScalar(value, "number"),
+            "boolean" => value.ValueKind is not (JsonValueKind.True or JsonValueKind.False),
+            _ => true
+        }))
+            throw new InvalidOperationException($"Variable '{variable.Name}' requires valid {variable.ValueType} values.");
         var result = variable.Mode switch
         {
             "first" => values[0].Clone(),
@@ -116,6 +122,7 @@ public static class WorkflowVariableDefinitions
 
     public static void ValidateEvidence(CustomTaskInputProvenance source)
     {
+        if (source is null) throw new InvalidOperationException("Frozen binding evidence is missing.");
         if (source.Variable is not { } variable)
         {
             if (source.RunId == Guid.Empty || source.ExecutionAttemptId == Guid.Empty)

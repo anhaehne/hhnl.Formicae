@@ -10,7 +10,7 @@ async function seed(request: APIRequestContext) {
       { id: "b", uses: "builtins.custom-task", displayName: "Producer B", nextStepId: "consumer", customTask: { taskId: producer.id } },
       { id: "consumer", uses: "builtins.custom-task", displayName: "Consumer", customTask: { taskId: consumer.id, bindings: { summary: { stepId: "combined", outputName: "value" } } } }
     ], variables: [{ id: "combined", name: "Combined", valueType: "string", mode: "aggregate", separator: " | ", booleanOperation: "any", sources: [{ stepId: "b", outputName: "summary" }, { stepId: "a", outputName: "summary" }] }],
-    editor: { positions: { a: { x: 50, y: 50 }, b: { x: 400, y: 50 }, combined: { x: 400, y: 350 }, consumer: { x: 750, y: 50 } } }
+    editor: { groups: [{ id: "data-group", name: "Data", color: "green", nodeIds: ["combined"] }], positions: { a: { x: 50, y: 50 }, b: { x: 400, y: 50 }, combined: { x: 400, y: 350 }, consumer: { x: 750, y: 50 } } }
   } } });
   expect(response.ok(), await response.text()).toBeTruthy();
   return { item, version: await response.json() };
@@ -41,6 +41,7 @@ test("variables preserve multiple sources ordering modes duplication and typed p
   await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
   const saved = (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition;
   expect(saved.variables[0].sources.map((source: { stepId: string }) => source.stepId)).toEqual(["a", "b"]);
+  expect(saved.editor.groups[0].nodeIds).toEqual(["combined"]);
   expect(saved.variables[0].mode).toBe("override"); expect(saved.steps.filter((step: { uses: string }) => step.uses !== "builtins.start")).toHaveLength(3);
   expect(saved.steps.some((step: { id: string }) => step.id === "combined")).toBeFalsy();
   await page.reload(); await open(page, item.name); await inspect(page, "combined");
