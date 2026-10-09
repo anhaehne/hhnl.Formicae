@@ -4,4 +4,4 @@ Version 0.22.0 adds the Agent task workflow node (`builtins.agent-task`). Config
 
 Use **Prefill from custom task** to copy a catalog template into the node. Prefilling replaces the prompt, schemas and timeout and clears existing input values and bindings; persona selection stays with the node. Edit the copied values freely. Future changes or deletion of the catalog template do not affect the node. Saved workflow versions pin both the inline task definition and the selected persona.
 
-Existing Custom task nodes remain compatible and retain their catalog revision behavior. Prefilling other ordinary task types is deferred. No database migration is required. Deploy matching 0.23.0 API and worker images and Helm chart for the combined managed-image release.
+Existing Custom task nodes remain compatible and retain their catalog revision behavior. Prefilling other ordinary task types is deferred. No database migration is required. Deploy matching 0.24.0 API and worker images and Helm chart for the current release.

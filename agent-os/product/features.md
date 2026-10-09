@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.23.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.24.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -17,6 +17,8 @@ Revision **workflow-start-nodes**, dated **2026-10-08**: **Approved for implemen
 Revision **integration-event-nodes**, dated **2026-10-08**: **Approved for implementation**. Revises workflow start-node terminology and extensibility as specified below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the revised event-node baseline and implementation plan.
 
 Revision **github-issue-comment-waits**, dated **2026-10-08**: **Approved for implementation**. Covers the GitHub Issue commented node and durable wait requirements below, including single-instance advancement and one continuation per wait activation. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** after the clarification that multiple comments must not create parallel workflow copies and only a new wait activation may be triggered again.
+
+Revision **github-issue-comment-waits release 0.24.0**, dated **2026-10-09**: **Approved**. Release the approved issue-comment wait feature as **0.24.0**, align application/chart/image versions and deployment documentation, and persist the rule that a new feature merged after a previous release bump receives its own semantic version increase. Approver: **Product owner (conversation user)**. Approval reference: user message **“Do it, also remember that.”** following the proposed 0.24.0 bump. Feature behavior and scope are unchanged.
 
 Revision **managed-agent-images integration**, dated **2026-10-08**: documents implementation authorized before this baseline was introduced. Approver: **Product owner (conversation user)**. Approval references: **“Go ahed” / “Continue”** for the prepared-image implementation, followed by **“Merge main, push, and validate deployment”** for integration of the concrete verified result. This entry records that existing authorization; it does not extend implementation scope.
 
@@ -79,7 +81,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - **GitHub and Gitea connections**, **Connected repositories** and **Webhooks and provider feedback** supply provider registration, connected-repository selection and validated deliveries. Existing workflow progression and planning/implementation gates continue to apply after entry.
       - **Durable orchestration and runtimes**, **Typed task data** and **Execution investigation and history** resolve execution from the selected event node, retain its identity and preserve historical evidence. Compatibility adapters retain legacy serialized field names and database records where needed without destructive migration.
 
-  - **GitHub issue-comment waits — Implemented in 0.23.0; approved revision github-issue-comment-waits**
+  - **GitHub issue-comment waits — Implemented in 0.24.0; approved revision github-issue-comment-waits**
     - **Requirements:**
 
       - Add a distinct GitHub-owned **Issue commented** node callable within an existing workflow through ordinary incoming and outgoing control connections. Reaching this node arms a wait; a matching comment completes the node and continues the same execution and pinned definition version. It does not create a new execution or launch an agent worker.
