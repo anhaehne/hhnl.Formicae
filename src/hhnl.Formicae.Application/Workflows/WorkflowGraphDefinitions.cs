@@ -1,6 +1,6 @@
 namespace hhnl.Formicae.Application.Workflows;
 
-/// <summary>Ordinary task connections form an acyclic dependency graph with all-input joins.</summary>
+/// <summary>Ordinary task connections form a dependency graph with all-input joins and control feedback.</summary>
 public static class WorkflowGraphDefinitions
 {
     public static bool IsGraph(WorkflowDefinitionDocument document) => document.Steps.Any(step => step.NextStepIds is { Count: > 0 });
@@ -54,16 +54,6 @@ public static class WorkflowGraphDefinitions
             step.Id, step.Trigger!.Type, step.Trigger.Enabled, step.Trigger.RepositoryIds, step.Trigger.Label,
             step.Trigger.BaseBranch, step.Trigger.Model, step.NextStepId)).ToArray();
         WorkflowDefinitionValidator.ValidateTriggers(triggerSettings, errors);
-        var indegree = nodes.Keys.ToDictionary(id => id, _ => 0, StringComparer.Ordinal);
-        foreach (var step in nodes.Values) foreach (var id in Successors(step)) indegree[id]++;
-        var ready = new Queue<string>(indegree.Where(pair => pair.Value == 0).Select(pair => pair.Key));
-        var visited = 0;
-        while (ready.TryDequeue(out var id))
-        {
-            visited++;
-            foreach (var next in Successors(nodes[id])) if (--indegree[next] == 0) ready.Enqueue(next);
-        }
-        if (visited != nodes.Count) Error("Task connections contain a cycle. Parallel joins require an acyclic graph.");
         var reached = Reachable(document, document.StartStepId);
         foreach (var trigger in nodes.Values.Where(step => step.Uses == WorkflowNodeDefinitions.TriggerUses))
             reached.UnionWith(Reachable(document, trigger.Id));

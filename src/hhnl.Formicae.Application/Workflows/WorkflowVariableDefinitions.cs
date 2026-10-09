@@ -123,6 +123,12 @@ public static class WorkflowVariableDefinitions
     public static void ValidateEvidence(CustomTaskInputProvenance source)
     {
         if (source is null) throw new InvalidOperationException("Frozen binding evidence is missing.");
+        if (source.Unavailable)
+        {
+            if (source.Variable is not null || source.Value is not null || source.RunId != Guid.Empty || source.ExecutionAttemptId != Guid.Empty || source.LoopIteration is not null)
+                throw new InvalidOperationException("Unavailable source cannot contain producer evidence.");
+            return;
+        }
         if (source.Variable is not { } variable)
         {
             if (source.RunId == Guid.Empty || source.ExecutionAttemptId == Guid.Empty)
@@ -135,6 +141,7 @@ public static class WorkflowVariableDefinitions
         for (var i = 0; i < variable.Sources.Count; i++)
         {
             var expected = variable.Configuration.Sources![i]; var actual = variable.Sources[i];
+            ValidateEvidence(actual);
             if (actual.StepId != expected.StepId || actual.OutputName != expected.OutputName)
                 throw new InvalidOperationException("Frozen variable source order does not match its configuration.");
             ValidateEvidence(actual);
@@ -160,6 +167,9 @@ public static class WorkflowVariableDefinitions
             {
                 if (document.Variables?.Any(item => item.Id == source.StepId) == true)
                     throw new InvalidOperationException("Variable binding is missing its frozen source evidence.");
+                if (source.Unavailable && !WorkflowCycleDefinitions.HasCycles(document))
+                    throw new InvalidOperationException("Unavailable producer evidence requires a cyclic execution.");
+                if (WorkflowCycleDefinitions.HasCycles(document)) continue;
                 var loop = document.Loops?.FirstOrDefault(item => item.BodyStepIds.Contains(source.StepId));
                 if (source.LoopIteration != (loop is null ? null : iteration))
                     throw new InvalidOperationException("Prepared binding provenance does not match this loop iteration.");

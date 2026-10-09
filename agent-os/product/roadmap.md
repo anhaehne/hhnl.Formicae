@@ -38,6 +38,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Represent workflow entrypoints as registered event nodes: built-in Start/Webhook, GitHub Issue created/Label added and Gitea Label added. Each integration owns its event settings and matching; the optional manual Start and selected-entry history remain available (0.22.0; approved revisions `workflow-start-nodes` and `integration-event-nodes`).
 - Implemented in 0.24.0, approved baseline revision `github-issue-comment-waits`: a callable GitHub Issue commented node accepting a repository-scoped issue number, with durable event waits that resume the same execution and expose comment outputs.
 - Support parallel planning branches with an explicit join (available in 0.12.0); parallel shared-branch writes remain deferred.
+- Approved revision `variable-ports-and-control-cycles`: repair reported native variable connections, show port types on hover and execute unrestricted control cycles with fresh durable visit evidence and existing pause/cancel controls.
 - Support ordinary task outputs with multiple connections and all-input dependency joins, including nested task branches and multiple terminal tasks (available in 0.21.0). Mixing these task graphs with loop, decision or explicit parallel control nodes remains future work.
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).

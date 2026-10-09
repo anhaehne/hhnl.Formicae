@@ -65,6 +65,7 @@ public enum WorkflowTriggerType
 
 public sealed class Workflow
 {
+    public string? CycleExecutionJson { get; set; }
     public bool IsPaused { get; set; }
     public DateTimeOffset? CancelRequestedAt { get; set; }
     public DateTimeOffset? CancelCompletedAt { get; set; }
@@ -189,6 +190,9 @@ public sealed record WorkflowDecisionCondition(
 
 public sealed class WorkflowDecisionExecution
 {
+    public int? VisitIteration { get; init; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, JsonIgnore]
+    public string? NextCycleExecutionJson { get; set; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid WorkflowId { get; init; }
     public required string NodeId { get; init; }
@@ -211,6 +215,7 @@ public enum WorkflowParallelExecutionOutcome
 
 public sealed class WorkflowParallelExecution
 {
+    public int? VisitIteration { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid WorkflowId { get; init; }
     public required string NodeId { get; init; }

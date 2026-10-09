@@ -132,15 +132,24 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
       const input = inputsFor(target, customTasks).find(input => input.name === connection.targetHandle!.slice(5));
       return !!output && !!input && output.valueType === input.valueType && (target.data.variable ? validVariableSource(draft.nodes, draft.edges, manualStartId, source.id, target.id) : eligibleProducer(draft.nodes, draft.edges, manualStartId, source.id, target.id));
     }
-    return !!source && !!target && source.id !== target.id && !source.data.variable && !target.data.variable && !isStartUses(target.data.uses) && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && !isStartUses(source.data.uses) && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
+    return !!source && !!target && !source.data.variable && !target.data.variable && !isStartUses(target.data.uses) && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && !isStartUses(source.data.uses) && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
   };
+  function connectionNotice(connection: Connection | Edge) {
+    const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
+    const output = source && outputsFor(source, customTasks).find(item => `output:${item.name}` === connection.sourceHandle);
+    const input = target && inputsFor(target, customTasks).find(item => `data:${item.name}` === connection.targetHandle);
+    if (output && input && output.valueType !== input.valueType) return `Cannot connect ${output.name} (${output.valueType}) to ${input.name} (${input.valueType}). Choose a variable with type ${output.valueType}.`;
+    if (output && input) return "This source is unavailable at the consumer. Place the producer before the consumer or connect a control cycle to use earlier visits.";
+    if (output) return `Connect ${output.name} (${output.valueType}) to a matching data input port.`;
+    return "That control connection is not supported at this port.";
+  }
   function connect(source: string, port: string, target?: string, targetPort = "input", replaceEdgeId?: string) {
     if (!editable) return;
     const data = port.startsWith("output:");
     const variableTarget = !!draft.nodes.find(node => node.id === target)?.data.variable;
     const multiple = port === "next" && targetPort === "input" && !draft.edges.some(edge => edge.source === source && edge.sourceHandle === port && edge.targetHandle !== "input") && !isStartUses(draft.nodes.find(node => node.id === source)?.data.uses ?? "") && draft.nodes.find(node => node.id === source)?.data.uses !== parallelUses;
     const existing = draft.edges.find(edge => data ? edge.target === target && edge.targetHandle === targetPort && (!variableTarget || (edge.source === source && edge.sourceHandle === port)) : multiple && target ? edge.source === source && edge.sourceHandle === port && edge.target === target && edge.targetHandle === targetPort : edge.source === source && edge.sourceHandle === port);
-    if (target && !validConnection(makeEdge(source, port, target, targetPort))) { setNotice("That connection is not allowed."); return; }
+    if (target && !validConnection(makeEdge(source, port, target, targetPort))) { setNotice(connectionNotice(makeEdge(source, port, target, targetPort))); return; }
     if (existing?.target === target && existing?.targetHandle === targetPort && (!data || (existing.source === source && existing.sourceHandle === port))) return;
     const action = () => { state.commit(); state.update(current => ({ ...current, nodes: data && target ? current.nodes.map(node => {
         if (node.id !== target) return node;
@@ -263,6 +272,12 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
             onEdgesChange={changes => setSelectedEdges(current => { const ids = new Set(current); changes.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; })}
             onNodeClick={(_, node) => { setManualStartOpen(false); setInspector(true); setSettings(false); }} onPaneClick={() => { setMenu(false); }}
             onConnect={connection => connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input")} isValidConnection={validConnection}
+            onConnectEnd={(_event, connection) => {
+              if (connection.isValid || !connection.fromNode || !connection.toNode) return;
+              const reverse = connection.fromHandle?.type === "target";
+              setNotice(connectionNotice({ source: reverse ? connection.toNode.id : connection.fromNode.id, target: reverse ? connection.fromNode.id : connection.toNode.id,
+                sourceHandle: reverse ? connection.toHandle?.id ?? null : connection.fromHandle?.id ?? null, targetHandle: reverse ? connection.fromHandle?.id ?? null : connection.toHandle?.id ?? null }));
+            }}
             onReconnect={(old, connection) => {
               if (isDataEdge(old)) {
                 if (draft.edges.some(edge => edge.id !== old.id && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && edge.target === connection.target && edge.targetHandle === connection.targetHandle)) { setNotice("That source is already connected."); return; }

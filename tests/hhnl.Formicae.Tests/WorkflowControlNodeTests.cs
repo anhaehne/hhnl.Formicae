@@ -45,7 +45,7 @@ public sealed class WorkflowControlNodeTests
     [InlineData("disconnected")]
     [InlineData("duplicate")]
     [InlineData("mixed-schema")]
-    public void Invalid_node_connections_and_guards_are_rejected(string scenario)
+    public void Node_validation_accepts_outer_feedback_and_rejects_invalid_regions(string scenario)
     {
         var document = Document();
         var steps = document.Steps.ToList();
@@ -65,7 +65,7 @@ public sealed class WorkflowControlNodeTests
             case "duplicate": steps.Add(steps[1]); break;
             case "mixed-schema": document = document with { Loops = [new("old", ["plan"], 1, 1, "finish")] }; break;
         }
-        Assert.False(new WorkflowDefinitionValidator().Validate(document with { Steps = steps }).IsValid);
+        Assert.Equal(scenario == "cycle", new WorkflowDefinitionValidator().Validate(document with { Steps = steps }).IsValid);
     }
 
     [Fact]

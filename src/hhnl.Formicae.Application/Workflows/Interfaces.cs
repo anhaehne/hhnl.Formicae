@@ -109,9 +109,10 @@ public interface IWorkflowStore
     Task<IReadOnlyList<TaskRun>> ListTaskRunsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<WorkflowLoopIteration> UpsertLoopIterationAsync(WorkflowLoopIteration iteration, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowLoopIteration>> ListLoopIterationsAsync(Guid workflowId, CancellationToken cancellationToken);
-    Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken);
+    Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null);
+    Task<IReadOnlyList<WorkflowParallelExecution>> ListParallelExecutionsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<WorkflowParallelExecution> UpsertParallelExecutionAsync(WorkflowParallelExecution execution, CancellationToken cancellationToken);
-    Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken);
+    Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null);
     Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken);
     Task<WorkflowDecisionCommitResult> CommitDecisionAsync(WorkflowDecisionExecution proposed, WorkflowStatus nextStatus, WorkflowStep nextStep, CancellationToken cancellationToken);
     Task AddEventAsync(WorkflowEvent evt, CancellationToken cancellationToken);

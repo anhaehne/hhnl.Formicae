@@ -46,6 +46,27 @@ public sealed class WorkflowWaitTests
         => new(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), agent, new Prompt(), clock, integrations);
 
     [Fact]
+    public async Task Unbounded_comment_cycle_arms_distinct_waits_and_does_not_reuse_old_comments()
+    {
+        var (store, workflow, integrations, clock, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "wait", [Wait("wait", "wait")]));
+        for (var visit = 1; visit <= 4; visit++)
+        {
+            await Orchestrator(store, integrations, clock, agent).AdvanceAsync(workflow, default);
+            var run = (await store.GetTaskRunExecutionAsync(workflow.Id, "wait", visit, default))!;
+            Assert.Equal(TaskRunStatus.Waiting, run.Status);
+            await store.AcceptWaitEventAsync(Event(visit, clock.UtcNow.AddSeconds(1)), default);
+            clock.UtcNow = clock.UtcNow.AddSeconds(2);
+            await Orchestrator(store, integrations, clock, agent).AdvanceAsync(workflow, default);
+            Assert.Equal(TaskRunStatus.Succeeded, run.Status);
+            Assert.Contains($"comment {visit}", run.StructuredOutputsJson!);
+        }
+        await Orchestrator(store, integrations, clock, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(TaskRunStatus.Waiting, (await store.GetTaskRunExecutionAsync(workflow.Id, "wait", 5, default))!.Status);
+        Assert.Equal(5, (await store.ListWaitsAsync(workflow.Id, default)).Select(wait => wait.ExecutionAttemptId).Distinct().Count());
+        Assert.Empty(agent.Tasks);
+    }
+
+    [Fact]
     public async Task Multiple_distinct_comments_claim_one_activation_and_launch_one_continuation_after_restart()
     {
         var (store, workflow, integrations, clock, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "wait", [Wait("wait", "after"), new("after", "builtins.script", Script: new("echo done"))]));

@@ -49,7 +49,7 @@ public sealed record WorkflowExecutionResponse(WorkflowSummaryResponse Workflow,
     WorkflowExecutionControl Control, IReadOnlyList<WorkflowResolvedSettings> ResolvedSettings,
     IReadOnlyList<WorkflowParallelExecutionResponse> Parallels, IReadOnlyList<WorkflowNodeWait>? Waits = null);
 public sealed record WorkflowParallelExecutionResponse(Guid Id, Guid WorkflowId, string NodeId,
-    WorkflowParallelExecutionOutcome Outcome, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt);
+    WorkflowParallelExecutionOutcome Outcome, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, int? VisitIteration = null);
 public sealed record WorkflowResolvedSettings(Guid TaskRunId, Guid? ExecutionAttemptId, string? AiSettingsId, string? Model,
     string? PersonaId, int? PersonaRevision, string? PersonaName, System.Text.Json.JsonElement? Environment, IReadOnlyList<string>? Capabilities = null,
     IReadOnlyList<WorkflowSecretReference>? SecretReferences = null);

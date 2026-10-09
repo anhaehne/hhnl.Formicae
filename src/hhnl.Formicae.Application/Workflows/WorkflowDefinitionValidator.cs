@@ -197,7 +197,7 @@ public sealed class WorkflowDefinitionValidator
         {
             if (visiting.Contains(stepId))
             {
-                errors.Add(new WorkflowDefinitionValidationError("definition.graph.cycle", $"Sequential graph contains an undeclared cycle at step '{stepId}'.", "steps[].nextStepId"));
+                // A control back-edge reactivates the task on a fresh durable visit.
                 return;
             }
             if (!visited.Add(stepId)) return;
@@ -225,7 +225,7 @@ public sealed class WorkflowDefinitionValidator
         }
 
         var terminalCount = document.Steps.Count(step => string.IsNullOrWhiteSpace(step.NextStepId));
-        if (terminalCount != 1)
+        if (terminalCount != 1 && !WorkflowCycleDefinitions.HasCycles(document))
         {
             errors.Add(new WorkflowDefinitionValidationError(
                 "definition.graph.terminal.invalid",

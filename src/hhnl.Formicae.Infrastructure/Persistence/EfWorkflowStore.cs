@@ -99,9 +99,13 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
         => await dbContext.WorkflowLoopIterations.Where(item => item.WorkflowId == workflowId)
             .OrderBy(item => item.StartedAt).ThenBy(item => item.IterationNumber).ToListAsync(cancellationToken);
 
-    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null)
         => dbContext.WorkflowParallelExecutions.SingleOrDefaultAsync(execution => execution.WorkflowId == workflowId
-            && execution.NodeId == nodeId, cancellationToken);
+            && execution.NodeId == nodeId && execution.VisitIteration == visitIteration, cancellationToken);
+
+    public async Task<IReadOnlyList<WorkflowParallelExecution>> ListParallelExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
+        => await dbContext.WorkflowParallelExecutions.AsNoTracking().Where(item => item.WorkflowId == workflowId)
+            .OrderBy(item => item.StartedAt).ThenBy(item => item.VisitIteration).ToListAsync(cancellationToken);
 
     public async Task<WorkflowParallelExecution> UpsertParallelExecutionAsync(WorkflowParallelExecution execution, CancellationToken cancellationToken)
     {
@@ -113,9 +117,9 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
         return execution;
     }
 
-    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null)
         => dbContext.WorkflowDecisionExecutions.AsNoTracking().SingleOrDefaultAsync(execution => execution.WorkflowId == workflowId
-            && execution.NodeId == nodeId, cancellationToken);
+            && execution.NodeId == nodeId && execution.VisitIteration == visitIteration, cancellationToken);
 
     public async Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
         => await dbContext.WorkflowDecisionExecutions.AsNoTracking().Where(execution => execution.WorkflowId == workflowId)
@@ -129,13 +133,14 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
         var workflow = await dbContext.Workflows.FromSqlInterpolated($"SELECT * FROM workflows WHERE \"Id\" = {proposed.WorkflowId} FOR UPDATE")
             .AsNoTracking().SingleOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException("The decision workflow does not exist.");
-        var existing = await GetDecisionExecutionAsync(proposed.WorkflowId, proposed.NodeId, cancellationToken);
+        var existing = await GetDecisionExecutionAsync(proposed.WorkflowId, proposed.NodeId, cancellationToken, proposed.VisitIteration);
         if (existing is not null)
         {
             await transaction.CommitAsync(cancellationToken);
             return new(existing, workflow, false);
         }
         if (workflow.CurrentDefinitionStepId != proposed.NodeId
+                || proposed.VisitIteration != WorkflowCycleDefinitions.Visit(workflow, proposed.NodeId)
             || workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
             throw new InvalidOperationException("The workflow is no longer awaiting this decision.");
         try
@@ -144,6 +149,7 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
             await dbContext.SaveChangesAsync(cancellationToken);
             await dbContext.Workflows.Where(item => item.Id == workflow.Id).ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.CurrentDefinitionStepId, proposed.SelectedTargetId)
+                .SetProperty(item => item.CycleExecutionJson, proposed.NextCycleExecutionJson ?? workflow.CycleExecutionJson)
                 .SetProperty(item => item.Status, nextStatus)
                 .SetProperty(item => item.CurrentStep, nextStep)
                 .SetProperty(item => item.FailureReason, (string?)null)
@@ -156,6 +162,7 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
             dbContext.Entry(proposed).State = EntityState.Detached;
         }
         workflow.CurrentDefinitionStepId = proposed.SelectedTargetId;
+        workflow.CycleExecutionJson = proposed.NextCycleExecutionJson ?? workflow.CycleExecutionJson;
         workflow.Status = nextStatus; workflow.CurrentStep = nextStep;
         workflow.FailureReason = null; workflow.UpdatedAt = proposed.EvaluatedAt;
         return new(proposed, workflow, true);

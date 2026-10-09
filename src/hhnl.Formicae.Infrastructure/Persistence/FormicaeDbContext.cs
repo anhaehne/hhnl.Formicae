@@ -77,6 +77,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(workflow => workflow.CurrentStep).HasConversion<string>();
             entity.Property(workflow => workflow.DslSchemaVersion);
             entity.Property(workflow => workflow.CurrentDefinitionStepId);
+            entity.Property(workflow => workflow.CycleExecutionJson).HasColumnType("jsonb");
             entity.HasIndex(workflow => workflow.WorkflowDefinitionId);
             entity.HasIndex(workflow => workflow.WorkflowDefinitionVersionId);
         });
@@ -139,7 +140,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasKey(execution => execution.Id);
             entity.Property(execution => execution.NodeId).IsRequired();
             entity.Property(execution => execution.Outcome).HasConversion<string>();
-            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId }).IsUnique();
+            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId, execution.VisitIteration }).IsUnique().AreNullsDistinct(false);
             entity.HasOne<Workflow>().WithMany().HasForeignKey(execution => execution.WorkflowId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -151,7 +152,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.Property(execution => execution.ConfiguredTargetId).IsRequired();
             entity.Property(execution => execution.SelectedTargetId).IsRequired();
             entity.Property(execution => execution.InputJson).IsRequired();
-            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId }).IsUnique();
+            entity.HasIndex(execution => new { execution.WorkflowId, execution.NodeId, execution.VisitIteration }).IsUnique().AreNullsDistinct(false);
             entity.HasOne<Workflow>().WithMany().HasForeignKey(execution => execution.WorkflowId).OnDelete(DeleteBehavior.Cascade);
         });
 

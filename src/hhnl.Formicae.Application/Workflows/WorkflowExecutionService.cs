@@ -20,11 +20,10 @@ public sealed class WorkflowExecutionService(IWorkflowStore store, IClock clock)
         var attempts = await store.ListTaskRunAttemptsAsync(id, token);
         var definition = version is null ? null : WorkflowDefinitionJson.Deserialize(version.DefinitionJson);
         var parallels = new List<WorkflowParallelExecutionResponse>();
-        foreach (var step in definition?.Steps.Where(step => step.Uses == WorkflowParallelDefinitions.Uses) ?? [])
-        {
-            var parallel = await store.GetParallelExecutionAsync(id, step.Id, token);
-            if (parallel is not null) parallels.Add(new(parallel.Id, id, parallel.NodeId, parallel.Outcome, parallel.StartedAt, parallel.CompletedAt));
-        }
+        var parallelIds = definition?.Steps.Where(step => step.Uses == WorkflowParallelDefinitions.Uses).Select(step => step.Id).ToHashSet() ?? [];
+        foreach (var parallel in await store.ListParallelExecutionsAsync(id, token))
+            if (parallelIds.Contains(parallel.NodeId)) parallels.Add(new(parallel.Id, id, parallel.NodeId, parallel.Outcome,
+                parallel.StartedAt, parallel.CompletedAt, parallel.VisitIteration));
         var terminal = workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled;
         var cancelling = workflow.CancelRequestedAt is not null;
         var activeWorkers = runs.Any(run => run.RuntimeCleanupPending || run.Status == TaskRunStatus.Running);

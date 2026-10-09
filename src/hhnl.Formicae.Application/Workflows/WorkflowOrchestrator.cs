@@ -54,6 +54,8 @@ public sealed partial class WorkflowOrchestrator(
         try
         {
             var definition = await ResolveDefinitionAsync(workflow, cancellationToken);
+            if (WorkflowCycleDefinitions.HasCycles(definition))
+                return await AdvanceCycleAsync(workflow, definition, cancellationToken);
             if (WorkflowGraphDefinitions.IsGraph(definition))
                 return await AdvanceGraphAsync(workflow, definition, cancellationToken);
             var current = definition.Steps.SingleOrDefault(step => step.Id == (workflow.CurrentDefinitionStepId ?? definition.StartStepId));
@@ -316,7 +318,7 @@ public sealed partial class WorkflowOrchestrator(
         if (planRun is not null)
         {
             var document = await ResolveDefinitionAsync(workflow, cancellationToken);
-            if (WorkflowGraphDefinitions.IsGraph(document)) return [];
+            if (WorkflowGraphDefinitions.IsGraph(document) || WorkflowCycleDefinitions.HasCycles(document)) return [];
             if (document.Steps.Any(step => step.Uses == WorkflowDecisionDefinitions.Uses))
                 return []; // Committed decisions must not be replayed by legacy feedback rewinds.
             if (document.Steps.Where(step => step.Parallel is not null)
@@ -904,8 +906,8 @@ public sealed partial class WorkflowOrchestrator(
             throw new InvalidOperationException($"Workflow step '{step.Id}' uses unsupported task '{step.Uses}'.");
 
         var loop = document.Loops?.SingleOrDefault(item => item.BodyStepIds.Contains(step.Id, StringComparer.Ordinal));
-        int? iterationNumber = null;
-        if (loop is not null)
+        int? iterationNumber = WorkflowCycleDefinitions.Visit(workflow, step.Id);
+        if (loop is not null && workflow.CycleExecutionJson is null)
         {
             var history = (await store.ListLoopIterationsAsync(workflow.Id, cancellationToken))
                 .Where(item => item.LoopId == loop.Id).OrderBy(item => item.IterationNumber).ToArray();
@@ -998,6 +1000,8 @@ public sealed partial class WorkflowOrchestrator(
     private async Task AdvanceDefinitionCursorAsync(Workflow workflow, string message, CancellationToken cancellationToken)
     {
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
+        if (workflow.CycleExecutionJson is not null)
+        { await AdvanceCycleCursorAsync(workflow, document, message, cancellationToken); return; }
         // Graph completion and successor activation belong to the dependency scheduler.
         if (WorkflowGraphDefinitions.IsGraph(document))
         {

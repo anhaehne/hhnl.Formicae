@@ -339,10 +339,10 @@ public static class CustomTaskDefinitions
                     || eventEntries.Any(entry => entry.Id != producer.Id && Reach(entry.Entry, consumer.Id)))
                     errors.Add(Error(consumer.Id, $"Event '{producer.Id}' must be the guaranteed selected entrypoint for consumer '{consumer.Id}'."));
             }
-            else if (producer.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
+            else if (!WorkflowCycleDefinitions.IsFeedback(plan, producer.Id, consumer.Id) && (producer.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
                 || (!WorkflowGraphDefinitions.IsGraph(plan) && entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))
                 || (WorkflowGraphDefinitions.IsGraph(plan) && WorkflowStartDefinitions.HasStartNodes(document)
-                    && entries.Any(entry => Reach(entry, consumer.Id) && !Reach(entry, producer.Id))))
+                    && entries.Any(entry => Reach(entry, consumer.Id) && !Reach(entry, producer.Id)))))
                 errors.Add(Error(consumer.Id, $"Producer '{producer.Id}' must be guaranteed to execute before consumer '{consumer.Id}'; self, downstream and conditional sources are invalid."));
             else if (LoopFor(producer.Id) is { } producerLoop && producerLoop != LoopFor(consumer.Id))
                 errors.Add(Error(consumer.Id, "Bindings cannot leave a loop body or cross loops."));

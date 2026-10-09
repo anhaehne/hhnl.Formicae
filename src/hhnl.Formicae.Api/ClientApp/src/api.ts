@@ -74,7 +74,7 @@ export type DecisionCondition = {
   missingValue: "error" | "false";
 };
 export type WorkflowDecisionNodeSettings = { condition: DecisionCondition; trueStepId: string; falseStepId: string };
-export type WorkflowDecisionExecution = { id: string; workflowId: string; nodeId: string; booleanResult: boolean; configuredTargetId: string; selectedTargetId: string; evaluatedAt: string; inputJson: string; sourceTaskRunId?: string | null };
+export type WorkflowDecisionExecution = { visitIteration?: number | null; id: string; workflowId: string; nodeId: string; booleanResult: boolean; configuredTargetId: string; selectedTargetId: string; evaluatedAt: string; inputJson: string; sourceTaskRunId?: string | null };
 export type WorkflowParallelNodeSettings = { branchStepIds: string[] };
 
 export type WorkflowLoopNodeSettings = { bodyStepId: string; repeatCount: number; maxIterations: number; timeoutSeconds?: number | null };
@@ -682,7 +682,7 @@ export type CustomTaskInputDefinition = { name: string; valueType: "string" | "n
 export type CustomTaskOutputDefinition = Omit<CustomTaskInputDefinition, "defaultValue">;
 export type WorkflowDataVariable = { id: string; name: string; valueType: "string" | "number" | "boolean"; mode: "aggregate" | "first" | "override"; sources: CustomTaskInputBinding[]; separator: string; booleanOperation: "any" | "all" };
 export type CustomTaskInputBinding = { stepId: string; outputName: string };
-export type CustomTaskInputProvenance = CustomTaskInputBinding & { runId: string; executionAttemptId: string; loopIteration?: number | null; value?: CustomTaskScalar | null; variable?: { configuration: WorkflowDataVariable; sources: CustomTaskInputProvenance[] } | null };
+export type CustomTaskInputProvenance = CustomTaskInputBinding & { runId: string; executionAttemptId: string; loopIteration?: number | null; value?: CustomTaskScalar | null; unavailable?: boolean; variable?: { configuration: WorkflowDataVariable; sources: CustomTaskInputProvenance[] } | null };
 export type CustomTaskRunnerSettings = { kind: "agent"; timeoutSeconds: number };
 export type CustomTaskSnapshot = { id: string; revision: number; name: string; description: string; promptTemplate: string; inputs: CustomTaskInputDefinition[]; outputs?: CustomTaskOutputDefinition[]; runner: CustomTaskRunnerSettings };
 export type CustomTaskDefinition = CustomTaskSnapshot & { createdAt: string; updatedAt: string };
@@ -719,7 +719,7 @@ export type WorkflowExecution = {
  workflow: WorkflowSummary; definitionVersionId?: string | null; definition: WorkflowDefinitionDocument | null;
  waits?: Array<{ id: string; workflowId: string; taskRunId: string; executionAttemptId: string; issueUrl: string; armedAt: string; matchedAt?: string | null; matchedEventId?: string | null; isCanceled: boolean; inputProvenanceJson?: string | null }>;
  runs: TaskRun[]; attempts: TaskRunAttempt[]; loops: WorkflowLoopIteration[]; decisions: WorkflowDecisionExecution[];
- parallels?: Array<{ id: string; workflowId: string; nodeId: string; outcome: string; startedAt: string; completedAt?: string | null }>;
+ parallels?: Array<{ id: string; workflowId: string; nodeId: string; visitIteration?: number | null; outcome: string; startedAt: string; completedAt?: string | null }>;
  resolvedSettings?: Array<{ taskRunId: string; executionAttemptId?: string | null; aiSettingsId?: string | null; model?: string | null; personaId?: string | null; personaRevision?: number | null; personaName?: string | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null; environment?: unknown }>;
  control: { isPaused: boolean; cancelRequestedAt?: string | null; cancelCompletedAt?: string | null; canPause: boolean; canResume: boolean; canCancel: boolean };
 };

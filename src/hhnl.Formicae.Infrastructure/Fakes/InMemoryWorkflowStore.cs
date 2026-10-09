@@ -149,29 +149,35 @@ public sealed partial class InMemoryWorkflowStore : IWorkflowStore
         }
     }
 
-    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    public Task<WorkflowParallelExecution?> GetParallelExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null)
     {
         lock (gate)
         {
-            return Task.FromResult(parallelExecutions.Values.SingleOrDefault(item => item.WorkflowId == workflowId && item.NodeId == nodeId));
+            return Task.FromResult(parallelExecutions.Values.SingleOrDefault(item => item.WorkflowId == workflowId && item.NodeId == nodeId && item.VisitIteration == visitIteration));
         }
+    }
+
+    public Task<IReadOnlyList<WorkflowParallelExecution>> ListParallelExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        lock (gate) return Task.FromResult<IReadOnlyList<WorkflowParallelExecution>>(parallelExecutions.Values.Where(item => item.WorkflowId == workflowId)
+            .OrderBy(item => item.StartedAt).ThenBy(item => item.VisitIteration).ToArray());
     }
 
     public Task<WorkflowParallelExecution> UpsertParallelExecutionAsync(WorkflowParallelExecution execution, CancellationToken cancellationToken)
     {
         lock (gate)
         {
-            if (parallelExecutions.Values.Any(item => item.Id != execution.Id && item.WorkflowId == execution.WorkflowId && item.NodeId == execution.NodeId))
+            if (parallelExecutions.Values.Any(item => item.Id != execution.Id && item.WorkflowId == execution.WorkflowId && item.NodeId == execution.NodeId && item.VisitIteration == execution.VisitIteration))
                 throw new InvalidOperationException("A parallel execution already exists for this workflow and node.");
             parallelExecutions[execution.Id] = execution;
         }
         return Task.FromResult(execution);
     }
 
-    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken)
+    public Task<WorkflowDecisionExecution?> GetDecisionExecutionAsync(Guid workflowId, string nodeId, CancellationToken cancellationToken, int? visitIteration = null)
     {
         lock (gate)
-            return Task.FromResult(decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == workflowId && execution.NodeId == nodeId));
+            return Task.FromResult(decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == workflowId && execution.NodeId == nodeId && execution.VisitIteration == visitIteration));
     }
 
     public Task<IReadOnlyList<WorkflowDecisionExecution>> ListDecisionExecutionsAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -189,13 +195,15 @@ public sealed partial class InMemoryWorkflowStore : IWorkflowStore
         {
             var workflow = workflows.GetValueOrDefault(proposed.WorkflowId)
                 ?? throw new InvalidOperationException("The decision workflow does not exist.");
-            var existing = decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == proposed.WorkflowId && execution.NodeId == proposed.NodeId);
+            var existing = decisionExecutions.Values.SingleOrDefault(execution => execution.WorkflowId == proposed.WorkflowId && execution.NodeId == proposed.NodeId && execution.VisitIteration == proposed.VisitIteration);
             if (existing is not null) return Task.FromResult(new WorkflowDecisionCommitResult(existing, workflow, false));
             if (workflow.CurrentDefinitionStepId != proposed.NodeId
+                || proposed.VisitIteration != WorkflowCycleDefinitions.Visit(workflow, proposed.NodeId)
                 || workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled)
                 throw new InvalidOperationException("The workflow is no longer awaiting this decision.");
             decisionExecutions.Add(proposed.Id, proposed);
             workflow.CurrentDefinitionStepId = proposed.SelectedTargetId;
+            workflow.CycleExecutionJson = proposed.NextCycleExecutionJson ?? workflow.CycleExecutionJson;
             workflow.Status = nextStatus; workflow.CurrentStep = nextStep;
             workflow.FailureReason = null; workflow.UpdatedAt = proposed.EvaluatedAt;
             return Task.FromResult(new WorkflowDecisionCommitResult(proposed, workflow, true));

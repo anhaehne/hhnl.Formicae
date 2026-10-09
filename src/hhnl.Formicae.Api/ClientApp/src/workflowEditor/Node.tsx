@@ -15,12 +15,12 @@ export function WorkflowNode({ id, data, selected, footer }: NodeProps<WorkflowS
   const schemaKey = JSON.stringify(schema);
   useEffect(() => { updateInternals(id); }, [id, data.uses, data.displayName, branchCount, schemaKey, updateInternals]);
   if (data.variable) return <div className={`editor-node variable ${selected ? "selected" : ""} ${actions.errors.has(id) ? "invalid" : ""}`}>
-    <Handle id="data:value" type="target" position={Position.Left} />
+    <Handle id="data:value" type="target" position={Position.Left} title={`value: ${data.variable.valueType}`} aria-label={`value input: ${data.variable.valueType}`} />
     <span className="editor-node-kind">Variable · {data.variable.valueType}</span>
     <strong title={data.displayName}>{data.displayName}</strong>
     <span className="editor-node-summary">{data.variable.mode === "aggregate" ? data.variable.valueType === "boolean" ? data.variable.booleanOperation === "all" ? "All inputs are true" : "Any input is true" : data.variable.valueType === "number" ? "Sum" : "Append" : data.variable.mode === "first" ? "First value" : "Override"}</span>
     {actions.errors.has(id) && <span className="editor-node-error">Needs attention</span>}
-    <Handle id="output:value" type="source" position={Position.Right} />
+    <Handle id="output:value" type="source" position={Position.Right} title={`value: ${data.variable.valueType}`} aria-label={`value output: ${data.variable.valueType}`} />
   </div>;
   const loop = data.uses === loopUses, trigger = isStartUses(data.uses), parallel = data.uses === parallelUses, decision = data.uses === decisionUses;
   const output = (port: string, text: string) => <div key={port} className="editor-port"><span>{text}</span>{actions.editable && <button className="nodrag nopan" type="button" aria-label={`Add after ${data.displayName} ${text}`} onClick={() => actions.add(id, port)}>+</button>}<Handle id={port} type="source" position={Position.Right} /></div>;
@@ -38,8 +38,8 @@ export function WorkflowNode({ id, data, selected, footer }: NodeProps<WorkflowS
         {decision ? <>{output("true", "True")}{output("false", "False")}</> : parallel ? <>{Array.from({ length: branchCount }, (_, index) => output(`branch:${index}`, `Branch ${index + 1}`))}{output("next", "Next")}</> : loop ? <>{output("body", "Body")}{output("exit", "Exit")}</> : output("next", "Next")}
       </div>
       {schema && <div className="editor-data-ports">{Array.from({ length: Math.max(inputs.length, outputs.length) }, (_, index) => <div className="editor-data-row" key={index}>
-        <div className="editor-data-input">{inputs[index] && <><Handle id={`data:${inputs[index].name}`} type="target" position={Position.Left} /><span>{inputs[index].name === "issueId" ? "Issue id" : inputs[index].name === "text" && data.uses === issueCommentUses ? "Text" : inputs[index].name}</span></>}</div>
-        <div className="editor-data-output">{outputs[index] && <><span>{outputs[index].name === "issueId" ? "Issue id" : outputs[index].name}</span><Handle id={`output:${outputs[index].name}`} type="source" position={Position.Right} /></>}</div>
+        <div className="editor-data-input">{inputs[index] && <><Handle id={`data:${inputs[index].name}`} type="target" position={Position.Left} title={`${inputs[index].name}: ${inputs[index].valueType}`} aria-label={`${inputs[index].name} input: ${inputs[index].valueType}`} /><span title={`${inputs[index].name}: ${inputs[index].valueType}`}>{inputs[index].name === "issueId" ? "Issue id" : inputs[index].name === "text" && data.uses === issueCommentUses ? "Text" : inputs[index].name}</span></>}</div>
+        <div className="editor-data-output">{outputs[index] && <><span title={`${outputs[index].name}: ${outputs[index].valueType}`}>{outputs[index].name === "issueId" ? "Issue id" : outputs[index].name}</span><Handle id={`output:${outputs[index].name}`} type="source" position={Position.Right} title={`${outputs[index].name}: ${outputs[index].valueType}`} aria-label={`${outputs[index].name} output: ${outputs[index].valueType}`} /></>}</div>
       </div>)}</div>}
     </div>
     {footer}

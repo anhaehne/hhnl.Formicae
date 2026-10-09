@@ -16,7 +16,12 @@ public sealed partial class WorkflowOrchestrator
                     ? new WorkflowDefinitionStep(binding.StepId, "github.issue-created")
                     : throw new InvalidOperationException($"Producer '{binding.StepId}' is missing from the pinned definition."));
             var inLoop = document.Loops?.Any(loop => loop.BodyStepIds.Contains(producer.Id)) == true;
-            var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, inLoop ? run.LoopIteration : null, token);
+            var eventSource = producer.Uses == "github.issue-created";
+            var visit = eventSource ? null : workflow.CycleExecutionJson is null ? inLoop ? run.LoopIteration : null
+                : WorkflowCycleDefinitions.State(workflow).Active.GetValueOrDefault(step.Id)?.Sources.GetValueOrDefault(producer.Id);
+            if (!eventSource && workflow.CycleExecutionJson is not null && (visit is null or 0))
+                return new(producer.Id, binding.OutputName, Guid.Empty, Guid.Empty, null, null, Unavailable: true);
+            var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, visit, token);
             if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
                 throw new InvalidOperationException($"Bound input requires successful validated outputs from '{producer.Id}'.");
             var outputs = CustomTaskDefinitions.ParseProducerOutputs(producer, source.StructuredOutputsJson);

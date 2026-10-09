@@ -5,14 +5,15 @@ public sealed partial class WorkflowOrchestrator
     private async Task<bool> AdvanceParallelAsync(Workflow workflow, WorkflowDefinitionDocument document,
         WorkflowDefinitionStep group, CancellationToken cancellationToken)
     {
-        var activation = await store.GetParallelExecutionAsync(workflow.Id, group.Id, cancellationToken);
+        var visit = WorkflowCycleDefinitions.Visit(workflow, group.Id);
+        var activation = await store.GetParallelExecutionAsync(workflow.Id, group.Id, cancellationToken, visit);
         if (activation is null)
         {
             var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
             if (workflow.Status == WorkflowStatus.Queued && !issue.HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) return false;
             activation = await store.UpsertParallelExecutionAsync(new WorkflowParallelExecution
             {
-                WorkflowId = workflow.Id, NodeId = group.Id, EntryPlanArtifact = workflow.PlanArtifact, StartedAt = clock.UtcNow
+                WorkflowId = workflow.Id, NodeId = group.Id, VisitIteration = visit, EntryPlanArtifact = workflow.PlanArtifact, StartedAt = clock.UtcNow
             }, cancellationToken);
         }
         workflow.CurrentDefinitionStepId = group.Id;
@@ -32,7 +33,7 @@ public sealed partial class WorkflowOrchestrator
             string? input = activation.EntryPlanArtifact;
             foreach (var step in branch)
             {
-                var run = await store.GetTaskRunExecutionAsync(workflow.Id, step.Id, null, cancellationToken);
+                var run = await store.GetTaskRunExecutionAsync(workflow.Id, step.Id, visit, cancellationToken);
                 if (run?.Status == TaskRunStatus.Succeeded) { input = run.Output; continue; }
                 if (run?.Status == TaskRunStatus.Failed) break;
                 changed |= await AdvanceParallelTaskAsync(workflow, step, run, input, cancellationToken);
@@ -41,7 +42,7 @@ public sealed partial class WorkflowOrchestrator
             }
         }
 
-        var runs = (await store.ListTaskRunsAsync(workflow.Id, cancellationToken)).Where(run => run.LoopIteration is null)
+        var runs = (await store.ListTaskRunsAsync(workflow.Id, cancellationToken)).Where(run => run.LoopIteration == visit)
             .ToDictionary(run => run.DefinitionStepId, StringComparer.Ordinal);
         var failures = branches.Select((branch, index) => new
         {
@@ -81,7 +82,7 @@ public sealed partial class WorkflowOrchestrator
         string? input, CancellationToken cancellationToken)
     {
         run ??= new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan, DefinitionStepId = step.Id,
-            CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow };
+            LoopIteration = WorkflowCycleDefinitions.Visit(workflow, workflow.CurrentDefinitionStepId ?? step.Id), CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow };
         if (run.Status == TaskRunStatus.Running && run.ExternalId is not null)
         {
             AgentRunResult? result;

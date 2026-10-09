@@ -5,7 +5,7 @@ namespace hhnl.Formicae.Application.Workflows;
 public sealed record CustomTaskInputDefinition(string Name, string ValueType, bool Required = false, JsonElement? DefaultValue = null);
 public sealed record CustomTaskOutputDefinition(string Name, string ValueType, bool Required = false);
 public sealed record CustomTaskInputBinding(string StepId, string OutputName);
-public sealed record CustomTaskInputProvenance(string StepId, string OutputName, Guid RunId, Guid ExecutionAttemptId, int? LoopIteration, JsonElement? Value, WorkflowVariableEvidence? Variable = null);
+public sealed record CustomTaskInputProvenance(string StepId, string OutputName, Guid RunId, Guid ExecutionAttemptId, int? LoopIteration, JsonElement? Value, WorkflowVariableEvidence? Variable = null, bool Unavailable = false);
 public sealed record CustomTaskRunnerSettings(string Kind = "agent", int TimeoutSeconds = 1800);
 public sealed record CustomTaskSnapshot(string Id, int Revision, string Name, string Description, string PromptTemplate,
     IReadOnlyList<CustomTaskInputDefinition> Inputs, CustomTaskRunnerSettings Runner, IReadOnlyList<CustomTaskOutputDefinition>? Outputs = null)

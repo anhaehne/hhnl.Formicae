@@ -148,8 +148,8 @@ public sealed class WorkflowDecisionDefinitionTests
     [Theory]
     [InlineData("decision")]
     [InlineData("yes")]
-    public void Outer_cycles_are_rejected(string target)
-        => Invalid(Change(Document(), "finish", node => node with { NextStepId = target }));
+    public void Outer_cycles_are_allowed(string target)
+        => Valid(Change(Document(), "finish", node => node with { NextStepId = target }));
 
     [Fact]
     public void Disconnected_task_is_rejected()

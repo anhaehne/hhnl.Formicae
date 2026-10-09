@@ -26,7 +26,7 @@ public sealed class WorkflowGraphTests
     [InlineData("duplicate")]
     [InlineData("cycle")]
     [InlineData("blank")]
-    public void Invalid_connections_are_rejected(string problem)
+    public void Connection_validation_accepts_control_feedback_and_rejects_invalid_targets(string problem)
     {
         var document = Diamond();
         var steps = document.Steps.ToArray();
@@ -34,7 +34,7 @@ public sealed class WorkflowGraphTests
         if (problem == "duplicate") steps[0] = steps[0] with { NextStepIds = ["a"] };
         if (problem == "cycle") steps[3] = steps[3] with { NextStepId = "start" };
         if (problem == "blank") steps[0] = steps[0] with { NextStepIds = [""] };
-        Assert.False(new WorkflowDefinitionValidator().Validate(document with { Steps = steps }).IsValid);
+        Assert.Equal(problem == "cycle", new WorkflowDefinitionValidator().Validate(document with { Steps = steps }).IsValid);
     }
 
     [Fact]

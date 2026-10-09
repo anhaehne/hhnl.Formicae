@@ -1,0 +1,11 @@
+# Variable ports and control cycles
+
+Scope: the baseline draft revision `variable-ports-and-control-cycles` is authoritative. The user explicitly requests unbounded control cycles; do not impose a repeat count or mandatory cycle guardrail. Preserve existing task timeouts and pause/cancel behavior. Output hints must expose exact scalar types.
+
+Investigation: on 0.29.0, live Playwright MCP pointer dragging successfully attached Source A.output and Source B.output (both strings) to the same empty string variable: one edge after A, two after B, two inspector sources, zero console errors. The user identified the failing output as GitHub Issue commented.body (string); live Playwright MCP native dragging also connected Comment A.body and Comment B.body to the same empty string variable (afterA=1, afterB=2, sources=2), with zero console errors. The reported failure therefore still needs its actual variable type/downstream control path; availability restrictions are a candidate, not a confirmed root cause. Previous variable browser coverage seeded connections through the API and therefore did not establish native port-drag behavior.
+
+The sequential validator rejects undeclared cycles; the graph scheduler stores one ordinary run per step and waits for every predecessor. Removing validation alone cannot execute cycles. Implementation must introduce durable repeated visits and scheduling semantics. Pure variable-expression feedback remains distinct from control flow because variables are presently pure expressions without initial state.
+
+Visuals: diagnostic screenshot and snapshots are ignored artifacts under `test-results/variable-mcp/`. No additional mockup is required. Reuse native React Flow handles and HTML titles/accessibility rather than introducing a tooltip framework.
+
+Status: approved by the product owner on 2026-10-09, reference user message “Approved” following the revised requirements. Implementation uses existing scalar contracts and native port attributes. Cyclic variable feedback reads successful producer visits available at consumer activation; before a producer has run, the variable source is absent and consumer defaults/required rules apply. Pure variable-expression cycles remain invalid.

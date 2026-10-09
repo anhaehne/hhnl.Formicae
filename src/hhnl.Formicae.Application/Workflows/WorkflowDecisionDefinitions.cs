@@ -140,34 +140,27 @@ public static class WorkflowDecisionDefinitions
         while (pending.TryPop(out var id))
             if (reached.Add(id)) foreach (var target in outgoing[id]) pending.Push(target);
         foreach (var id in outer.Except(reached)) Error(id, "Node is not reachable from a manual or trigger entry.");
-        var indegree = incoming.ToDictionary(pair => pair.Key, pair => pair.Value.Count, StringComparer.Ordinal);
-        var ready = new Queue<string>(outer.Where(id => indegree[id] == 0));
-        var order = new List<string>();
-        while (ready.TryDequeue(out var id))
+        // Dominance is a reachability property even when control paths have back-edges.
+        bool Dominates(string source, string target)
         {
-            order.Add(id);
-            foreach (var target in outgoing[id]) if (--indegree[target] == 0) ready.Enqueue(target);
-        }
-        foreach (var id in outer.Except(order)) Error(id, "Execution paths outside Loop Return and Parallel Join must be acyclic.");
-        if (errors.Count > 0) return new(errors);
-
-        var dominators = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach (var id in order)
-        {
-            var set = new HashSet<string>(StringComparer.Ordinal);
-            if (!entries.Contains(id) && incoming[id].Count > 0)
+            foreach (var entry in entries)
             {
-                set.UnionWith(dominators[incoming[id][0]]);
-                foreach (var predecessor in incoming[id].Skip(1)) set.IntersectWith(dominators[predecessor]);
+                var seen = new HashSet<string>(); var queue = new Stack<string>(); queue.Push(entry);
+                while (queue.TryPop(out var id))
+                {
+                    if (id == source || !seen.Add(id)) continue;
+                    if (id == target) return false;
+                    foreach (var next in outgoing[id]) queue.Push(next);
+                }
             }
-            set.Add(id); dominators[id] = set;
+            return true;
         }
         foreach (var node in nodes.Values.Where(n => n.Decision?.Condition.Source == "taskOutput"))
         {
             var reference = node.Decision!.Condition.Reference;
             if (reference is null || !nodes.TryGetValue(reference, out var source)
                 || !WorkflowDefinitionValidator.TryMapUsesToTaskKind(source.Uses, out _)
-                || owner.ContainsKey(reference) || !dominators[node.Id].Contains(reference))
+                || owner.ContainsKey(reference) || !Dominates(reference, node.Id))
                 Error(node.Id, "Task output must reference an ordinary task guaranteed to finish on every path to this Decision. Loop and Parallel body outputs are not supported.");
         }
         return new(errors);

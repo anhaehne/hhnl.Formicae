@@ -161,7 +161,7 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
   if (producerNode?.data.variable) {
     const seen = new Set<string>();
     const check = (id: string): boolean => {
-      if (seen.has(id) || id === consumer) return false;
+      if (seen.has(id)) return false;
       const variable = nodes.find(node => node.id === id)?.data.variable;
       if (!variable) return eligibleProducer(nodes, edges, start, id, consumer);
       seen.add(id);
@@ -171,6 +171,12 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
     return check(producer);
   }
   const control = edges.filter(edge => !isDataEdge(edge));
+  const path = (from: string, to: string) => {
+    const seen = new Set<string>(), pending = control.filter(edge => edge.source === from).map(edge => edge.target);
+    while (pending.length) { const id = pending.pop()!; if (id === to) return true; if (seen.has(id)) continue; seen.add(id); pending.push(...control.filter(edge => edge.source === id).map(edge => edge.target)); }
+    return false;
+  };
+  if (path(producer, consumer) && path(consumer, producer)) return true;
   const loops = new Map<string, string>();
   for (const loop of nodes.filter(node => node.data.uses === loopUses)) {
     let cursor = control.find(edge => edge.source === loop.id && edge.sourceHandle === "body")?.target;
@@ -202,10 +208,24 @@ export function validVariableSource(nodes: WorkflowStepNode[], edges: Edge[], st
     if (seen.has(id)) continue;
     seen.add(id);
     for (const edge of edges.filter(edge => isDataEdge(edge) && edge.source === id)) {
-      if (edge.target === producer) return false;
+      if (edge.target === producer && nodes.find(node => node.id === producer)?.data.variable) return false;
       if (nodes.find(node => node.id === edge.target)?.data.variable) pending.push(edge.target);
-      else if (!eligibleProducer(nodes, edges, start, producer, edge.target)) return false;
+      // Adding a variable source is independent of its consumer control position.
+      // Saved-definition validation reports unavailable consumer paths.
     }
   }
   return true;
+}
+
+export function hasControlCycles(nodes: WorkflowStepNode[], edges: Edge[]): boolean {
+  const visited = new Set<string>(), visiting = new Set<string>();
+  const next = edges.filter(edge => !isDataEdge(edge) && edge.targetHandle !== "return" && edge.targetHandle !== "join");
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visited.add(id); visiting.add(id);
+    const cyclic = next.filter(edge => edge.source === id).some(edge => visit(edge.target));
+    visiting.delete(id); return cyclic;
+  };
+  return nodes.some(node => visit(node.id));
 }

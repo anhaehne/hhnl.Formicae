@@ -54,7 +54,7 @@ public sealed class WorkflowDefinitionTests
     }
 
     [Fact]
-    public void Validator_rejects_cycles()
+    public void Validator_accepts_unbounded_control_cycles()
     {
         var result = validator.Validate(new WorkflowDefinitionDocument(
             DefaultWorkflowDefinitions.V1Alpha1Schema,
@@ -64,7 +64,7 @@ public sealed class WorkflowDefinitionTests
                 new WorkflowDefinitionStep("implement", "builtins.implement", "plan")
             ]));
 
-        Assert.Contains(result.Errors, error => error.Code == "definition.graph.cycle");
+        Assert.True(result.IsValid, string.Join("; ", result.Errors.Select(error => error.Message)));
     }
 
     [Fact]
