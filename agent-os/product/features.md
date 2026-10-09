@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.26.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.26.1**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,10 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+
+Revision **codex-device-code-extraction**, dated **2026-10-09**: **Approved; implemented in 0.26.1**. Repair connect/reconnect device-code extraction under AI configuration and authentication. Decode worker log envelopes before removing terminal formatting, then extract the server-provided one-time code from the Codex login prompt without assuming a four-character/five-character split. Continue exposing the device login URL and code while a login job is running and in its final status; unrelated log text must not be mistaken for a code. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Ok”** responding to the proposed baseline revision.
+
+Release integration for **codex-device-code-extraction**, dated **2026-10-09**: **Approved** by the product owner (conversation user), reference **“Always do that make sure the version is updated.”** Release as **0.26.1**, the next patch after latest main **0.26.0**, align application/chart/image versions and release/deployment documentation, merge latest main, push main and verify automated deployment. This instruction also authorizes recording the standing repository rule to complete merge/version/push/deployment for approved work unless the user explicitly limits the release scope. Implementation scope is unchanged.
 
 Revision **kubernetes-e2e-image-import**, dated **2026-10-09**: **Approved for implementation**. Repair the local Kubernetes E2E image-import timeout and diagnostics under Deployment, diagnostics and future operations. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Go ahead”** to the proposed revision approval question.
 
@@ -248,6 +252,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
 
       - Manage named configurations, provider/model/API endpoint, credentials and runtime options.
       - Support OpenHands API/cloud credentials and native Codex subscription execution, credential import/connect/reconnect and model discovery.
+      - **Approved fix; revision codex-device-code-extraction:** Connect and Reconnect Codex must display the one-time code emitted in the device-login prompt, including codes whose group lengths differ from the existing four-character/five-character assumption. Strip terminal formatting before extraction, preserve the emitted code, and return no code when the prompt has not supplied one.
       - Allow per-step AI selection and resolve the model from step override to workflow model to configuration default.
       - Expose credential presence without returning secrets.
       - **Planned:** Add execution for other ACP providers and Claude Pro support, as saved provider choices do not imply runtime support.
@@ -256,6 +261,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
 
       - **Definitions and visual editor** selects per-step configurations and models, with unset models falling back to workflow and configuration defaults.
       - **Durable orchestration and runtimes** runs login and discovery jobs and supplies the chosen credentials and model to agent workers.
+      - **Approved fix; revision codex-device-code-extraction:** Login-job status polling supplies the extracted device URL and code to the AI Setup login card and its Copy action for both connect and reconnect. Extract from login-prompt context so unrelated worker/job identifiers are not displayed as authentication codes.
       - The **Built-in development workflow** and **Reusable custom tasks** use the selected agent configuration, while **Shell scripts** executes without AI credentials.
 
 - **3. Execution environments**
