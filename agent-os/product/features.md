@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.26.1**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.26.2**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -12,7 +12,9 @@ Before implementing any feature or change, including fixes, refactoring, configu
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
 
-Revision **identity-provider-restart-notice**, dated **2026-10-09**: **Approved for implementation**. Correct the GitHub identity-provider restart notice to reflect whether the running application's login configuration has applied the saved integration settings. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Ok”** to the drafted revision approval request.
+Revision **identity-provider-restart-notice**, dated **2026-10-09**: **Approved; implemented in 0.26.2**. Correct the GitHub identity-provider restart notice to reflect whether the running application's login configuration has applied the saved integration settings. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Ok”** to the drafted revision approval request.
+
+Release integration for **identity-provider-restart-notice**, dated **2026-10-09**: **Approved** by the product owner (conversation user) under the standing release rule and explicit main/version ownership handoff instructing this workspace to fetch latest main and proceed with the next unique patch, **0.26.2**. Preserve deployed **0.26.1**, align application/chart/image versions and release/deployment documentation, push main and verify automated deployment. Implementation scope is unchanged.
 
 Revision **codex-device-code-extraction**, dated **2026-10-09**: **Approved; implemented in 0.26.1**. Repair connect/reconnect device-code extraction under AI configuration and authentication. Decode worker log envelopes before removing terminal formatting, then extract the server-provided one-time code from the Codex login prompt without assuming a four-character/five-character split. Continue exposing the device login URL and code while a login job is running and in its final status; unrelated log text must not be mistaken for a code. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Ok”** responding to the proposed baseline revision.
 
