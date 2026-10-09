@@ -12,6 +12,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
 
+Revision **identity-provider-restart-notice**, dated **2026-10-09**: **Approved for implementation**. Correct the GitHub identity-provider restart notice to reflect whether the running application's login configuration has applied the saved integration settings. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Ok”** to the drafted revision approval request.
+
 Revision **kubernetes-e2e-image-import**, dated **2026-10-09**: **Approved for implementation**. Repair the local Kubernetes E2E image-import timeout and diagnostics under Deployment, diagnostics and future operations. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Go ahead”** to the proposed revision approval question.
 
 Revision **agent-task-output-correction**, dated **2026-10-09**: **Approved for implementation**. Covers the agent/custom-task output-contract and correction requirements below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the proposed baseline revision `agent-task-output-correction`.
@@ -390,6 +392,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
     - **Requirements:**
 
       - Support GitHub external login, persistent Identity users and logout.
+      - **Approved revision identity-provider-restart-notice:** Show the GitHub integration restart warning only while its saved identity-provider settings have not been applied to the running login configuration. Ordinary application restarts and deployment rollouts must retire stale restart state when the configuration is applied; enabling an already-enabled provider without changing its settings must not create a new restart requirement. Preserve the administrator restart action for unapplied changes. Cover stale persisted flags and repeated activation with regression tests. The current GitHub challenge and callback read saved integration settings on each request, so integration responses must report no restart requirement, including for legacy persisted flags.
       - Activate an identity provider only after successful login and grant the activating user administration.
       - Gate anonymous management access when a provider is enabled and restrict users without permission to invite redemption.
       - Allow admins to create and list expiring hashed invite codes, showing raw codes only once.
@@ -398,6 +401,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
     - **Interactions with other features:**
 
       - **GitHub and Gitea connections** supplies GitHub identity-provider configuration, and successful provider activation grants the signed-in user administrative access.
+      - **Approved revision identity-provider-restart-notice:** Integration details and the restart warning reflect the running authentication configuration, including after deployment or application restart. Request-time configuration makes legacy saved restart flags obsolete for GitHub login. Preserve existing activation authorization, invitations and management roles.
       - Invite redemption grants the administration role enforced by **Roles and administration**, while users without permissions remain on the invite-only screen.
       - **Roles and administration** then determines which configuration pages, execution views and workflow commands the authenticated user can access.
 

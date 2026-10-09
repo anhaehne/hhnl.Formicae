@@ -348,6 +348,38 @@ public sealed class ManagementAuthApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(await factory.IsAdminAsync(user));
+        var activated = await response.Content.ReadFromJsonAsync<IntegrationDetail>();
+        Assert.True(activated!.IdentityProviderEnabled);
+        Assert.False(activated.RequiresRestart);
+        Assert.False((await factory.GetIntegrationAsync(integration.Id))!.RequiresRestart);
+    }
+
+    [Fact]
+    public async Task ExistingIdentityProvider_UsesLiveSettings_DespiteLegacyRestartFlag()
+    {
+        await using var factory = new FormicaeApiFactory(managementAuthEnabled: true);
+        var admin = await factory.CreateAdminAsync("existing-provider-admin");
+        var integration = await factory.CreateGitHubIntegrationAsync(identityProviderEnabled: true);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDevOpsIntegrationStore>();
+            integration.RequiresRestart = true;
+            integration.GitHubAppClientId = "live-client-id";
+            await store.UpdateAsync(integration, CancellationToken.None);
+        }
+        var client = factory.CreateAuthenticatedClient(admin.Id);
+
+        var detail = await client.GetFromJsonAsync<IntegrationDetail>($"/api/integrations/{integration.Id}");
+        var summaries = await client.GetFromJsonAsync<IntegrationSummary[]>("/api/integrations");
+        Assert.True(detail!.IdentityProviderEnabled);
+        Assert.False(detail.RequiresRestart);
+        Assert.False(Assert.Single(summaries!).RequiresRestart);
+
+        var loginClient = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await loginClient.GetAsync("/api/auth/github/challenge");
+        Assert.Equal(HttpStatusCode.Redirect, challenge.StatusCode);
+        Assert.Equal("github.com", challenge.Headers.Location!.Host);
+        Assert.Contains("client_id=live-client-id", challenge.Headers.Location.Query);
     }
 
     [Theory]
@@ -595,5 +627,4 @@ public sealed class ManagementAuthApiTests
         }
     }
 }
-
 

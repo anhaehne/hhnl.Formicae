@@ -267,7 +267,8 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
 
         integration.IdentityProviderEnabled = enabled;
-        integration.RequiresRestart = enabled;
+        // GitHub challenge and callback load the integration on every request.
+        integration.RequiresRestart = false;
         integration.UpdatedAt = clock.UtcNow;
         await store.UpdateAsync(integration, cancellationToken);
         return ToDetail(integration, requestBaseUri, integration.Repositories.Select(ToRepository).ToArray());
@@ -374,6 +375,11 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
         }
     }
 
+    // Legacy GitHub flags described cached OAuth settings. The current login flow
+    // reads saved settings per request, so those flags no longer indicate pending changes.
+    private static bool RequiresIdentityProviderRestart(DevOpsIntegration integration)
+        => integration.ProviderType != DevOpsProviderType.GitHub && integration.RequiresRestart;
+
     private static IntegrationSummary ToSummary(DevOpsIntegration integration)
         => new(
             integration.Id,
@@ -384,7 +390,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.ServerUrl,
             integration.WebhookUrl,
             integration.IdentityProviderEnabled,
-            integration.RequiresRestart,
+            RequiresIdentityProviderRestart(integration),
             integration.CreatedAt,
             integration.UpdatedAt);
 
@@ -402,7 +408,7 @@ public sealed class DevOpsIntegrationService(IDevOpsIntegrationStore store, IClo
             integration.WebhookUrl,
             integration.WebhookSecret,
             integration.IdentityProviderEnabled,
-            integration.RequiresRestart,
+            RequiresIdentityProviderRestart(integration),
             (integration.ProviderType == DevOpsProviderType.Gitea ? GiteaCapabilities : GitHubCapabilities).Select(capability => capability.ToString()).ToArray(),
             new DevOpsSetupInstructions(
                 new Uri(requestBaseUri, "/api/auth/github/callback").ToString(),

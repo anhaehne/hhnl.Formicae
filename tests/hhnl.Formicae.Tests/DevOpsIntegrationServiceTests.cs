@@ -264,20 +264,69 @@ public sealed class DevOpsIntegrationServiceTests
     }
 
     [Fact]
+    public async Task SetIdentityProviderEnabledAsync_applies_activation_without_restart_and_repeated_activation_stays_applied()
+    {
+        var store = new InMemoryDevOpsIntegrationStore();
+        var service = new DevOpsIntegrationService(store, new FixedClock());
+        var integration = await service.CreateGitHubIntegrationAsync(
+            new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
+            RequestBaseUri, CancellationToken.None);
+
+        var enabled = await service.SetIdentityProviderEnabledAsync(integration.Id, true, RequestBaseUri, CancellationToken.None);
+        Assert.True(enabled!.IdentityProviderEnabled);
+        Assert.False(enabled.RequiresRestart);
+        Assert.False((await store.GetAsync(integration.Id, CancellationToken.None))!.RequiresRestart);
+
+        var repeated = await service.SetIdentityProviderEnabledAsync(integration.Id, true, RequestBaseUri, CancellationToken.None);
+        Assert.True(repeated!.IdentityProviderEnabled);
+        Assert.False(repeated.RequiresRestart);
+        Assert.False((await store.GetAsync(integration.Id, CancellationToken.None))!.RequiresRestart);
+    }
+
+    [Fact]
+    public async Task Integration_responses_ignore_legacy_restart_flags_after_service_restart()
+    {
+        var store = new InMemoryDevOpsIntegrationStore();
+        var integration = await store.CreateAsync(new DevOpsIntegration
+        {
+            ProviderType = DevOpsProviderType.GitHub,
+            DisplayName = "Existing identity provider",
+            GitHubAppClientId = "client-id",
+            GitHubAppClientSecretReference = "client-secret-ref",
+            IdentityProviderEnabled = true,
+            RequiresRestart = true
+        }, CancellationToken.None);
+        var service = new DevOpsIntegrationService(store, new FixedClock());
+
+        var detail = await service.GetAsync(integration.Id, RequestBaseUri, CancellationToken.None);
+        var summary = Assert.Single(await service.ListAsync(CancellationToken.None));
+
+        Assert.True(detail!.IdentityProviderEnabled);
+        Assert.False(detail.RequiresRestart);
+        Assert.True(summary.IdentityProviderEnabled);
+        Assert.False(summary.RequiresRestart);
+    }
+
+    [Fact]
     public async Task MarkIdentityProviderRestartedAsync_clears_restart_flag()
     {
-        var service = CreateService();
+        var store = new InMemoryDevOpsIntegrationStore();
+        var service = new DevOpsIntegrationService(store, new FixedClock());
         var integration = await service.CreateGitHubIntegrationAsync(
             new CreateGitHubIntegrationRequest("GitHub", "client-id", "client-secret-ref", ValidPrivateKey, null),
             RequestBaseUri,
             CancellationToken.None);
         integration = await service.SetIdentityProviderEnabledAsync(integration.Id, true, RequestBaseUri, CancellationToken.None);
+        var legacy = await store.GetAsync(integration!.Id, CancellationToken.None);
+        legacy!.RequiresRestart = true;
+        await store.UpdateAsync(legacy, CancellationToken.None);
 
         var restarted = await service.MarkIdentityProviderRestartedAsync(integration!.Id, RequestBaseUri, CancellationToken.None);
 
         Assert.NotNull(restarted);
         Assert.True(restarted.IdentityProviderEnabled);
         Assert.False(restarted.RequiresRestart);
+        Assert.False((await store.GetAsync(integration.Id, CancellationToken.None))!.RequiresRestart);
     }
 
     private static DevOpsIntegrationService CreateService()
