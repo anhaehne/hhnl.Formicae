@@ -21,4 +21,4 @@ Tests added: **30** (27 variable unit cases, one orchestration/retry regression 
 - `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-variable-browsers npm run test:smoke -- --workers=1`: **96 passed, two timed out** while full backend/build/Kubernetes checks also ran. Both new variable cases passed. The ordinary graph workflow completed successfully after its polling deadline. Targeted rerun `npm run test:smoke -- --workers=1 --grep 'ordinary outputs preserve|trigger and loop nodes|group members'`: **3 passed**, covering both timeouts and the merged groups correction.
 - `./scripts/run-k8s-e2e.sh`: **32 passed**, zero failed/skipped, in 14m42s. Used an isolated temporary kubeconfig; automatic cluster cleanup completed.
 
-Main push is queued until the coordinated 0.28.0 groups deployment is healthy.
+Coordinated 0.28.0 groups deployment 37969867664 succeeded and the main reservation was explicitly released. Fetched latest origin/main and confirmed 75481e0 is already merged; its 0.28.0 version advances to 0.29.0 for this feature. Automatic deployment verification follows the main push.
