@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.23.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.24.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,10 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+
+Revision **github-issue-created-output**, dated **2026-10-09**: **Approved for implementation** for the original `issue` JSON-string output scope. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Looks good so far”** responding to the original revision summary. The expanded requirements under revision `github-issue-comment-task` below are separately approved.
+
+Revision **github-issue-comment-task**, dated **2026-10-09**: **Approved for implementation**. Extends GitHub Issue created with an Issue id output and introduces an Add issue comment task as specified below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the expanded revision summary.
 
 Revision **workflow-start-nodes**, dated **2026-10-08**: **Approved for implementation**. Covers the start-node requirements and interactions below only; the remaining baseline draft is unchanged. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the summary of revision `workflow-start-nodes`.
 
@@ -68,6 +72,8 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Use **event** instead of **trigger** for the workflow entrypoint concept in the editor, application contracts and documentation. Provide a shared event-node contract and an integration registration mechanism for distinct event definitions, validation, settings and delivery matching; do not expose a universal event node with a selector containing every provider's options.
       - Provide the manual **Start** event in application code, and an authenticated **Webhook** event as a separate built-in event definition. Retain at most one manual Start event per workflow, optional for workflows started only by external events. Event nodes have no incoming control connections, launch no agent worker, and connect to one execution entry.
       - Have the GitHub integration contribute separate **Issue created** and **Label added** event nodes, matching signed `issues/opened` and `issues/labeled` deliveries respectively. Both select connected GitHub repositories and supported branch/model overrides; only Label added exposes a label filter. Retain existing Gitea label-start behavior through a separate Gitea-owned Label added event definition.
+      - **Implemented in 0.24.0 — approved revision github-issue-created-output:** GitHub **Issue created** declares an output named `issue` of type string. Serialize the complete `issue` object from the validated GitHub `issues/opened` webhook as JSON, retaining all supplied fields and nested values rather than projecting a subset. Persist this string for the selected event's execution and expose it for downstream task input bindings and execution evidence. Preserve the event-time issue snapshot across restarts and retries.
+      - **Implemented in 0.24.0 — approved revision github-issue-comment-task:** GitHub **Issue created** also declares an **Issue id** output (`issueId`) containing the repository-local GitHub issue number as a number. Retain this output with the event-time snapshot and make it bindable to downstream Add issue comment tasks.
       - Persist each event's stable type identity and its own configuration, pin these with the workflow version, and dispatch only matching enabled event nodes. Retain independent entry scheduling, authenticated/signed delivery validation, duplicate suppression, delivery audit and selected-event execution history.
       - Keep old serialized trigger/start definitions, pinned runs and delivery audit records readable through compatibility adapters. Adapt existing definitions in editor drafts; update the built-in workflow template to include a Start event, and create new versions when upgrading existing workflows rather than rewriting saved versions. Verify distinct event catalog entries, provider-specific settings, signed GitHub issue-created/label-added matching, webhook delivery, manual execution and compatibility with E2E coverage.
 
@@ -76,6 +82,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - **Definitions and visual editor** consumes registered built-in and integration event definitions to list distinct nodes and display only that event's settings. Integration registration supplies both backend behavior and editor metadata without a central provider-type selector.
       - **GitHub and Gitea connections**, **Connected repositories** and **Webhooks and provider feedback** supply provider registration, connected-repository selection and validated deliveries. Existing workflow progression and planning/implementation gates continue to apply after entry.
       - **Durable orchestration and runtimes**, **Typed task data** and **Execution investigation and history** resolve execution from the selected event node, retain its identity and preserve historical evidence. Compatibility adapters retain legacy serialized field names and database records where needed without destructive migration.
+      - **Approved — revision github-issue-created-output:** **Webhooks and provider feedback** supplies the complete issue object after signature validation. **Definitions and visual editor** exposes the `issue` string output on GitHub Issue created nodes; **Typed task data** permits bindings from that event only where it is the guaranteed selected entrypoint. **Durable orchestration and runtimes** retains the output before downstream scheduling, and **Execution investigation and history** displays the persisted JSON string.
 
   - **Ordinary task graphs**
     - **Requirements:**
@@ -121,6 +128,18 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - **Execution investigation and history** displays the recorded condition and route, while **Pause, resume, cancel and retry** preserves successful routing decisions.
 
 - **2. Tasks and AI behavior**
+  - **Add issue comment — Implemented in 0.24.0; approved revision github-issue-comment-task**
+    - **Requirements:**
+
+      - Provide an **Add issue comment** task type in the workflow editor, with a required numeric **Issue id** input (`issueId`) and required string **Text** input (`text`). Accept literals or typed bindings, including Issue created → Issue id and text supplied by an upstream task.
+      - Interpret Issue id as the positive integer issue number in the execution's connected GitHub repository; use that repository's integration credentials. Reject invalid issue numbers and empty comment text before posting.
+      - Execute the task through the existing DevOps comment API without launching an agent worker. Mark success only after the provider accepts the comment; expose provider failures in task history and preserve successful task results during workflow retries.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** configures and pins the task and its input bindings. **Typed task data** validates producer availability and input types and freezes resolved input values before execution.
+      - **Connected repositories** and **GitHub and Gitea connections** provide the execution's GitHub repository and authenticated platform client. **Durable orchestration and runtimes** schedules the task on its selected route; **Execution investigation and history** retains resolved inputs and task outcomes. This revision adds GitHub comment posting only.
+
   - **Built-in development workflow**
     - **Requirements:**
 

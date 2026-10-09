@@ -53,13 +53,24 @@ public sealed class WorkflowEventService(
                     continue;
                 }
 
+                IReadOnlyDictionary<string, JsonElement>? outputs = null;
+                if (trigger.Type == WorkflowTriggerType.DevOpsIssueCreated && evt.Issue is { ValueKind: JsonValueKind.Object } issue)
+                {
+                    if (!issue.TryGetProperty("number", out var number) || !number.TryGetInt32(out var issueId) || issueId <= 0)
+                        throw new InvalidOperationException("GitHub Issue created requires a positive issue number.");
+                    outputs = new Dictionary<string, JsonElement>
+                    {
+                        ["issue"] = JsonSerializer.SerializeToElement(issue.GetRawText()),
+                        ["issueId"] = number.Clone()
+                    };
+                }
                 var workflow = await workflows.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
                     evt.IssueUrl,
                     repository.RepositoryUrl,
                     string.IsNullOrWhiteSpace(trigger.BaseBranch) ? repository.DefaultBranch : trigger.BaseBranch,
                     string.IsNullOrWhiteSpace(trigger.Model) ? null : trigger.Model,
                     version.WorkflowDefinitionId,
-                    version.Id), cancellationToken, trigger.Id);
+                    version.Id), cancellationToken, trigger.Id, outputs);
 
                 await store.AddTriggerEventAsync(new WorkflowTriggerEvent
                 {

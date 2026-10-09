@@ -47,6 +47,7 @@ public sealed partial class WorkflowOrchestrator
                 case TaskRunKind.Plan:
                     changed |= await AdvanceParallelTaskAsync(workflow, step, runs.GetValueOrDefault(step.Id), workflow.PlanArtifact, token);
                     break;
+                case TaskRunKind.AddIssueComment: changed |= await RunIssueCommentTaskAsync(workflow, step, token); break;
                 case TaskRunKind.Script: changed |= await RunScriptTaskAsync(workflow, step, token); break;
                 case TaskRunKind.Custom: changed |= await RunCustomTaskAsync(workflow, step, token); break;
                 case TaskRunKind.Implement: changed |= await RunImplementationIfReadyAsync(workflow, token); break;

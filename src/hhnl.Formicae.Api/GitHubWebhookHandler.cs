@@ -59,7 +59,7 @@ public sealed class GitHubWebhookHandler(
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
         var startedWorkflowIds = triggerService is null
             ? []
-            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, body, cancellationToken);
         var shouldTriggerWorkflowTick = ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
         if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
         {
@@ -112,6 +112,7 @@ public sealed class GitHubWebhookHandler(
         string eventName,
         string deliveryId,
         GitHubWebhookEnvelope? envelope,
+        byte[] body,
         CancellationToken cancellationToken)
     {
         var action = envelope?.Action;
@@ -127,6 +128,7 @@ public sealed class GitHubWebhookHandler(
             return [];
         }
 
+        using var payload = JsonDocument.Parse(body);
         return await triggerService.HandleIntegrationEventAsync(new WorkflowIntegrationEvent(
             hhnl.Formicae.Application.Integrations.DevOpsProviderType.GitHub,
             deliveryId,
@@ -135,7 +137,7 @@ public sealed class GitHubWebhookHandler(
             repositoryUrl!,
             issueUrl!,
             label ?? "",
-            envelope?.Repository?.FullName), cancellationToken);
+            envelope?.Repository?.FullName, payload.RootElement.GetProperty("issue").Clone()), cancellationToken);
     }
 
     private async Task<Guid?> CompleteMergedPullRequestWorkflowAsync(

@@ -199,7 +199,27 @@ public static class CustomTaskDefinitions
     }
 
     public static IReadOnlyList<CustomTaskOutputDefinition> OutputSchemaFor(WorkflowDefinitionStep step) =>
-        step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
+        step.Uses == "github.issue-created" || step.Trigger?.Type == WorkflowTriggerType.DevOpsIssueCreated
+            ? [new("issue", "string", true), new("issueId", "number", true)]
+            : step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
+
+    public static IReadOnlyList<CustomTaskInputDefinition> InputSchemaFor(WorkflowDefinitionStep step) =>
+        step.Uses == IssueCommentDefinitions.Uses ? IssueCommentDefinitions.Inputs : step.CustomTask?.Snapshot?.Inputs ?? [];
+    public static IReadOnlyDictionary<string, CustomTaskInputBinding> BindingsFor(WorkflowDefinitionStep step) =>
+        (step.Uses == IssueCommentDefinitions.Uses ? step.IssueComment?.Bindings : step.CustomTask?.Bindings) ?? new Dictionary<string, CustomTaskInputBinding>();
+
+    public static IReadOnlyDictionary<string, JsonElement> ParseProducerOutputs(WorkflowDefinitionStep step, string json)
+    {
+        if (step.Uses != "github.issue-created" && step.Trigger?.Type != WorkflowTriggerType.DevOpsIssueCreated)
+            return ParseOutputs(json, OutputSchemaFor(step));
+        // Preserve full event evidence. Consumer input limits are applied when preparing the consumer.
+        var values = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, Json)
+            ?? throw new InvalidOperationException("Event outputs are missing.");
+        if (values.Count != 2 || !values.TryGetValue("issue", out var issue) || issue.ValueKind != JsonValueKind.String
+            || !values.TryGetValue("issueId", out var id) || !IssueCommentDefinitions.ValidValue("issueId", id))
+            throw new InvalidOperationException("Event outputs are invalid.");
+        return values;
+    }
 
     public static IReadOnlyDictionary<string, JsonElement> ParseOutputs(string response, IReadOnlyList<CustomTaskOutputDefinition> schema)
     {
@@ -246,7 +266,7 @@ public static class CustomTaskDefinitions
     public static IReadOnlyList<WorkflowDefinitionValidationError> ValidateBindings(WorkflowDefinitionDocument document)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
-        if (!document.Steps.Any(step => step.CustomTask?.Bindings?.Count > 0)) return errors;
+        if (!document.Steps.Any(step => BindingsFor(step).Count > 0)) return errors;
         WorkflowDefinitionDocument plan;
         try { plan = WorkflowNodeDefinitions.Normalize(document); }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or KeyNotFoundException or NullReferenceException)
@@ -275,16 +295,27 @@ public static class CustomTaskDefinitions
             return false;
         }
         var entries = new[] { plan.StartStepId }.Concat(plan.Triggers?.Select(trigger => trigger.NextStepId ?? plan.StartStepId) ?? []).Distinct().ToArray();
+        var eventEntries = (plan.Triggers ?? []).Select(evt => (Id: evt.Id, Entry: evt.NextStepId ?? plan.StartStepId)).ToList();
+        if (!WorkflowStartDefinitions.HasStartNodes(document) || !string.IsNullOrEmpty(document.StartStepId))
+            eventEntries.Add(("", plan.StartStepId));
         foreach (var consumer in plan.Steps)
-        foreach (var (name, binding) in consumer.CustomTask?.Bindings ?? new Dictionary<string, CustomTaskInputBinding>())
+        foreach (var (name, binding) in BindingsFor(consumer))
         {
             if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) continue;
-            var input = consumer.CustomTask?.Snapshot?.Inputs?.FirstOrDefault(input => input?.Name == name);
+            var input = InputSchemaFor(consumer).FirstOrDefault(input => input?.Name == name);
             nodes.TryGetValue(binding.StepId, out var producer);
+            producer ??= document.Steps.FirstOrDefault(step => step.Id == binding.StepId);
             var output = producer is null ? null : OutputSchemaFor(producer).FirstOrDefault(output => output?.Name == binding.OutputName);
             if (input is null || output is null || input.ValueType != output.ValueType)
                 errors.Add(Error(consumer.Id, $"Binding '{name}' must reference a declared producer output with the same scalar type."));
-            else if (producer!.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
+            else if (producer!.Uses == "github.issue-created" || producer.Trigger?.Type == WorkflowTriggerType.DevOpsIssueCreated)
+            {
+                var eventEntry = eventEntries.FirstOrDefault(entry => entry.Id == producer.Id);
+                if (eventEntry.Entry is null || !Reach(eventEntry.Entry, consumer.Id)
+                    || eventEntries.Any(entry => entry.Id != producer.Id && Reach(entry.Entry, consumer.Id)))
+                    errors.Add(Error(consumer.Id, $"Event '{producer.Id}' must be the guaranteed selected entrypoint for consumer '{consumer.Id}'."));
+            }
+            else if (producer.Id == consumer.Id || !Reach(producer.Id, consumer.Id)
                 || (!WorkflowGraphDefinitions.IsGraph(plan) && entries.Any(entry => Reach(entry, consumer.Id, producer.Id)))
                 || (WorkflowGraphDefinitions.IsGraph(plan) && WorkflowStartDefinitions.HasStartNodes(document)
                     && entries.Any(entry => Reach(entry, consumer.Id) && !Reach(entry, producer.Id))))

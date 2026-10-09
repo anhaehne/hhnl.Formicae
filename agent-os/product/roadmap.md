@@ -39,6 +39,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
+- Provide GitHub Issue created outputs (complete issue JSON string and numeric Issue id) and an Add issue comment task accepting typed issueId/text inputs (0.24.0; approved revisions `github-issue-created-output` and `github-issue-comment-task`).
 - Support named scalar custom-task outputs and explicit input bindings with frozen producer provenance (available in 0.18.0).
 - Support inline Agent task nodes with personas and editable custom-task prefilling (available in 0.22.0).
 - Support reusable custom agent tasks with typed inputs and persisted outputs (available in 0.15.0).

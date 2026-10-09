@@ -10,7 +10,8 @@ public sealed partial class WorkflowOrchestrator(
     ISourceControlProvider sourceControl,
     IAgentRunner agentRunner,
     IPromptRenderer promptRenderer,
-    IClock? clock = null)
+    IClock? clock = null,
+    hhnl.Formicae.Application.Integrations.IDevOpsPlatformFactory? devOpsPlatforms = null)
 {
     private readonly IClock clock = clock ?? new SystemClock();
 
@@ -87,6 +88,8 @@ public sealed partial class WorkflowOrchestrator(
                     return await CreatePullRequestAsync(workflow, cancellationToken);
                 case TaskRunKind.AddressComments:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
+                case TaskRunKind.AddIssueComment:
+                    return await RunIssueCommentTaskAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.Script:
                     return await RunScriptTaskAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.Custom:
@@ -878,7 +881,7 @@ public sealed partial class WorkflowOrchestrator(
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
         if (workflow.CurrentDefinitionStepId is null)
         {
-            if (workflow.CurrentStep is WorkflowStep.Custom or WorkflowStep.Script)
+            if (workflow.CurrentStep is WorkflowStep.Custom or WorkflowStep.Script or WorkflowStep.AddIssueComment)
                 throw new InvalidOperationException("Custom task execution requires an exact definition step cursor.");
             var legacyKind = workflow.CurrentStep switch
             {
@@ -977,7 +980,7 @@ public sealed partial class WorkflowOrchestrator(
         if (context is null) return null;
         var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
         if (execution is not null) return execution;
-        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script) return null;
+        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script or TaskRunKind.AddIssueComment) return null;
         var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
         return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
     }
@@ -1045,6 +1048,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.AddressComments => WorkflowStatus.Reviewing,
         TaskRunKind.Custom => WorkflowStatus.Running,
         TaskRunKind.Script => WorkflowStatus.Running,
+        TaskRunKind.AddIssueComment => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -1056,6 +1060,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.AddressComments => WorkflowStep.AddressComments,
         TaskRunKind.Custom => WorkflowStep.Custom,
         TaskRunKind.Script => WorkflowStep.Script,
+        TaskRunKind.AddIssueComment => WorkflowStep.AddIssueComment,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

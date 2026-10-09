@@ -10,7 +10,8 @@ public sealed class WorkflowDefinitionValidator
         ["builtins.address-comments"] = TaskRunKind.AddressComments,
         [CustomTaskDefinitions.Uses] = TaskRunKind.Custom,
         [CustomTaskDefinitions.AgentUses] = TaskRunKind.Custom,
-        [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script
+        [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script,
+        [IssueCommentDefinitions.Uses] = TaskRunKind.AddIssueComment
     };
 
     public WorkflowDefinitionValidationResult ValidateDefinitionName(string? name)
@@ -50,6 +51,7 @@ public sealed class WorkflowDefinitionValidator
         foreach (var step in document.Steps)
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
+            errors.AddRange(IssueCommentDefinitions.ValidateStep(step));
             if (step.CustomTask is not null && !CustomTaskDefinitions.IsAgentTask(step.Uses))
                 errors.Add(new("definition.customTask.invalid", "Only agent task nodes may carry custom task settings.", "steps[].customTask", step.Id));
             if (step.Uses == CustomTaskDefinitions.AgentUses && step.CustomTask?.Definition is null)
@@ -293,6 +295,7 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.AddressComments => "builtins.address-comments",
             TaskRunKind.Custom => CustomTaskDefinitions.Uses,
             TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses,
+            TaskRunKind.AddIssueComment => IssueCommentDefinitions.Uses,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 }

@@ -40,18 +40,7 @@ public sealed partial class WorkflowOrchestrator
                 if (run.CustomTaskExecutionJson is null)
                 {
                     var document = await ResolveDefinitionAsync(workflow, token);
-                    var provenance = new Dictionary<string, CustomTaskInputProvenance>(StringComparer.Ordinal);
-                    foreach (var (name, binding) in settings.Bindings ?? new Dictionary<string, CustomTaskInputBinding>())
-                    {
-                        var producer = document.Steps.Single(item => item.Id == binding.StepId);
-                        var inLoop = document.Loops?.Any(loop => loop.BodyStepIds.Contains(producer.Id)) == true;
-                        var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, inLoop ? run.LoopIteration : null, token);
-                        if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
-                            throw new InvalidOperationException($"Bound input '{name}' requires successful validated outputs from '{producer.Id}'.");
-                        var outputs = CustomTaskDefinitions.ParseOutputs(source.StructuredOutputsJson, CustomTaskDefinitions.OutputSchemaFor(producer));
-                        provenance[name] = new(producer.Id, binding.OutputName, source.Id, source.ExecutionAttemptId.Value, source.LoopIteration,
-                            outputs.TryGetValue(binding.OutputName, out var value) ? value : null);
-                    }
+                    var provenance = await ResolveInputProvenanceAsync(workflow, run, step, document, token);
                     execution = CustomTaskDefinitions.Prepare(settings, workflow, provenance);
                     run.CustomTaskExecutionJson = JsonSerializer.Serialize(execution, CustomExecutionJsonOptions);
                 }
