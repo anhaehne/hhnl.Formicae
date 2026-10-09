@@ -39,6 +39,9 @@ export function groupedNodes(nodes: WorkflowStepNode[], groups: WorkflowEditorGr
   const containers: GroupNode[] = groups.map(group => {
     const bounds = groupBounds(group, nodes, measurements);
     return { id: groupNodeId(group.id), type: "workflowGroup", position: { x: bounds.x, y: bounds.y },
+      // Preserve React Flow's measured dimensions across controlled updates so
+      // dragging does not hide the container while it is measured again.
+      measured: measurements[groupNodeId(group.id)],
       style: { width: bounds.width, height: bounds.height }, data: { name: group.name, color: group.color },
       selected: selected.has(groupNodeId(group.id)), connectable: false, dragHandle: ".editor-group-title", zIndex: -1 };
   });

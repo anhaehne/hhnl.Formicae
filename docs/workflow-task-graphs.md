@@ -10,7 +10,7 @@ Task graphs support all ordinary task types and single-entry trigger nodes. Lega
 
 ## Visual groups
 
-Ctrl/Cmd-click multiple nodes and choose **Group selected**. The group inspector edits the name shown on the canvas and its background color (gray, blue, green, yellow, orange, purple or pink). Drag the group header to move all members together; drag an individual member to change its position. Bounds follow the members, including after Arrange.
+Ctrl/Cmd-click multiple nodes and choose **Group selected**. The group inspector edits the name shown on the canvas and its background color (gray, blue, green, yellow, orange, purple or pink). Drag the group header to move all members together; drag an individual member to change its position. Bounds follow the members, including after Arrange. From 0.29.1, group containers retain their measured dimensions during drag updates so their background and title remain visible throughout movement.
 
 The Members checkboxes add or remove nodes. Adding a node already in another group transfers it; groups cannot nest. Ungroup or delete the group container to keep its nodes and connections. Duplicated tasks start ungrouped, renamed task IDs retain membership, and deleting the last member removes the empty group. Group changes support undo/redo and unsaved-change tracking.
 

@@ -546,3 +546,37 @@ test("group members move individually, rename and delete safely, and remain view
   await expect(page.getByRole("button", { name: "Ungroup", exact: true })).toBeDisabled();
   await page.keyboard.press("Delete"); await expect(page.locator(".editor-group-title")).toHaveCount(1);
 });
+
+test("group containers remain visible throughout repeated drags", async ({ page, request }) => {
+  const item = await seed(request);
+  const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, isDefault: false,
+    definition: { ...item.version.definition, editor: { positions: { n0: { x: 0, y: 80 }, n1: { x: 450, y: 80 }, n2: { x: 900, y: 80 } },
+      groups: [{ id: "planning", name: "Planning", color: "blue", nodeIds: ["n0", "n1"] }] } } } });
+  expect(response.ok()).toBeTruthy();
+  await open(page, item.name);
+  const container = page.locator('.react-flow__node[data-id="group:planning"]');
+  await expect(container).toBeVisible();
+  await container.evaluate(element => {
+    const observations = { hidden: 0 };
+    const observer = new MutationObserver(records => {
+      // oldValue catches hiding even when measurement restores visibility before
+      // the observer runs. Final-position checks alone miss the flicker.
+      observations.hidden += records.filter(record => record.oldValue?.includes("visibility: hidden") || (element as HTMLElement).style.visibility === "hidden").length;
+    });
+    observer.observe(element, { attributes: true, attributeFilter: ["style"], attributeOldValue: true });
+    (window as any).groupDragVisibility = { observations, observer };
+  });
+  for (const direction of [1, -1]) {
+    const header = await container.locator(".editor-group-title").boundingBox();
+    await page.mouse.move(header!.x + 60, header!.y + 15);
+    await page.mouse.down();
+    await page.mouse.move(header!.x + 60 + direction * 80, header!.y + 15 + direction * 35, { steps: 16 });
+    await page.mouse.up();
+    await expect(container).toBeVisible();
+  }
+  const hidden = await page.evaluate(() => {
+    const { observations, observer } = (window as any).groupDragVisibility;
+    observer.disconnect(); return observations.hidden;
+  });
+  expect(hidden, "group must never hide between drag updates and measurement").toBe(0);
+});
