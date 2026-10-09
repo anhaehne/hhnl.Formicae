@@ -18,14 +18,15 @@ import { arrange } from "./workflowEditor/layout";
 import { ToolbarIcon } from "./workflowEditor/ToolbarIcon";
 import { Inspector } from "./workflowEditor/Inspector";
 import { NodeActions, WorkflowNode } from "./workflowEditor/Node";
+import ManualWorkflowStart from "./ManualWorkflowStart";
 
-type Props = { definitions: WorkflowDefinitionResponse[]; loading: boolean; error?: string; saved?: string; canAdminister: boolean; onRefresh: (definitionId?: string, versionId?: string) => Promise<void>; onSaved: (message: string) => void; onError: (message: string) => void };
+type Props = { definitions: WorkflowDefinitionResponse[]; loading: boolean; error?: string; saved?: string; canAdminister: boolean; canTrigger: boolean; defaultModel: string; onStarted: (id: string) => void; onRefresh: (definitionId?: string, versionId?: string) => Promise<void>; onSaved: (message: string) => void; onError: (message: string) => void };
 const nodeTypes = { workflowStep: WorkflowNode, workflowGroup: WorkflowGroupNode };
 const initial: EditorDraft = { name: "Custom workflow", version: "", enabled: true, isDefault: false, start: "manual-start", ...definitionToGraph(createDefaultDefinitionDocument()) };
 const makeEdge = (source: string, sourceHandle: string, target: string, targetHandle = "input"): Edge => sourceHandle.startsWith("output:") ? dataEdge(source, sourceHandle.slice(7), target, targetHandle.slice(5)) : ({ id: `${source}:${sourceHandle}:${target}:${targetHandle}`, source, sourceHandle, target, targetHandle, markerEnd: { type: MarkerType.ArrowClosed }, label: sourceHandle === "true" ? "True" : sourceHandle === "false" ? "False" : targetHandle === "join" ? "Join" : sourceHandle.startsWith("branch:") ? `Branch ${Number(sourceHandle.slice(7)) + 1}` : targetHandle === "return" ? "Return" : sourceHandle === "body" ? "Body" : sourceHandle === "exit" ? "Exit" : undefined, style: targetHandle === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : targetHandle === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined });
 export default function WorkflowDefinitionsPage(props: Props) { return <ReactFlowProvider><Editor {...props} /></ReactFlowProvider>; }
 
-function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved, onError }: Props) {
+function Editor({ definitions, loading, error, canAdminister, canTrigger, defaultModel, onStarted, onRefresh, onSaved, onError }: Props) {
   const state = useEditorState(initial), { draft } = state;
   const [eventRevision, setEventRevision] = useState(0);
   useEffect(() => { listWorkflowEventDefinitions().then(items => { registerEventDefinitions(items); setEventRevision(value => value + 1); }).catch(() => onError("Could not load event definitions. Reload to retry.")); }, []);
@@ -39,6 +40,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   const [personas, setPersonas] = useState<Persona[]>([]), [personaError, setPersonaError] = useState("");
   const refreshPersonas = () => listPersonas().then(items => { setPersonas(items); setPersonaError(""); }).catch(() => setPersonaError("Could not load personas. Existing selections are preserved."));
   useEffect(() => { void refreshPersonas(); }, []);
+  const [manualStartOpen, setManualStartOpen] = useState(false);
   const [definitionId, setDefinitionId] = useState<string>();
   const [versionId, setVersionId] = useState<string>();
   const [selected, setSelected] = useState<string[]>([]), [selectedEdges, setSelectedEdges] = useState<string[]>([]);
@@ -72,7 +74,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
 
   async function openVersion(item: WorkflowDefinitionResponse, version?: WorkflowDefinitionVersionResponse) {
     initialized.current = true; const token = ++generation.current; setLoadingDraft(true);
-    setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(item.id); setVersionId(version?.id); setSelected([]); setSelectedEdges([]); setNotice(""); setSwitcher(false); setSettings(false);
+    setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(item.id); setVersionId(version?.id); setSelected([]); setSelectedEdges([]); setNotice(""); setSwitcher(false); setSettings(false); setManualStartOpen(false);
     const doc = toNodeDefinition(version?.definition ?? createDefaultDefinitionDocument());
     const graph = definitionToGraph(doc);
     try { if (!doc.editor?.positions || Object.keys(doc.editor.positions).length === 0) graph.nodes = await arrange(graph.nodes, graph.edges); }
@@ -170,6 +172,13 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
       wait: uses === waitUses ? { issueNumber: 1 } : undefined, event: isStartUses(uses) ? defaultEventSettings(uses) : undefined } };
+    // Keep palette additions clear of existing cards, including their port rows.
+    const occupied = draft.nodes.map(item => ({ ...item.position, width: measurements[item.id]?.width ?? 240, height: measurements[item.id]?.height ?? 300 }));
+    let collisions = occupied.filter(item => node.position.x < item.x + item.width + 30 && node.position.x + 240 + 30 > item.x && node.position.y < item.y + item.height + 30 && node.position.y + 300 + 30 > item.y);
+    while (collisions.length) {
+      node.position.y = Math.max(...collisions.map(item => item.y + item.height)) + 40;
+      collisions = occupied.filter(item => node.position.x < item.x + item.width + 30 && node.position.x + 240 + 30 > item.x && node.position.y < item.y + item.height + 30 && node.position.y + 300 + 30 > item.y);
+    }
     state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
     setMenu(false); setContext(undefined); reveal(id);
   }
@@ -194,7 +203,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     finally { if (saveGeneration === generation.current) setSaving(false); }
   }
   function newDefinition() { if (saving) return; guard(() => { void (async () => {
-    initialized.current = true; const token = ++generation.current; setLoadingDraft(true); setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(undefined); setVersionId(undefined); setSelected([]); setSettings(true); setSwitcher(false); setNotice("");
+    initialized.current = true; const token = ++generation.current; setLoadingDraft(true); setFocusNodeId(undefined); setMeasurements({}); setDefinitionId(undefined); setVersionId(undefined); setSelected([]); setManualStartOpen(false); setSettings(true); setSwitcher(false); setNotice("");
     let nodes = initial.nodes;
     try { nodes = await arrange(initial.nodes, initial.edges); } catch { onError("Automatic layout failed. Use Arrange to retry."); }
     if (token !== generation.current) return;
@@ -208,7 +217,8 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
       <label className="editor-version"><span className="sr-only">Workflow version</span><select aria-label="Workflow version" value={versionId || ""} disabled={!definition || loadingDraft || saving} onChange={event => { const version = definition?.versions.find(item => item.id === event.target.value); if (definition && version) guard(() => void openVersion(definition, version)); }}><option value="" disabled>New workflow</option>{definition?.versions.map(version => <option key={version.id} value={version.id}>v{version.version}{version.isEnabled ? " · Enabled" : " · Disabled"}</option>)}</select></label>
       <span role="status" className="editor-save-status">{loadingDraft ? "Loading…" : saving ? "Saving…" : state.dirty ? "Unsaved changes" : versionId ? "Saved" : "Draft"}</span>
       <button type="button" onClick={() => { void onRefresh(); void refreshPersonas(); void refreshCustomTasks(); void refreshEnvironments(); }} disabled={saving || loading}>Refresh</button>
-      <button type="button" onClick={() => setSettings(!settings)}>Workflow settings</button>
+      <button type="button" onClick={() => { setManualStartOpen(false); setSettings(!settings); }}>Workflow settings</button>
+      {definition && <button type="button" aria-expanded={manualStartOpen} onClick={() => setManualStartOpen(!manualStartOpen)}>Manual Start</button>}
       <button type="button" className="primary-button" disabled={!editable || saving} onClick={() => void save()}>Save Version</button>
     </header>
     <div className="editor-toolbar" role="group" aria-label="Canvas commands">
@@ -249,7 +259,7 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
               });
               const selection = changes.filter(change => change.type === "select"); if (selection.length) setSelected(current => { const ids = new Set(current); selection.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; }); if (editable && changes.some(change => change.type === "position" && change.position)) update(current => ({ ...current, nodes: moveGroupedNodes(current.nodes, cleanGroups(current.groups ?? [], current.nodes), measurements, changes) })); }}
             onEdgesChange={changes => setSelectedEdges(current => { const ids = new Set(current); changes.forEach(change => { if (change.type === "select") change.selected ? ids.add(change.id) : ids.delete(change.id); }); return [...ids]; })}
-            onNodeClick={(_, node) => { setInspector(true); setSettings(false); }} onPaneClick={() => { setMenu(false); }}
+            onNodeClick={(_, node) => { setManualStartOpen(false); setInspector(true); setSettings(false); }} onPaneClick={() => { setMenu(false); }}
             onConnect={connection => connect(connection.source, connection.sourceHandle || "next", connection.target, connection.targetHandle || "input")} isValidConnection={validConnection}
             onReconnect={(old, connection) => {
               if (isDataEdge(old)) {
@@ -269,7 +279,10 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         </NodeActions.Provider>
         {nodeQuery && <div className="editor-search-results">{draft.nodes.filter(node => `${node.data.displayName} ${node.id}`.toLowerCase().includes(nodeQuery.toLowerCase())).map(node => <button type="button" key={node.id} onClick={() => { reveal(node.id); setNodeQuery(""); }}>{node.data.displayName} ({node.id})</button>)}</div>}
       </div>
-      {settings ? <aside className="editor-inspector" aria-label="Workflow settings" onFocusCapture={event => { if (event.target.matches("input,select")) state.begin(); }} onBlurCapture={state.commit}>
+      {manualStartOpen && definition ? <aside className="editor-inspector" aria-label="Start selected definition">
+        <div className="editor-panel-heading"><h3>Run workflow</h3><button type="button" aria-label="Close Manual Start" onClick={() => setManualStartOpen(false)}>×</button></div>
+        <ManualWorkflowStart key={definition.id} definition={definition} selectedVersionId={versionId} defaultModel={defaultModel} canTrigger={canTrigger} dirty={state.dirty || loadingDraft || saving} onStarted={onStarted} />
+      </aside> : settings ? <aside className="editor-inspector" aria-label="Workflow settings" onFocusCapture={event => { if (event.target.matches("input,select")) state.begin(); }} onBlurCapture={state.commit}>
         <div className="editor-panel-heading"><h3>Workflow settings</h3><button type="button" aria-label="Close workflow settings" onClick={() => setSettings(false)}>×</button></div>
         <label><span>Definition Name</span><input disabled={!editable || !!definitionId} value={draft.name} onChange={event => update(current => ({ ...current, name: event.target.value }))} required /></label>
         <EnvironmentPicker value={draft.defaultEnvironmentId} environments={environments} savedSnapshot={state.savedDraft.defaultEnvironmentSnapshot} disabled={!editable} onChange={defaultEnvironmentId => update(current => ({ ...current, defaultEnvironmentId }))} />

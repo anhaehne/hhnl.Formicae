@@ -41,7 +41,6 @@ import {
   rotateWebhookSecret,
   setIdentityProviderEnabled,
   startCodexAuthConnection,
-  startWorkflow,
   updateAiSettings,
   updateManagementUserRoles,
 
@@ -50,16 +49,6 @@ import {
 } from "./api";
 import { NavigationIcon } from "./NavigationIcon";
 import WorkflowDefinitionsPage from "./WorkflowDefinitionsPage";
-import { getEnabledDefinitionVersions } from "./workflowGraph";
-
-
-type FormState = {
-  issueUrl: string;
-  repositoryUrl: string;
-  baseBranch: string;
-  model: string;
-  workflowDefinitionVersionId: string;
-};
 
 type AiSettingsFormState = {
   name: string;
@@ -122,14 +111,6 @@ type GiteaIntegrationFormState = {
   webhookSecret: string;
 };
 
-const initialForm: FormState = {
-  issueUrl: "",
-  repositoryUrl: "",
-  baseBranch: "main",
-  model: "",
-  workflowDefinitionVersionId: ""
-};
-
 const initialAiSettingsForm: AiSettingsFormState = {
   name: "New AI",
   provider: "",
@@ -166,8 +147,6 @@ export default function App() {
   const navigate = useNavigate();
   const [activePage, setActivePage] = useState<Page>("workflows");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(initialForm);
-  const modelTouched = useRef(false);
   const [aiSettingsList, setAiSettingsList] = useState<AiSettings[]>([]);
   const [selectedAiSettingsId, setSelectedAiSettingsId] = useState<string>();
   const [aiSettingsForm, setAiSettingsForm] = useState<AiSettingsFormState>(initialAiSettingsForm);
@@ -182,8 +161,6 @@ export default function App() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | undefined>(() => new URLSearchParams(window.location.search).get("workflowId") ?? undefined);
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [loadingWorkflowDefinitions, setLoadingWorkflowDefinitions] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string>();
   const [listError, setListError] = useState<string>();
   const [workflowDefinitionError, setWorkflowDefinitionError] = useState<string>();
   const [workflowDefinitionSaved, setWorkflowDefinitionSaved] = useState<string>();
@@ -249,10 +226,6 @@ export default function App() {
   const selectedAiSettings = useMemo(
     () => aiSettingsList.find(settings => settings.id === selectedAiSettingsId) ?? aiSettingsList[0],
     [aiSettingsList, selectedAiSettingsId]
-  );
-  const enabledDefinitionVersions = useMemo(
-    () => getEnabledDefinitionVersions(workflowDefinitions),
-    [workflowDefinitions]
   );
   const refreshCurrentUser = useCallback(async () => {
     try {
@@ -328,19 +301,7 @@ export default function App() {
     setWorkflowDefinitionError(undefined);
     try {
       const definitions = await listWorkflowDefinitions();
-      setWorkflowDefinitions(definitions);
-      setForm(current => {
-        if (current.workflowDefinitionVersionId || definitions.length === 0) {
-          return current;
-        }
-
-        const defaultVersion = getEnabledDefinitionVersions(definitions)[0];
-        return {
-          ...current,
-          workflowDefinitionVersionId: defaultVersion?.version.id ?? ""
-        };
-      });
-    } catch (error) {
+      setWorkflowDefinitions(definitions);    } catch (error) {
       setWorkflowDefinitionError(error instanceof Error ? error.message : "Could not load workflow definitions.");
     } finally {
       setLoadingWorkflowDefinitions(false);
@@ -459,15 +420,7 @@ export default function App() {
         setAiSettingsList(settings);
         const firstSettings = settings[0];
         setSelectedAiSettingsId(firstSettings?.id);
-        setAiSettingsForm(firstSettings ? toAiSettingsForm(firstSettings) : initialAiSettingsForm);
-        setForm(current => {
-          if (!firstSettings || modelTouched.current || current.model.trim()) {
-            return current;
-          }
-
-          return { ...current, model: firstSettings.model ?? "" };
-        });
-      } catch (error) {
+        setAiSettingsForm(firstSettings ? toAiSettingsForm(firstSettings) : initialAiSettingsForm);      } catch (error) {
         if (!ignore) {
           setAiSettingsError(error instanceof Error ? error.message : "Could not load AI settings.");
         }
@@ -625,50 +578,6 @@ export default function App() {
     navigate({ pathname: "/workflows", search: next.toString() });
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError(undefined);
-
-    if (!form.issueUrl.trim() || !form.repositoryUrl.trim()) {
-      setFormError("Issue URL and repository URL are required.");
-      return;
-    }
-
-    const selectedDefinitionVersion = enabledDefinitionVersions.find(item => item.version.id === form.workflowDefinitionVersionId);
-    if (enabledDefinitionVersions.length > 0 && !selectedDefinitionVersion) {
-      setFormError("Select an enabled workflow definition before starting.");
-      return;
-    }
-    if (enabledDefinitionVersions.length === 0) {
-      setFormError("No enabled workflow definition versions are available.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const workflowDefinition = selectedDefinitionVersion;
-      if (!workflowDefinition) {
-        throw new Error("Select an enabled workflow definition before starting.");
-      }
-
-      const workflow = await startWorkflow({
-        issueUrl: form.issueUrl.trim(),
-        repositoryUrl: form.repositoryUrl.trim(),
-        baseBranch: form.baseBranch.trim() || "main",
-        model: form.model.trim() || null,
-        workflowDefinitionId: workflowDefinition.definition.id,
-        workflowDefinitionVersionId: workflowDefinition.version.id
-      });
-      selectWorkflow(workflow.workflowId);
-      setForm(current => ({ ...current, issueUrl: "", model: "" }));
-      await refreshWorkflows();
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not start workflow.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   function handleSelectAiSettings(settingsId: string) {
     const settings = aiSettingsList.find(item => item.id === settingsId);
     if (!settings) {
@@ -746,13 +655,6 @@ export default function App() {
         return current.map(item => item.id === settings.id ? settings : item);
       });
       setAiSettingsForm(toAiSettingsForm(settings));
-      setForm(current => {
-        if (modelTouched.current || current.model.trim()) {
-          return current;
-        }
-
-        return { ...current, model: settings.model ?? "" };
-      });
       setAiSettingsSaved("Saved. New workflow executions use the first configured AI.");
     } catch (error) {
       setAiSettingsError(error instanceof Error ? error.message : "Could not save AI settings.");
@@ -1138,78 +1040,12 @@ export default function App() {
   function renderActivePage() {
     return activePage === "images" ? (canViewWorkflows ? <ImagesPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect images.</p>) : activePage === "environments" ? (canViewWorkflows ? <EnvironmentsPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect environments.</p>) : activePage === "custom-tasks" ? (canViewWorkflows ? <CustomTasksPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect custom tasks.</p>) : activePage === "personas" ? (canViewWorkflows ? <PersonasPage canAdminister={canAdminister} /> : <p role="alert">Workflow viewing permission is required to inspect personas.</p>) : activePage === "workflows" ? (
         <>
-          <section className="workspace-grid">
-        <div className="left-stack">
-          <form className="panel trigger-panel" onSubmit={handleSubmit}>
-            <div className="panel-heading">
-              <h2>Manual Start</h2>
+          <section className="workflow-management" aria-label="Workflow management workspace">
+            <WorkflowHistory selectedId={selectedWorkflowId} onSelect={selectWorkflow} definitions={workflowDefinitions} refreshToken={workflows} />
+            <div className="workflow-investigation">
+              {selectedWorkflowId ? <WorkflowExecutionPage key={selectedWorkflowId} workflowId={selectedWorkflowId} canControl={canTriggerWorkflows} onChanged={() => void refreshWorkflows()} /> : <section className="panel"><h2>Workflow Detail</h2><p>Select a run to investigate its graph and worker logs.</p><button type="button" className="secondary-button" onClick={() => navigateToPage("workflow-definitions")}>Open Definitions to start a workflow</button></section>}
             </div>
-            <label>
-              <span>Issue URL</span>
-              <input
-                value={form.issueUrl}
-                onChange={event => setForm(current => ({ ...current, issueUrl: event.target.value }))}
-                placeholder="https://github.com/org/repo/issues/1"
-                type="url"
-              />
-            </label>
-            <label>
-              <span>Repository URL</span>
-              <input
-                value={form.repositoryUrl}
-                onChange={event => setForm(current => ({ ...current, repositoryUrl: event.target.value }))}
-                placeholder="https://github.com/org/repo"
-                type="url"
-              />
-            </label>
-            <div className="form-row">
-              <label>
-                <span>Base Branch</span>
-                <input
-                  value={form.baseBranch}
-                  onChange={event => setForm(current => ({ ...current, baseBranch: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>Model</span>
-                <input
-                  value={form.model}
-                  onChange={event => {
-                    modelTouched.current = true;
-                    setForm(current => ({ ...current, model: event.target.value }));
-                  }}
-                  placeholder="optional"
-                />
-              </label>
-            </div>
-            <label>
-              <span>Workflow Definition</span>
-              <select
-                value={form.workflowDefinitionVersionId}
-                onChange={event => setForm(current => ({ ...current, workflowDefinitionVersionId: event.target.value }))}
-                disabled={enabledDefinitionVersions.length === 0 || !canTriggerWorkflows}
-              >
-                {enabledDefinitionVersions.map(({ definition, version }) => (
-                  <option key={version.id} value={version.id}>
-                    {definition.name} v{version.version}{version.isDefault ? " (default)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {enabledDefinitionVersions.length === 0 ? (
-              <p className="muted">No enabled workflow definition versions are available.</p>
-            ) : null}
-            {workflowDefinitionError ? <p className="error-text">{workflowDefinitionError}</p> : null}
-            {formError ? <p className="error-text">{formError}</p> : null}
-            <button type="submit" className="primary-button" disabled={submitting || !canTriggerWorkflows || enabledDefinitionVersions.length === 0}>
-              {submitting ? "Starting" : "Start Workflow"}
-            </button>
-          </form>
-        </div>
-
-        <WorkflowHistory selectedId={selectedWorkflowId} onSelect={selectWorkflow} definitions={workflowDefinitions} refreshToken={workflows} />
-      </section>
-      {selectedWorkflowId ? <WorkflowExecutionPage key={selectedWorkflowId} workflowId={selectedWorkflowId} canControl={canTriggerWorkflows} onChanged={() => void refreshWorkflows()} /> : <section className="panel"><h2>Workflow Detail</h2><p>Select a workflow to investigate its visual graph and worker logs.</p></section>}
+          </section>
         </>
       ) : activePage === "workflow-definitions" ? (
         <WorkflowDefinitionsPage
@@ -1218,6 +1054,9 @@ export default function App() {
           error={workflowDefinitionError}
           saved={workflowDefinitionSaved}
           canAdminister={canAdminister}
+          canTrigger={canTriggerWorkflows}
+          defaultModel={aiSettingsList[0]?.model ?? ""}
+          onStarted={id => { selectWorkflow(id); void refreshWorkflows(); }}
           onRefresh={refreshWorkflowDefinitions}
           onSaved={message => {
             setWorkflowDefinitionSaved(message);

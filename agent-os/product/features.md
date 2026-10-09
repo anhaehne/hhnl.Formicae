@@ -1,16 +1,18 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.26.3**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.27.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
 Before implementing any feature or change, including fixes, refactoring, configuration, infrastructure or removals:
 
-1. Update the affected requirements and interactions here, identifying the proposed change and its implementation status.
-2. Obtain explicit product-owner approval of that revision; record the approver, date and approval reference in this document. Approval of a spec, issue or pull request must explicitly cover the baseline revision; silence is not approval.
-3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
+1. Update the affected requirements and interactions here, identifying the requested change and its implementation status.
+2. Record the revision date and user request reference. The user’s request authorizes its scope; no separate baseline approval is required. Retain historical approval records.
+3. Implement only the requested scope, keep supporting specs/docs aligned, and verify against the documented requirements. Document scope changes before implementing them.
 
-Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+Baseline process revision dated **2026-10-09**: remove the separate explicit approval gate while retaining required baseline updates before implementation. User request reference: **“Remove the explicit approval. Just make sure it is added to the document. Approved”**. Historical approval records below remain intact.
+
+Revision **workflow-management-layout**, dated **2026-10-09**: **Implemented in 0.27.0**. Fix output-port label overlap in running-workflow graphs, reorganize Workflow Management around a compact execution browser and adjacent execution detail, and relocate Manual Start into the selected workflow definition's panel. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Remove the explicit approval. Just make sure it is added to the document. Approved”**.
 
 Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved for implementation**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
 
@@ -55,6 +57,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Validate prerequisites and node-specific errors before enabling a version.
       - Preserve editor layout and guard unsaved edits.
       - Pin each run to its definition version while keeping legacy definitions readable.
+      - **Implemented in 0.27.0 — revision workflow-management-layout:** Show Manual Start within the selected definition's panel, with version choices restricted to that definition. Start the selected saved version; require saving or discarding dirty editor changes before starting so navigation preserves the existing unsaved-edit guard. Preserve issue URL, repository URL, base branch and model inputs, existing permission checks and enabled/manual-entry validation. Clearly explain when the selected definition has no manually startable enabled version; retain navigation to the resulting execution after a successful start.
 
       **Approved revision workflow-editor-groups:**
 
@@ -451,12 +454,15 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Provide Running/Failed presets and locally saved views.
       - Show the pinned read-only execution graph, task state/timing, skipped nodes, loop iterations, attempts, worker identity, errors, decisions and typed evidence.
       - Support links to specific tasks/attempts and bounded evidence exports without provider credentials.
+      - **Implemented in 0.27.0 — revision workflow-management-layout:** Keep control/data output ports and their labels separate from node titles, descriptions, execution status and duration, including event nodes with multiple outputs. Retain graph connections and node selection behavior. Fit wide execution graphs in the compact pane, account for port rows when arranging nodes, and place newly added palette nodes in unoccupied space as card heights change.
+      - **Implemented in 0.27.0 — revision workflow-management-layout:** Replace the large execution list above the detail view with a compact, bounded execution browser beside the selected execution on wide screens; stack the browser and detail on narrow screens. Preserve search, filters, presets, saved views, pagination, refresh and execution/task deep links. Remove the standalone Manual Start form from Workflow Management so execution investigation is its primary content.
 
     - **Interactions with other features:**
 
       - **Definitions and visual editor** supplies the pinned graph, which is overlaid with task states and attempts from **Durable orchestration and runtimes**.
       - **Typed task data** supplies resolved inputs, outputs and producer provenance, while **Decisions** and **Loops and explicit parallel groups** supply route and iteration evidence.
       - Selecting a task or attempt filters **Live and retained logs** to that execution context.
+      - **Implemented in 0.27.0 — revision workflow-management-layout:** **Definitions and visual editor** hosts manual execution for the selected definition/version, queues it through **Durable orchestration and runtimes**, and opens **Execution investigation and history** for the new run. The compact execution browser continues selecting the pinned graph and investigation context.
       - **Pause, resume, cancel and retry** adds replacement attempts and control outcomes without removing evidence from previous attempts.
 
   - **Live and retained logs**

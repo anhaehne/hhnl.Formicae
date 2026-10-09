@@ -29,19 +29,19 @@ This repository uses Agent OS project-local documentation and skills:
 
 Read the relevant Agent OS files before planning or implementing non-trivial work.
 
-## Feature Baseline and Approval
+## Feature Baseline
 
 - `agent-os/product/features.md` is the authoritative application feature baseline; read it before planning or implementing changes.
-- Before implementing any feature or change (including fixes, refactoring, configuration, infrastructure or removals), update its requirements and interactions in the baseline and obtain explicit product-owner approval of that revision.
-- Record the approver, date and approval reference in the baseline. A draft, planned entry, existing spec or silent review does not authorize implementation.
-- Implement only the approved scope. Scope changes require a new baseline update and approval before implementation continues.
-- Keep specs, roadmap and supporting documentation aligned with the approved baseline; the baseline takes precedence over conflicting scope.
+- Before implementing any feature or change (including fixes, refactoring, configuration, infrastructure or removals), update its requirements and interactions in the baseline. The user’s request authorizes work within that scope; no separate baseline approval is required.
+- Record the revision date, implementation status and user request reference in the baseline. Retain historical approval records.
+- Implement only the requested scope. Document scope changes in the baseline before implementation continues.
+- Keep specs, roadmap and supporting documentation aligned with the documented baseline; the baseline takes precedence over conflicting scope.
 
 ## Product Context
 
 Use these files to understand the product direction:
 
-- `agent-os/product/features.md` — authoritative feature requirements, interactions and approval gate.
+- `agent-os/product/features.md` — authoritative feature requirements, interactions and revision history.
 - `agent-os/product/mission.md` — product problem, users, and differentiator.
 - `agent-os/product/roadmap.md` — MVP and post-launch scope.
 - `agent-os/product/tech-stack.md` — chosen technologies and platform assumptions.
