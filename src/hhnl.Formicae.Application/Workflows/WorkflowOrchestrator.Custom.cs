@@ -50,12 +50,7 @@ public sealed partial class WorkflowOrchestrator
                         ?? throw new InvalidOperationException("Stored custom task execution is empty.");
                     CustomTaskDefinitions.ValidatePrepared(execution, settings);
                     var document = await ResolveDefinitionAsync(workflow, token);
-                    foreach (var source in execution.Provenance?.Values ?? [])
-                    {
-                        var producerLoop = document.Loops?.FirstOrDefault(loop => loop.BodyStepIds.Contains(source.StepId));
-                        if (source.LoopIteration != (producerLoop is null ? null : run.LoopIteration))
-                            throw new InvalidOperationException("Prepared binding provenance does not match this loop iteration.");
-                    }
+                    WorkflowVariableDefinitions.ValidatePinnedEvidence(execution.Provenance?.Values ?? [], document, run.LoopIteration);
                 }
                 run.ExecutionAttemptId ??= Guid.NewGuid();
                 var context = JsonSerializer.Serialize(new { execution.Inputs, execution.WorkflowFields, Outputs = settings.Snapshot!.Outputs }, CustomExecutionJsonOptions);

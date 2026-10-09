@@ -1,5 +1,5 @@
-import { issueCommentUses, waitUses } from "./workflowData";
-import type { WorkflowIssueCommentSettings, ImageSelection, PreparedImageSnapshot } from "./api";
+import { variableUses, issueCommentUses, waitUses } from "./workflowData";
+import type { WorkflowDataVariable, WorkflowIssueCommentSettings, ImageSelection, PreparedImageSnapshot } from "./api";
 import { isEventUses, adaptEventStep } from "./workflowEvents";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowEventSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, WorkflowWaitSettings, StepSecretReference } from "./api";
@@ -17,6 +17,7 @@ export const loopUses = "builtins.loop";
 export const workflowSchema = "formicae.workflow/v1alpha3";
 export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, agentTaskUses, scriptUses, issueCommentUses, waitUses] as const;
 export type WorkflowStepNodeData = {
+  variable?: WorkflowDataVariable;
   stepId: string; displayName: string; uses: string; aiSettingsId?: string | null; model?: string | null;
   imageSelection?: ImageSelection | null; imageSnapshot?: PreparedImageSnapshot | null;
   personaId?: string | null; personaSnapshot?: PersonaSnapshot | null; environmentId?: string | null; environmentSnapshot?: EnvironmentSnapshot | null; customTask?: WorkflowCustomTaskSettings | null;
@@ -60,7 +61,7 @@ function toLegacyNodeDefinition(document: WorkflowDefinitionDocument): WorkflowD
     steps.push({ id: allocate(`trigger-${id}`), uses: triggerUses, displayName: id,
       trigger: settings, nextStepId: entry(document.startStepId), nextStepPort: null });
   }
-  return { schema: workflowSchema, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
+  return { schema: workflowSchema, variables: document.variables, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
 }
 
 export function toNodeDefinition(original: WorkflowDefinitionDocument): WorkflowDefinitionDocument {
@@ -85,7 +86,9 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
     data: { stepId: step.id, displayName: step.displayName || step.id, uses: step.uses,
       aiSettingsId: step.aiSettingsId, model: step.model, personaId: step.personaId, personaSnapshot: step.personaSnapshot, imageSelection: step.imageSelection, imageSnapshot: step.imageSnapshot, environmentId: step.environmentId, environmentSnapshot: step.environmentSnapshot, customTask: step.customTask, wait: step.wait, event: step.event, issueComment: step.issueComment, script: step.script, capabilities: step.capabilities, secretReferences: step.secretReferences, trigger: step.trigger, loop: step.loop, parallel: step.parallel, decision: step.decision }
   }));
+  for (const variable of document.variables ?? []) nodes.push({ id: variable.id, type: "workflowStep", position: document.editor?.positions[variable.id] ?? { x: 100, y: 100 + nodes.length * 100 }, data: { stepId: variable.id, displayName: variable.name, uses: variableUses, variable } });
   const edges: Edge[] = [];
+  for (const variable of document.variables ?? []) for (const source of variable.sources ?? []) edges.push(dataEdge(source.stepId, source.outputName, variable.id, "value"));
   for (const step of document.steps) {
     if (step.wait?.issueNumberBinding) edges.push(dataEdge(step.wait.issueNumberBinding.stepId, step.wait.issueNumberBinding.outputName, step.id, "issueNumber"));
     for (const [name, binding] of Object.entries(step.issueComment?.bindings ?? step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
@@ -106,7 +109,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
 }
 
 export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string): WorkflowDefinitionDocument {
-  return { schema: workflowSchema, startStepId: nodes.some(node => isStartUses(node.data.uses)) ? nodes.find(node => node.data.uses === startUses && (node.data.event || node.data.trigger?.type === "Manual"))?.id ?? "" : startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
+  return { schema: workflowSchema, startStepId: nodes.some(node => isStartUses(node.data.uses)) ? nodes.find(node => node.data.uses === startUses && (node.data.event || node.data.trigger?.type === "Manual"))?.id ?? "" : startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, variables: nodes.filter(node => node.data.variable).map(node => ({ ...node.data.variable!, id: node.id, name: node.data.displayName, sources: edges.filter(edge => isDataEdge(edge) && edge.target === node.id).map(edge => ({ stepId: edge.source, outputName: edge.sourceHandle!.slice(7) })) })), steps: nodes.filter(node => !node.data.variable).map(node => {
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
     const additional = edges.filter(edge => edge.source === node.id && edge !== next && (edge.sourceHandle === "next" || !edge.sourceHandle)).map(edge => edge.target);
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");
@@ -150,10 +153,23 @@ export function getEnabledDefinitionVersions(definitions: WorkflowDefinitionResp
 }
 
 export const isDataEdge = (edge: Edge) => !!edge.sourceHandle?.startsWith("output:");
-export const dataEdge = (source: string, output: string, target: string, input: string): Edge => ({ id: `data:${target}:${input}`, source, target, sourceHandle: `output:${output}`, targetHandle: `data:${input}`, label: `${output} → ${input}`, style: { stroke: "#168b85", strokeDasharray: "4 3" }, markerEnd: { type: MarkerType.ArrowClosed } });
+export const dataEdge = (source: string, output: string, target: string, input: string): Edge => ({ id: `data:${source}:${output}:${target}:${input}`, source, target, sourceHandle: `output:${output}`, targetHandle: `data:${input}`, label: `${output} → ${input}`, style: { stroke: "#168b85", strokeDasharray: "4 3" }, markerEnd: { type: MarkerType.ArrowClosed } });
 
 // Data connections never participate in control traversal or layout.
 export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start: string, producer: string, consumer: string) {
+  const producerNode = nodes.find(node => node.id === producer);
+  if (producerNode?.data.variable) {
+    const seen = new Set<string>();
+    const check = (id: string): boolean => {
+      if (seen.has(id) || id === consumer) return false;
+      const variable = nodes.find(node => node.id === id)?.data.variable;
+      if (!variable) return eligibleProducer(nodes, edges, start, id, consumer);
+      seen.add(id);
+      const valid = edges.filter(edge => isDataEdge(edge) && edge.target === id).every(edge => check(edge.source));
+      seen.delete(id); return valid;
+    };
+    return check(producer);
+  }
   const control = edges.filter(edge => !isDataEdge(edge));
   const loops = new Map<string, string>();
   for (const loop of nodes.filter(node => node.data.uses === loopUses)) {
@@ -175,4 +191,21 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
   if (nodes.find(node => node.id === producer)?.data.uses === "github.issue-created") return reach(producer) && !entries.some(entry => entry !== producer && reach(entry));
   const graph = nodes.some(node => node.data.uses !== parallelUses && control.filter(edge => edge.source === node.id && edge.sourceHandle === "next").length > 1);
   return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph ? !entries.some(entry => reach(entry) && !reach(entry, undefined, producer)) : !entries.some(entry => reach(entry, producer)));
+}
+
+// A variable has no control position; validate cycles immediately and ancestry at its consumers.
+export function validVariableSource(nodes: WorkflowStepNode[], edges: Edge[], start: string, producer: string, variable: string): boolean {
+  if (producer === variable) return false;
+  const pending = [variable], seen = new Set<string>();
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const edge of edges.filter(edge => isDataEdge(edge) && edge.source === id)) {
+      if (edge.target === producer) return false;
+      if (nodes.find(node => node.id === edge.target)?.data.variable) pending.push(edge.target);
+      else if (!eligibleProducer(nodes, edges, start, producer, edge.target)) return false;
+    }
+  }
+  return true;
 }

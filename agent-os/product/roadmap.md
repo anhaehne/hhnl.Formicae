@@ -41,6 +41,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
 - Provide GitHub Issue created outputs (complete issue JSON string and numeric Issue id) and an Add issue comment task accepting typed issueId/text inputs (0.25.0; approved revisions `github-issue-created-output` and `github-issue-comment-task`).
+- Approved revision `typed-data-variables`: data-only typed variable nodes combine ordered outputs using string append, number sum, boolean Any/All, First or Override, with immutable consumer preparation and transitive producer provenance.
 - Support named scalar custom-task outputs and explicit input bindings with frozen producer provenance (available in 0.18.0).
 - Include the pinned output contract in Agent/custom-task prompts and correct missing or invalid final output through at most two turns in the same conversation within the original timeout (available in 0.24.0; approved revision `agent-task-output-correction`).
 - Support inline Agent task nodes with personas and editable custom-task prefilling (available in 0.22.0).

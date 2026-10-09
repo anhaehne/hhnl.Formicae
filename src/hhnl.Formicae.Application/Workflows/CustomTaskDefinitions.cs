@@ -276,8 +276,9 @@ public static class CustomTaskDefinitions
         foreach (var (name, binding) in bindings)
         {
             if (provenance is null || !provenance.TryGetValue(name, out var source) || source is null
-                || source.StepId != binding.StepId || source.OutputName != binding.OutputName || source.RunId == Guid.Empty || source.ExecutionAttemptId == Guid.Empty)
+                || source.StepId != binding.StepId || source.OutputName != binding.OutputName)
                 throw new InvalidOperationException($"Binding '{name}' has no valid frozen producer identity.");
+            WorkflowVariableDefinitions.ValidateEvidence(source);
             if (source.Value is { } value) values[name] = value.Clone();
         }
         return values;
@@ -287,7 +288,8 @@ public static class CustomTaskDefinitions
     public static IReadOnlyList<WorkflowDefinitionValidationError> ValidateBindings(WorkflowDefinitionDocument document)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
-        if (!document.Steps.Any(step => BindingsFor(step).Count > 0)) return errors;
+        errors.AddRange(WorkflowVariableDefinitions.Validate(document));
+        if (errors.Count > 0 || !document.Steps.Any(step => BindingsFor(step).Count > 0)) return errors;
         WorkflowDefinitionDocument plan;
         try { plan = WorkflowNodeDefinitions.Normalize(document); }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or KeyNotFoundException or NullReferenceException)
@@ -320,7 +322,8 @@ public static class CustomTaskDefinitions
         if (!WorkflowStartDefinitions.HasStartNodes(document) || !string.IsNullOrEmpty(document.StartStepId))
             eventEntries.Add(("", plan.StartStepId));
         foreach (var consumer in plan.Steps)
-        foreach (var (name, binding) in BindingsFor(consumer))
+        foreach (var (name, configuredBinding) in BindingsFor(consumer))
+        foreach (var binding in WorkflowVariableDefinitions.Expand(document, configuredBinding))
         {
             if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) continue;
             var input = InputSchemaFor(consumer).FirstOrDefault(input => input?.Name == name);
@@ -366,7 +369,7 @@ public static class CustomTaskDefinitions
         return result;
     }
 
-    private static bool ValidScalar(JsonElement value, string? type) => type switch
+    public static bool ValidScalar(JsonElement value, string? type) => type switch
     {
         "string" => value.ValueKind == JsonValueKind.String && value.GetString()!.Length <= 16000,
         "number" => IsWireSafeNumber(value),

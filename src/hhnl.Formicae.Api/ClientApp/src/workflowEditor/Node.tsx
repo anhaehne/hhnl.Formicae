@@ -13,7 +13,15 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowStepNode>
   const inputs = inputsFor({ id, data } as WorkflowStepNode), outputs = outputsFor({ id, data } as WorkflowStepNode);
   const schema = inputs.length || outputs.length ? { inputs, outputs } : undefined;
   const schemaKey = JSON.stringify(schema);
-  useEffect(() => { if (data.uses === parallelUses || data.uses === "builtins.agent-task" || data.uses === "builtins.custom-task" || data.uses === "builtins.script" || data.uses === waitUses || data.uses === issueCommentUses || data.uses === "github.issue-created") updateInternals(id); }, [id, data.uses, branchCount, schemaKey, updateInternals]);
+  useEffect(() => { if (data.variable || data.uses === parallelUses || data.uses === "builtins.agent-task" || data.uses === "builtins.custom-task" || data.uses === "builtins.script" || data.uses === waitUses || data.uses === issueCommentUses || data.uses === "github.issue-created") updateInternals(id); }, [id, data.uses, branchCount, schemaKey, updateInternals]);
+  if (data.variable) return <div className={`editor-node variable ${selected ? "selected" : ""} ${actions.errors.has(id) ? "invalid" : ""}`}>
+    <Handle id="data:value" type="target" position={Position.Left} />
+    <span className="editor-node-kind">Variable · {data.variable.valueType}</span>
+    <strong title={data.displayName}>{data.displayName}</strong>
+    <span className="editor-node-summary">{data.variable.mode === "aggregate" ? data.variable.valueType === "boolean" ? data.variable.booleanOperation === "all" ? "All inputs are true" : "Any input is true" : data.variable.valueType === "number" ? "Sum" : "Append" : data.variable.mode === "first" ? "First value" : "Override"}</span>
+    {actions.errors.has(id) && <span className="editor-node-error">Needs attention</span>}
+    <Handle id="output:value" type="source" position={Position.Right} />
+  </div>;
   const loop = data.uses === loopUses, trigger = isStartUses(data.uses), parallel = data.uses === parallelUses, decision = data.uses === decisionUses;
   const output = (port: string, text: string, top: string) => <div key={port} className="editor-port" style={{ top }}><span>{text}</span>{actions.editable && <button className="nodrag nopan" type="button" aria-label={`Add after ${data.displayName} ${text}`} onClick={() => actions.add(id, port)}>+</button>}<Handle id={port} type="source" position={Position.Right} /></div>;
   return <div className={`editor-node ${loop ? "loop" : trigger ? "event" : parallel ? "parallel" : decision ? "decision" : "task"} ${selected ? "selected" : ""} ${actions.errors.has(id) ? "invalid" : ""}`} style={schema ? { minHeight: 145 + Math.max(schema.inputs.length, schema.outputs?.length ?? 0) * 28 } : data.uses === "builtins.script" ? { minHeight: 175 } : parallel ? { minHeight: 142 + branchCount * 34 } : decision ? { minHeight: 160 } : undefined}>

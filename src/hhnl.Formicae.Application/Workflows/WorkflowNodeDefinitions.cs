@@ -144,6 +144,6 @@ public static class WorkflowNodeDefinitions
             n.Id, n.Trigger!.Type, n.Trigger.Enabled, n.Trigger.RepositoryIds, n.Trigger.Label, n.Trigger.BaseBranch, n.Trigger.Model, Entry(n.NextStepId!))).ToArray();
         return new(DefaultWorkflowDefinitions.V1Alpha2Schema, Entry(document.StartStepId), tasks, triggers, loops,
             DefaultPersonaId: document.DefaultPersonaId, DefaultEnvironmentId: document.DefaultEnvironmentId,
-            DefaultEnvironmentSnapshot: document.DefaultEnvironmentSnapshot);
+            DefaultEnvironmentSnapshot: document.DefaultEnvironmentSnapshot, Variables: document.Variables);
     }
 }

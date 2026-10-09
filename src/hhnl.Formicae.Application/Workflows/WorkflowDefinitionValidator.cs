@@ -48,6 +48,7 @@ public sealed class WorkflowDefinitionValidator
         if (document.Steps is null) return new([new("definition.steps.required", "At least one step is required.", "steps")]);
         if (document.Steps.Any(step => step is null))
             return new([new("definition.step.required", "Each step must be a node object.", "steps")]);
+        errors.AddRange(WorkflowVariableDefinitions.Validate(document, validateTypes: false));
         foreach (var step in document.Steps)
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);

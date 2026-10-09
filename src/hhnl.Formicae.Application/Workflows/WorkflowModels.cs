@@ -116,7 +116,8 @@ public sealed record WorkflowDefinitionDocument(
     [property: JsonPropertyName("editor")] WorkflowEditorMetadata? Editor = null,
     [property: JsonPropertyName("defaultPersonaId")] string? DefaultPersonaId = null,
     [property: JsonPropertyName("defaultEnvironmentId")] string? DefaultEnvironmentId = null,
-    [property: JsonPropertyName("defaultEnvironmentSnapshot")] EnvironmentSnapshot? DefaultEnvironmentSnapshot = null);
+    [property: JsonPropertyName("defaultEnvironmentSnapshot")] EnvironmentSnapshot? DefaultEnvironmentSnapshot = null,
+    [property: JsonPropertyName("variables")] IReadOnlyList<WorkflowDataVariable>? Variables = null);
 
 public sealed record WorkflowEditorPosition(double X, double Y);
 public sealed record WorkflowEditorViewport(double X, double Y, double Zoom);

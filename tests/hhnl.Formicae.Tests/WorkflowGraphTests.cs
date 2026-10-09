@@ -205,6 +205,47 @@ public sealed class WorkflowGraphTests
 
     private static Task<TaskRun?> FindRun(InMemoryWorkflowStore store, Workflow workflow, string id)
         => store.GetTaskRunExecutionAsync(workflow.Id, id, null, default);
+
+    [Fact]
+    public async Task Variable_join_waits_for_both_branches_and_combines_in_saved_order()
+    {
+        var catalog = new CustomTaskService(new InMemoryCustomTaskStore());
+        var custom = await catalog.CreateAsync(new("Variable join", "Use {{input.summary}}", Inputs: [new("summary", "string", true)]), default);
+        var document = Diamond(scripts: true);
+        document = document with
+        {
+            Variables = [new("combined", "Combined", "string", Sources: [new("b", "output"), new("a", "output")], Separator: " | ")],
+            Steps = document.Steps.Select(step => step.Id == "join" ? step with
+            {
+                Uses = CustomTaskDefinitions.Uses, Script = null,
+                CustomTask = new(custom.Id, Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("combined", "value") })
+            } : step).ToArray()
+        };
+        var (store, workflow) = await Setup(document, catalog); var agent = new DeferredAgent();
+        var orchestrator = new WorkflowOrchestrator(store, new FakeWorkItemProvider(), new FakeSourceControlProvider(), agent, new SnapshotPrompt());
+        await orchestrator.AdvanceAsync(workflow, default);
+        agent.Complete(await Run(store, workflow, "start"), "plan");
+        await orchestrator.AdvanceAsync(workflow, default); await orchestrator.AdvanceAsync(workflow, default);
+        agent.Complete(await Run(store, workflow, "a"), "A");
+        await orchestrator.AdvanceAsync(workflow, default);
+        Assert.Null(await FindRun(store, workflow, "join"));
+        agent.Complete(await Run(store, workflow, "b"), "B");
+        await orchestrator.AdvanceAsync(workflow, default); await orchestrator.AdvanceAsync(workflow, default);
+        Assert.Equal("Use B | A", agent.Tasks[^1].Prompt);
+        var prepared = System.Text.Json.JsonSerializer.Deserialize<PreparedCustomTaskExecution>((await Run(store, workflow, "join")).CustomTaskExecutionJson!, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal(["b", "a"], prepared.Provenance!["summary"].Variable!.Sources.Select(source => source.StepId));
+        agent.Complete(await Run(store, workflow, "join"), "done", success: false);
+        await orchestrator.AdvanceAsync(workflow, default);
+        await new WorkflowService(store).RetryWorkflowAsync(workflow.Id, default);
+        var producer = await Run(store, workflow, "a"); producer.StructuredOutputsJson = "{\"output\":\"changed\"}";
+        await store.UpsertTaskRunAsync(producer, default);
+        await orchestrator.AdvanceAsync(workflow, default);
+        Assert.Equal("Use B | A", agent.Tasks[^1].Prompt);
+        agent.Complete(await Run(store, workflow, "join"), "done");
+        await orchestrator.AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        Assert.DoesNotContain(await store.ListTaskRunsAsync(workflow.Id, default), run => run.DefinitionStepId == "combined");
+    }
     private static async Task<TaskRun> Run(InMemoryWorkflowStore store, Workflow workflow, string id) => (await FindRun(store, workflow, id))!;
 
     private static async Task<(InMemoryWorkflowStore, Workflow)> Setup(WorkflowDefinitionDocument document, CustomTaskService? catalog = null)

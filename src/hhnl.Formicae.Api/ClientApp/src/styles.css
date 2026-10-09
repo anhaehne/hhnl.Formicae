@@ -1769,3 +1769,11 @@ pre.collapsed-content::after {
 .image-build-logs { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-picker { display: grid; gap: .5rem; margin: .5rem 0; }
 @media (max-width: 800px) { .images-page .personas-layout { grid-template-columns: 1fr; } }
+
+.editor-node.variable { width: 180px; min-height: 88px; border-radius: 44px; padding: 16px 22px; border-color: #168b85; background: #eefaf8; }
+.editor-node.variable .editor-node-kind { color: #13746f; font-size: 10px; }
+.editor-node.variable .react-flow__handle { background: #168b85; }
+.variable-sources { padding-left: 20px; }
+.variable-sources li { padding: 8px 0; }
+.variable-sources li > span { overflow-wrap: anywhere; }
+.variable-sources li > div { display: flex; gap: 6px; margin-top: 6px; }

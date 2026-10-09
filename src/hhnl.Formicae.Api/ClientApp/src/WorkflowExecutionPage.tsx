@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyNodeChanges, Background, Controls, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useSearchParams } from "react-router-dom";
 import "@xyflow/react/dist/style.css";
-import { controlWorkflow, getWorkflowExecution, listEvents, retryTaskRun, retryWorkflow, workflowEvidenceUrl, type PreparedIssueCommentExecution, type PreparedCustomTaskExecution, type TaskRun, type TaskRunAttempt, type WorkflowEvent, type WorkflowExecution } from "./api";
+import { controlWorkflow, getWorkflowExecution, listEvents, retryTaskRun, retryWorkflow, workflowEvidenceUrl, type PreparedIssueCommentExecution, type CustomTaskInputProvenance, type PreparedCustomTaskExecution, type TaskRun, type TaskRunAttempt, type WorkflowEvent, type WorkflowExecution } from "./api";
 import { definitionToGraph, decisionUses, type WorkflowStepNode } from "./workflowGraph";
 import { NodeActions, WorkflowNode } from "./workflowEditor/Node";
 import { arrange } from "./workflowEditor/layout";
@@ -10,7 +10,7 @@ import { EnvironmentHistory } from "./EnvironmentHistory";
 import WorkflowContext from "./workflowExecution/WorkflowContext";
 import LogViewer from "./workflowExecution/LogViewer";
 import { duration, enumName, Evidence, parseEvidence, StateBadge, taskStates, workflowStates } from "./workflowExecution/evidence";
-function ExecutionNode(props: NodeProps<WorkflowStepNode>) { return <div className="execution-node"><WorkflowNode {...props} /><div className="execution-node-state"><StateBadge value={String(props.data.executionStatus ?? "Pending")} /><span>{String(props.data.executionDuration ?? "")}</span></div></div>; }
+function ExecutionNode(props: NodeProps<WorkflowStepNode>) { if (props.data.variable) return <WorkflowNode {...props} />; return <div className="execution-node"><WorkflowNode {...props} /><div className="execution-node-state"><StateBadge value={String(props.data.executionStatus ?? "Pending")} /><span>{String(props.data.executionDuration ?? "")}</span></div></div>; }
 const nodeTypes = { workflowStep: ExecutionNode };
 function FitInitialGraph() {
  const initialized = useNodesInitialized(), { fitView, viewportInitialized } = useReactFlow(), fitted = useRef(false);
@@ -60,6 +60,25 @@ export default function WorkflowExecutionPage({ workflowId, canControl, onChange
  ]), [execution, nodeId]);
  const scope = scopes.find(item => item.key === attemptKey) ?? (nodeId ? scopes.at(-1) : undefined), selectedRun = scope?.run, archive = scope?.archive;
  const selectedStep = execution?.definition?.steps.find(step => step.id === nodeId), nodeDecisions = execution?.decisions.filter(decision => decision.nodeId === nodeId) ?? [], selectedDecision = nodeDecisions.find(decision => decision.id === params.get("decision")) ?? nodeDecisions.at(-1);
+ const selectedVariable = execution?.definition?.variables?.find(variable => variable.id === nodeId);
+ const variableEvidence: { consumer: string; attempt?: string | null; evidence: CustomTaskInputProvenance }[] = [];
+ const collectVariable = (sources: CustomTaskInputProvenance[], consumer: string, attempt?: string | null) => {
+   for (const source of sources) if (source.variable) {
+     if (source.stepId === nodeId) variableEvidence.push({ consumer, attempt, evidence: source });
+     collectVariable(source.variable.sources, consumer, attempt);
+   }
+ };
+ if (selectedVariable) {
+   for (const run of execution?.runs ?? []) collectVariable(Object.values(run.customTaskExecution?.provenance ?? run.issueCommentExecution?.provenance ?? {}), run.definitionStepId ?? run.id, run.executionAttemptId);
+   for (const attempt of execution?.attempts ?? []) {
+     const payload = parseEvidence<{ provenance?: Record<string, CustomTaskInputProvenance> }>(attempt.customTaskExecutionJson);
+     collectVariable(Object.values(payload?.provenance ?? {}), attempt.taskRunId, attempt.executionAttemptId);
+   }
+   for (const wait of execution?.waits ?? []) {
+     const source = parseEvidence<CustomTaskInputProvenance>(wait.inputProvenanceJson);
+     if (source) collectVariable([source], wait.taskRunId, wait.executionAttemptId);
+   }
+ }
  const commentTask = selectedRun && enumName(selectedRun.kind, ["Plan", "Implement", "CreatePullRequest", "AddressComments", "Custom", "Script", "AddIssueComment", "Event"]) === "AddIssueComment";
  const commentPrepared = commentTask ? archive ? parseEvidence<PreparedIssueCommentExecution>(archive.customTaskExecutionJson) : selectedRun?.issueCommentExecution : undefined;
  const prepared = commentTask ? undefined : archive ? parseEvidence<PreparedCustomTaskExecution>(archive.customTaskExecutionJson) : selectedRun?.customTaskExecution;
@@ -93,8 +112,9 @@ export default function WorkflowExecutionPage({ workflowId, canControl, onChange
   <div className="execution-toolbar"><button type="button" onClick={() => select("")}>Workflow overview</button><button type="button" disabled={!execution.runs.some(run => statusOf(run) === "Failed")} onClick={() => { const failed = execution.runs.filter(run => statusOf(run) === "Failed"), next = failed[(failed.findIndex(run => run.definitionStepId === nodeId) + 1) % failed.length]; select(next.definitionStepId || `run:${next.id}`, next.executionAttemptId ?? next.id); }}>Next failed task</button>{canControl && <>{execution.control.canPause && <button type="button" onClick={() => setAction("pause")}>Pause scheduling</button>}{execution.control.canResume && <button type="button" onClick={() => setAction("resume")}>Resume scheduling</button>}{execution.control.canCancel && <button type="button" onClick={() => setAction("cancel")}>Cancel workflow</button>}{status === "Failed" && <button type="button" onClick={() => setAction("retry-workflow")}>Retry workflow</button>}</>}</div>
   {action && <div className="execution-confirm" role="dialog" aria-label="Confirm workflow control"><p>{explanations[action]}</p><button type="button" disabled={busy} onClick={() => void confirmAction()}>{busy ? "Applying…" : "Confirm"}</button><button type="button" disabled={busy} onClick={() => setAction(undefined)}>Keep current state</button></div>}
   <div className="execution-investigator"><div className="execution-graph" aria-label="Read-only execution graph"><NodeActions.Provider value={{ start: execution.definition?.startStepId ?? "", errors: new Set(), editable: false, add: () => {} }}><ReactFlowProvider><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={changes => setPositions(current => applyNodeChanges(changes.filter(change => change.type === "dimensions"), current))} nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null} onNodeClick={(_, node) => select(node.id)}><FitInitialGraph /><Background /><Controls showInteractive={false} /></ReactFlow></ReactFlowProvider></NodeActions.Provider>{!execution.definition && <p className="execution-graph-empty">Pinned definition unavailable for this legacy workflow.</p>}</div>
-  <aside className="execution-inspector" aria-label="Task investigation"><h3>{selectedStep?.displayName || nodeId || "Workflow overview"}</h3>
-   <label>Task / node<select aria-label="Task / node" value={nodeId} onChange={event => select(event.target.value)}><option value="">Workflow overview</option>{execution.definition?.steps.map(step => <option key={step.id} value={step.id}>{step.displayName || step.id}</option>) ?? execution.runs.map(run => <option key={run.id} value={run.definitionStepId || `run:${run.id}`}>{run.definitionStepId || run.id}</option>)}</select></label>
+  <aside className="execution-inspector" aria-label="Task investigation"><h3>{selectedVariable?.name || selectedStep?.displayName || nodeId || "Workflow overview"}</h3>
+   <label>Task / node<select aria-label="Task / node" value={nodeId} onChange={event => select(event.target.value)}><option value="">Workflow overview</option>{execution.definition?.steps.map(step => <option key={step.id} value={step.id}>{step.displayName || step.id}</option>) ?? execution.runs.map(run => <option key={run.id} value={run.definitionStepId || `run:${run.id}`}>{run.definitionStepId || run.id}</option>)}{execution.definition?.variables?.map(variable => <option key={variable.id} value={variable.id}>{variable.name} · variable</option>)}</select></label>
+   {selectedVariable && <section aria-label="Variable evidence"><h4>Data variable</h4><Evidence title="Pinned variable settings" value={selectedVariable} /><Evidence title="Frozen values and source provenance" value={variableEvidence} />{variableEvidence.length === 0 && <p>No consumer has prepared this variable yet.</p>}</section>}
    {nodeId && scopes.length > 0 && <label>Iteration and attempt<select aria-label="Iteration and attempt" value={scope?.key ?? ""} onChange={event => select(nodeId, event.target.value)}>{scopes.map(item => <option key={item.key} value={item.key}>Run {item.run.id.slice(0, 8)} · {item.run.loopIteration != null ? `iteration ${item.run.loopIteration}` : "outside loop"} · attempt {item.number}{item.archive ? " (historical)" : " (current)"} · {enumName(item.archive?.status ?? item.run.status, taskStates)}</option>)}</select></label>}
    {attemptKey && !scopes.some(item => item.key === attemptKey) && <p role="status">The linked attempt is unavailable for this node. Showing the latest recorded attempt.</p>}
    {selectedRun && <><div className="execution-scope-meta"><StateBadge value={enumName(archive?.status ?? selectedRun.status, taskStates)} /><span>{duration(archive ? archive.startedAt : selectedRun.startedAt, archive ? archive.completedAt : selectedRun.completedAt)}</span><span className="mono">Worker: {archive ? archive.externalId ?? "Unavailable" : selectedRun.externalId ?? "Unavailable"}</span><span className="mono">Attempt: {scope?.key}</span>{(archive ? archive.exitCode : selectedRun.exitCode) != null && <span>Exit code: {archive ? archive.exitCode : selectedRun.exitCode}</span>}</div>{failure && <p className="execution-failure">{failure}</p>}{!archive && canControl && statusOf(selectedRun) === "Failed" && !execution.control.cancelRequestedAt && <button type="button" onClick={() => setAction("retry-task")}>Retry selected task</button>}

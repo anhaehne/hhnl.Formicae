@@ -1,3 +1,4 @@
+import { VariableSettings } from "./VariableSettings";
 import { issueCommentUses } from "../workflowData";
 import { IssueCommentSettings } from "./IssueCommentSettings";
 import { WaitSettings } from "./WaitSettings";
@@ -22,6 +23,7 @@ type Props = { webhookUrl?: string; workflowStart: string; environments: Environ
   connect: (port: string, target?: string, targetPort?: string) => void; disconnect: (edgeId: string) => void; close: () => void; begin: () => void; commit: () => void };
 export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, close, begin, commit }: Props) {
   const data = node.data;
+  if (data.variable) return <VariableSettings node={node} nodes={nodes} edges={edges} start={workflowStart} tasks={customTasks} disabled={disabled} errors={errors} update={update} rename={rename} move={move} close={close} begin={begin} commit={commit} />;
   const workerTask = ![waitUses, loopUses, parallelUses, decisionUses, "builtins.create-pull-request", issueCommentUses].includes(data.uses) && !isStartUses(data.uses);
   const profileId = data.environmentId ?? defaultEnvironmentId ?? "default";
   const profile = environments.find(item => item.id === profileId) ?? (savedEnvironmentSnapshot?.id === profileId ? savedEnvironmentSnapshot : undefined);
@@ -29,7 +31,7 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
     const edge = edges.find(edge => edge.source === node.id && edge.sourceHandle === port);
     return <label><span>{label}</span><select aria-label={label} disabled={disabled} value={edge ? JSON.stringify([edge.target, edge.targetHandle || "input"]) : ""} onChange={event => { const value = event.target.value; if (!value) connect(port); else { const [target, targetPort] = JSON.parse(value); connect(port, target, targetPort); } }}>
       <option value="">Not connected</option>
-      {nodes.filter(other => other.id !== node.id && !isStartUses(other.data.uses) && (port !== "body" || (other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || other.data.uses === "builtins.plan")).flatMap(other => [
+      {nodes.filter(other => other.id !== node.id && !other.data.variable && !isStartUses(other.data.uses) && (port !== "body" || (other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || other.data.uses === "builtins.plan")).flatMap(other => [
         <option key={other.id} value={JSON.stringify([other.id, "input"])}>{other.data.displayName} ({other.id})</option>,
         ...(other.data.uses === loopUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses ? [<option key={`${other.id}:return`} value={JSON.stringify([other.id, "return"])}>Return to {other.data.displayName} ({other.id})</option>] : [])
         , ...(other.data.uses === parallelUses && data.uses === "builtins.plan" ? [<option key={`${other.id}:join`} value={JSON.stringify([other.id, "join"])}>Join {other.data.displayName} ({other.id})</option>] : [])

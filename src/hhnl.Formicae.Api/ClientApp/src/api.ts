@@ -32,6 +32,7 @@ export type WorkflowDefinitionDocument = {
   defaultEnvironmentSnapshot?: EnvironmentSnapshot | null;
   startStepId: string;
   steps: WorkflowDefinitionStep[];
+  variables?: WorkflowDataVariable[] | null;
   triggers?: WorkflowDefinitionTrigger[] | null;
   loops?: WorkflowDefinitionLoop[] | null;
   editor?: { positions: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null } | null;
@@ -679,8 +680,9 @@ export const deletePersona = (id: string, expectedRevision: number) => sendNoCon
 export type CustomTaskScalar = string | number | boolean;
 export type CustomTaskInputDefinition = { name: string; valueType: "string" | "number" | "boolean"; required: boolean; defaultValue?: CustomTaskScalar | null };
 export type CustomTaskOutputDefinition = Omit<CustomTaskInputDefinition, "defaultValue">;
+export type WorkflowDataVariable = { id: string; name: string; valueType: "string" | "number" | "boolean"; mode: "aggregate" | "first" | "override"; sources: CustomTaskInputBinding[]; separator: string; booleanOperation: "any" | "all" };
 export type CustomTaskInputBinding = { stepId: string; outputName: string };
-export type CustomTaskInputProvenance = CustomTaskInputBinding & { runId: string; executionAttemptId: string; loopIteration?: number | null; value?: CustomTaskScalar | null };
+export type CustomTaskInputProvenance = CustomTaskInputBinding & { runId: string; executionAttemptId: string; loopIteration?: number | null; value?: CustomTaskScalar | null; variable?: { configuration: WorkflowDataVariable; sources: CustomTaskInputProvenance[] } | null };
 export type CustomTaskRunnerSettings = { kind: "agent"; timeoutSeconds: number };
 export type CustomTaskSnapshot = { id: string; revision: number; name: string; description: string; promptTemplate: string; inputs: CustomTaskInputDefinition[]; outputs?: CustomTaskOutputDefinition[]; runner: CustomTaskRunnerSettings };
 export type CustomTaskDefinition = CustomTaskSnapshot & { createdAt: string; updatedAt: string };

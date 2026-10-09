@@ -9,7 +9,7 @@ public sealed partial class WorkflowOrchestrator
         Workflow workflow, TaskRun run, WorkflowDefinitionStep step, WorkflowDefinitionDocument document, CancellationToken token)
     {
         var provenance = new Dictionary<string, CustomTaskInputProvenance>(StringComparer.Ordinal);
-        foreach (var (name, binding) in CustomTaskDefinitions.BindingsFor(step))
+        async Task<CustomTaskInputProvenance> Load(CustomTaskInputBinding binding)
         {
             var producer = document.Steps.FirstOrDefault(item => item.Id == binding.StepId)
                 ?? (document.Triggers?.Any(evt => evt.Id == binding.StepId && evt.Type == WorkflowTriggerType.DevOpsIssueCreated) == true
@@ -18,11 +18,13 @@ public sealed partial class WorkflowOrchestrator
             var inLoop = document.Loops?.Any(loop => loop.BodyStepIds.Contains(producer.Id)) == true;
             var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, inLoop ? run.LoopIteration : null, token);
             if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
-                throw new InvalidOperationException($"Bound input '{name}' requires successful validated outputs from '{producer.Id}'.");
+                throw new InvalidOperationException($"Bound input requires successful validated outputs from '{producer.Id}'.");
             var outputs = CustomTaskDefinitions.ParseProducerOutputs(producer, source.StructuredOutputsJson);
-            provenance[name] = new(producer.Id, binding.OutputName, source.Id, source.ExecutionAttemptId.Value, source.LoopIteration,
+            return new(producer.Id, binding.OutputName, source.Id, source.ExecutionAttemptId.Value, source.LoopIteration,
                 outputs.TryGetValue(binding.OutputName, out var value) ? value : null);
         }
+        foreach (var (name, binding) in CustomTaskDefinitions.BindingsFor(step))
+            provenance[name] = await WorkflowVariableDefinitions.ResolveAsync(document, binding, Load);
         return provenance;
     }
 
@@ -49,6 +51,7 @@ public sealed partial class WorkflowOrchestrator
             }
             else prepared = JsonSerializer.Deserialize<PreparedIssueCommentExecution>(run.CustomTaskExecutionJson, CustomExecutionJsonOptions)
                 ?? throw new InvalidOperationException("Stored issue comment inputs are missing.");
+            WorkflowVariableDefinitions.ValidatePinnedEvidence(prepared.Provenance.Values, await ResolveDefinitionAsync(workflow, token), run.LoopIteration);
             foreach (var input in IssueCommentDefinitions.Inputs)
                 if (!prepared.Inputs.TryGetValue(input.Name, out var value) || !IssueCommentDefinitions.ValidValue(input.Name, value))
                     throw new InvalidOperationException($"Invalid comment input '{input.Name}'.");
