@@ -4,6 +4,7 @@ import WorkflowHistory from "./WorkflowHistory";
 import EnvironmentsPage from "./EnvironmentsPage";
 import CustomTasksPage from "./CustomTasksPage";
 import PersonasPage from "./PersonasPage";
+import { DefaultModelSelect } from "./DefaultModelSelect";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -2125,6 +2126,10 @@ function SettingsPage({
 }) {
   const apiKeyConfigured = selectedAiSettings?.hasApiKey || selectedAiSettings?.hasApiKeySecret;
   const subscriptionConfigured = selectedAiSettings?.hasSubscriptionAuth;
+  const modelSettings = aiSettingsList.find(settings => settings.id === selectedAiSettingsId);
+  const savedModelForm = modelSettings ? toAiSettingsForm(modelSettings) : undefined;
+  const modelRuntimeSaved = !!savedModelForm && Object.entries(aiSettingsForm).every(([key, value]) =>
+    key === "name" || key === "model" || value === savedModelForm[key as keyof AiSettingsFormState]);
   const authOutput = stripAnsi(codexAuthConnection?.output ?? "");
   const loginSucceeded = codexAuthConnection?.status === "Succeeded";
   const [deviceCodeCopied, setDeviceCodeCopied] = useState(false);
@@ -2198,10 +2203,13 @@ function SettingsPage({
                   </label>
                 )}
               </div>
-              <label>
-                <span>Default Model</span>
-                <input value={aiSettingsForm.model} onChange={event => setAiSettingsForm(current => ({ ...current, model: event.target.value }))} placeholder="Model used when a workflow does not override it" />
-              </label>
+              <DefaultModelSelect
+                settings={modelSettings}
+                model={aiSettingsForm.model}
+                runtimeSaved={modelRuntimeSaved}
+                disabled={!canAdminister || loadingAiSettings || savingAiSettings}
+                onChange={model => setAiSettingsForm(current => ({ ...current, model }))}
+              />
             </div>
             <div className="settings-section">
               <h3>3. Add credentials</h3>

@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.26.2**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.26.3**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+
+Revision **ai-setup-default-model-dropdown**, dated **2026-10-09**: **Approved; implemented in 0.26.3**. Replace AI Setup's Default Model text input with a dropdown consistent with the existing model selector. Reuse CLI model discovery for supported saved configurations, display discovered model names and CLI defaults, retain an existing saved model as an option, and allow an unset configuration default. Explain when discovery requires saving the configuration or is unsupported, and expose discovery progress and failures. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted revision approval request.
 
 Revision **identity-provider-restart-notice**, dated **2026-10-09**: **Approved; implemented in 0.26.2**. Correct the GitHub identity-provider restart notice to reflect whether the running application's login configuration has applied the saved integration settings. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Ok”** to the drafted revision approval request.
 
@@ -255,6 +257,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
     - **Requirements:**
 
       - Manage named configurations, provider/model/API endpoint, credentials and runtime options.
+      - **Approved fix; revision ai-setup-default-model-dropdown:** Select the AI Setup Default Model through a dropdown using existing model-discovery behavior. Preserve saved model selections, allow an unset default, and provide discovery/refresh for supported saved configurations with progress, error and unavailable-state feedback.
       - Support OpenHands API/cloud credentials and native Codex subscription execution, credential import/connect/reconnect and model discovery.
       - **Approved fix; revision codex-device-code-extraction:** Connect and Reconnect Codex must display the one-time code emitted in the device-login prompt, including codes whose group lengths differ from the existing four-character/five-character assumption. Strip terminal formatting before extraction, preserve the emitted code, and return no code when the prompt has not supplied one.
       - Allow per-step AI selection and resolve the model from step override to workflow model to configuration default.
@@ -264,6 +267,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
     - **Interactions with other features:**
 
       - **Definitions and visual editor** selects per-step configurations and models, with unset models falling back to workflow and configuration defaults.
+      - **Approved fix; revision ai-setup-default-model-dropdown:** AI Setup and the existing step model selector use the same discovery API and model identifiers; saving a selected default preserves the existing step-to-workflow-to-configuration fallback order.
       - **Durable orchestration and runtimes** runs login and discovery jobs and supplies the chosen credentials and model to agent workers.
       - **Approved fix; revision codex-device-code-extraction:** Login-job status polling supplies the extracted device URL and code to the AI Setup login card and its Copy action for both connect and reconnect. Extract from login-prompt context so unrelated worker/job identifiers are not displayed as authentication codes.
       - The **Built-in development workflow** and **Reusable custom tasks** use the selected agent configuration, while **Shell scripts** executes without AI credentials.

@@ -27,4 +27,4 @@ Configure `GitHubWebhooks:Secret` and subscribe the GitHub App to issue comments
 
 ## Deployment
 
-Use matching API, worker and chart versions **0.26.2**, the current release including output correction, issue outputs, comments and waits. The API applies the generated `AddWorkflowEventWaits` migration at startup. It adds wait and inbox tables without rewriting saved definitions or execution history. Waiting uses no Kubernetes Job and requires no worker protocol change. Inbox retention, wait timeouts, author filtering and dedicated comment entry events are outside this feature's scope.
+Use matching API, worker and chart versions **0.26.3**, the current release including output correction, issue outputs, comments and waits. The API applies the generated `AddWorkflowEventWaits` migration at startup. It adds wait and inbox tables without rewriting saved definitions or execution history. Waiting uses no Kubernetes Job and requires no worker protocol change. Inbox retention, wait timeouts, author filtering and dedicated comment entry events are outside this feature's scope.
