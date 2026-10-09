@@ -57,7 +57,7 @@ public sealed partial class WorkflowOrchestrator
                         return state.Delivered.GetValueOrDefault(edge) > 0;
                     return Fresh(parent);
                 }
-                if (!incoming.All(Ready)) continue;
+                if (step.Uses != WorkflowEndDefinitions.Uses && !incoming.All(Ready)) continue;
                 foreach (var parent in incoming) state.Consumed[CycleEdge(parent.Id, step.Id)] = state.Delivered.GetValueOrDefault(CycleEdge(parent.Id, step.Id));
                 ActivateCycleNode(state, step.Id);
             }
@@ -66,12 +66,13 @@ public sealed partial class WorkflowOrchestrator
         }
         await RecordCycleLoopsAsync(workflow, document, state, token);
         var changed = false;
-        foreach (var id in state.Active.Keys.ToArray())
+        foreach (var id in state.Active.Keys.OrderByDescending(id => document.Steps.Single(step => step.Id == id).Uses == WorkflowEndDefinitions.Uses).ToArray())
         {
             token.ThrowIfCancellationRequested();
             if (workflow.IsPaused || workflow.CancelRequestedAt is not null) break;
             var step = document.Steps.Single(item => item.Id == id);
             var activeVisit = WorkflowCycleDefinitions.Visit(workflow, id);
+            if (step.Uses == WorkflowEndDefinitions.Uses) return await RunEndNodeAsync(workflow, step, token, activeVisit);
             workflow.CurrentDefinitionStepId = id;
             if (forwardGraph is not null)
             {

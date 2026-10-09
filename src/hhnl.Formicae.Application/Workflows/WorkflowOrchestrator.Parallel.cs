@@ -36,6 +36,8 @@ public sealed partial class WorkflowOrchestrator
                 var run = await store.GetTaskRunExecutionAsync(workflow.Id, step.Id, visit, cancellationToken);
                 if (run?.Status == TaskRunStatus.Succeeded) { input = run.Output; continue; }
                 if (run?.Status == TaskRunStatus.Failed) break;
+                if (step.Uses == WorkflowEndDefinitions.Uses)
+                    return await RunEndNodeAsync(workflow, step, cancellationToken, visit);
                 changed |= await AdvanceParallelTaskAsync(workflow, step, run, input, cancellationToken);
                 // A branch starts at most one new task per tick. All other branch heads are visited before any waiting.
                 break;

@@ -32,12 +32,16 @@ public sealed partial class WorkflowOrchestrator
             return true;
         }
         var runnable = tasks.Where(step => runs.GetValueOrDefault(step.Id)?.Status != TaskRunStatus.Succeeded
-            && tasks.Where(parent => WorkflowGraphDefinitions.Successors(parent).Contains(step.Id, StringComparer.Ordinal))
-                .All(parent => runs.GetValueOrDefault(parent.Id)?.Status == TaskRunStatus.Succeeded)).ToArray();
+            && (step.Uses == WorkflowEndDefinitions.Uses
+                ? step.Id == activation.NodeId || tasks.Any(parent => WorkflowGraphDefinitions.Successors(parent).Contains(step.Id, StringComparer.Ordinal)
+                    && runs.GetValueOrDefault(parent.Id)?.Status == TaskRunStatus.Succeeded)
+                : tasks.Where(parent => WorkflowGraphDefinitions.Successors(parent).Contains(step.Id, StringComparer.Ordinal))
+                    .All(parent => runs.GetValueOrDefault(parent.Id)?.Status == TaskRunStatus.Succeeded))).ToArray();
         var changed = false;
-        foreach (var step in runnable)
+        foreach (var step in runnable.OrderByDescending(step => step.Uses == WorkflowEndDefinitions.Uses))
         {
             token.ThrowIfCancellationRequested();
+            if (step.Uses == WorkflowEndDefinitions.Uses) return await RunEndNodeAsync(workflow, step, token);
             workflow.CurrentDefinitionStepId = step.Id;
             workflow.PlanArtifact = GraphPlanInput(document, step.Id, runs, activation.EntryPlanArtifact);
             WorkflowDefinitionValidator.TryMapUsesToTaskKind(step.Uses, out var kind);

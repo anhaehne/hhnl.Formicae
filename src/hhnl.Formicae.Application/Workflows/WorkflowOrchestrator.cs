@@ -35,6 +35,10 @@ public sealed partial class WorkflowOrchestrator(
     public async Task<bool> AdvanceAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         await ReconcileRuntimeCleanupAsync(workflow, cancellationToken);
+        var hasEndArrival = (await store.ListTaskRunsAsync(workflow.Id, cancellationToken))
+            .Any(run => run.Kind == TaskRunKind.End && run.Status == TaskRunStatus.Succeeded);
+        if (workflow.Status == WorkflowStatus.Completed && hasEndArrival)
+            return await CancelWorkflowRuntimeAsync(workflow, cancellationToken, cleanupOnly: true);
         if (workflow.Status is WorkflowStatus.Completed or WorkflowStatus.Failed
             && workflow.CancelRequestedAt is null
             && (await store.ListTaskRunsAsync(workflow.Id, cancellationToken)).Any(run => run.Status == TaskRunStatus.Running))
@@ -54,11 +58,18 @@ public sealed partial class WorkflowOrchestrator(
         try
         {
             var definition = await ResolveDefinitionAsync(workflow, cancellationToken);
+            // Recover a crash after recording arrival at End but before recording workflow completion.
+            var arrived = (await store.ListTaskRunsAsync(workflow.Id, cancellationToken))
+                .FirstOrDefault(run => run.Kind == TaskRunKind.End && run.Status == TaskRunStatus.Succeeded);
+            if (arrived is not null)
+                return await RunEndNodeAsync(workflow, definition.Steps.Single(step => step.Id == arrived.DefinitionStepId), cancellationToken, arrived.LoopIteration);
             if (WorkflowCycleDefinitions.HasCycles(definition))
                 return await AdvanceCycleAsync(workflow, definition, cancellationToken);
             if (WorkflowGraphDefinitions.IsGraph(definition))
                 return await AdvanceGraphAsync(workflow, definition, cancellationToken);
             var current = definition.Steps.SingleOrDefault(step => step.Id == (workflow.CurrentDefinitionStepId ?? definition.StartStepId));
+            if (current?.Uses == WorkflowEndDefinitions.Uses)
+                return await RunEndNodeAsync(workflow, current, cancellationToken);
             if (current?.Uses == WorkflowDecisionDefinitions.Uses)
                 return await AdvanceDecisionAsync(workflow, definition, current, cancellationToken);
             if (current?.Uses == WorkflowParallelDefinitions.Uses)
@@ -119,6 +130,12 @@ public sealed partial class WorkflowOrchestrator(
                 Message = $"Work item provider is temporarily unavailable: {exception.Message}",
                 CreatedAt = clock.UtcNow
             }, cancellationToken);
+            return false;
+        }
+        catch (Exception exception) when (workflow.Status == WorkflowStatus.Completed)
+        {
+            // Completion is durable; a cleanup/store failure must never turn an End arrival into failure.
+            await RecordRuntimeWarningAsync(workflow, null, exception, cancellationToken);
             return false;
         }
         catch (Exception exception)
@@ -1057,6 +1074,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Script => WorkflowStatus.Running,
         TaskRunKind.AddIssueComment => WorkflowStatus.Running,
         TaskRunKind.Wait => WorkflowStatus.Running,
+        TaskRunKind.End => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -1070,6 +1088,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Script => WorkflowStep.Script,
         TaskRunKind.AddIssueComment => WorkflowStep.AddIssueComment,
         TaskRunKind.Wait => WorkflowStep.Wait,
+        TaskRunKind.End => WorkflowStep.Done,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

@@ -13,6 +13,7 @@ export const startUses = "builtins.start";
 export const isStartUses = isEventUses;
 export const decisionUses = "builtins.decision";
 export const parallelUses = "builtins.parallel";
+export const endUses = "builtins.end";
 export const loopUses = "builtins.loop";
 export const workflowSchema = "formicae.workflow/v1alpha3";
 export const supportedUses = ["builtins.plan", "builtins.implement", "builtins.create-pull-request", "builtins.address-comments", customTaskUses, agentTaskUses, scriptUses, issueCommentUses, waitUses] as const;

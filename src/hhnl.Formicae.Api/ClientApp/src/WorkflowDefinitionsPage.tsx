@@ -11,7 +11,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useBlocker, useBeforeUnload } from "react-router-dom";
 import { addEdge, Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useOnViewportChange, useNodesInitialized, MarkerType, type Connection, type Edge } from "@xyflow/react";
 import { ApiError, listEnvironments, type EnvironmentProfile, listCustomTasks, type CustomTaskDefinition, listPersonas, type Persona, createWorkflowDefinition, createWorkflowDefinitionVersion, validateWorkflowDefinition, type WorkflowDefinitionResponse, type WorkflowDefinitionVersionResponse, type WorkflowDefinitionValidationError } from "./api";
-import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, loopUses, startUses, isStartUses, triggerUses, parallelUses, decisionUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
+import { createDefaultDefinitionDocument, definitionToGraph, graphToDefinition, endUses, loopUses, startUses, isStartUses, triggerUses, parallelUses, decisionUses, workflowSchema, toNodeDefinition, type WorkflowStepNode } from "./workflowGraph";
 import { useEditorState, type EditorDraft } from "./workflowEditor/state";
 import { getCatalog } from "./workflowEditor/catalog";
 import { arrange } from "./workflowEditor/layout";
@@ -132,7 +132,7 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
       const input = inputsFor(target, customTasks).find(input => input.name === connection.targetHandle!.slice(5));
       return !!output && !!input && output.valueType === input.valueType && (target.data.variable ? validVariableSource(draft.nodes, draft.edges, manualStartId, source.id, target.id) : eligibleProducer(draft.nodes, draft.edges, manualStartId, source.id, target.id));
     }
-    return !!source && !!target && !source.data.variable && !target.data.variable && !isStartUses(target.data.uses) && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && !isStartUses(source.data.uses) && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
+    return !!source && !!target && source.data.uses !== endUses && !source.data.variable && !target.data.variable && !isStartUses(target.data.uses) && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (["builtins.plan", endUses].includes(target.data.uses) && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && !isStartUses(source.data.uses) && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
   };
   function connectionNotice(connection: Connection | Edge) {
     const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
@@ -167,6 +167,7 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
     if (uses === variableUses) return false;
     const existing = draft.edges.find(edge => edge.source === context.source && edge.sourceHandle === context.port);
     if (isStartUses(uses)) return false;
+    if (uses === endUses) return context.port !== "body" && (!existing || existing.targetHandle === "join");
     if (context.port.startsWith("branch:") || existing?.targetHandle === "join") return uses === "builtins.plan";
     return !((uses === loopUses || uses === parallelUses || uses === decisionUses) && (context.port === "body" || !!existing));
   }
@@ -190,7 +191,7 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
       node.position.y = Math.max(...collisions.map(item => item.y + item.height)) + 40;
       collisions = occupied.filter(item => node.position.x < item.x + item.width + 30 && node.position.x + 240 + 30 > item.x && node.position.y < item.y + item.height + 30 && node.position.y + 300 + 30 > item.y);
     }
-    state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
+    state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing && uses !== endUses ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
     setMenu(false); setContext(undefined); reveal(id);
   }
   async function layout() {

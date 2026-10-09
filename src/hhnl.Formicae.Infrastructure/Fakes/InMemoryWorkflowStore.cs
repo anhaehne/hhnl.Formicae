@@ -68,7 +68,14 @@ public sealed partial class InMemoryWorkflowStore : IWorkflowStore
             return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
                 .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing or WorkflowStatus.Running
                     || (workflow.CancelRequestedAt is not null && workflow.CancelCompletedAt is null)
-                    || runs.Values.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null)))))
+                    || runs.Values.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending
+                        || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null))))
+                    || (workflow.Status == WorkflowStatus.Completed
+                        && runs.Values.Any(run => run.WorkflowId == workflow.Id && run.Kind == TaskRunKind.End && run.Status == TaskRunStatus.Succeeded)
+                        && (runs.Values.Any(run => run.WorkflowId == workflow.Id && run.Status is TaskRunStatus.Running or TaskRunStatus.Queued or TaskRunStatus.Waiting)
+                            || parallelExecutions.Values.Any(execution => execution.WorkflowId == workflow.Id && execution.Outcome == WorkflowParallelExecutionOutcome.Running)
+                            || loopIterations.Values.Any(iteration => iteration.WorkflowId == workflow.Id && iteration.Outcome == WorkflowLoopIterationOutcome.Running)
+                            || waits.Values.Any(wait => wait.WorkflowId == workflow.Id && !wait.IsCanceled))))
                 .OrderBy(workflow => workflow.CreatedAt)
                 .ToArray());
         }

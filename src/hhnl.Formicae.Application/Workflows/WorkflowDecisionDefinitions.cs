@@ -94,9 +94,10 @@ public static class WorkflowDecisionDefinitions
             var seen = new HashSet<string>(StringComparer.Ordinal);
             while (nodes.TryGetValue(cursor, out var task) && seen.Add(cursor))
             {
-                if (!WorkflowDefinitionValidator.TryMapUsesToTaskKind(task.Uses, out var kind) || (planningOnly && kind != TaskRunKind.Plan)) break;
+                if (!WorkflowDefinitionValidator.TryMapUsesToTaskKind(task.Uses, out var kind) || (planningOnly && kind is not (TaskRunKind.Plan or TaskRunKind.End))) break;
                 if (!owner.TryAdd(cursor, group.Id)) Error(cursor, "Control bodies cannot overlap or share tasks.");
                 allowedIncoming.TryAdd(cursor, new(previous, cursor, role));
+                if (planningOnly && kind == TaskRunKind.End) return;
                 if (task.NextStepId == group.Id && task.NextStepPort == returnPort)
                 {
                     terminals[cursor] = (group.Id, returnPort);
@@ -106,7 +107,7 @@ public static class WorkflowDecisionDefinitions
                 previous = cursor; role = "next"; cursor = task.NextStepId;
             }
             Error(group.Id, planningOnly
-                ? "Each Parallel branch must be a disjoint Plan chain ending at its Join. Nested controls are unsupported."
+                ? "Each Parallel branch must be a disjoint Plan chain ending at its Join or an End node. Nested controls are unsupported."
                 : "Loop Body must be a sequential task chain ending at Return. Decisions and nested controls are unsupported inside loops.");
         }
         foreach (var group in nodes.Values)

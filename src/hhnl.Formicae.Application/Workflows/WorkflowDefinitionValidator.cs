@@ -4,6 +4,7 @@ public sealed class WorkflowDefinitionValidator
 {
     private static readonly IReadOnlyDictionary<string, TaskRunKind> SupportedBuiltins = new Dictionary<string, TaskRunKind>(StringComparer.Ordinal)
     {
+        [WorkflowEndDefinitions.Uses] = TaskRunKind.End,
         ["builtins.plan"] = TaskRunKind.Plan,
         ["builtins.implement"] = TaskRunKind.Implement,
         ["builtins.create-pull-request"] = TaskRunKind.CreatePullRequest,
@@ -53,6 +54,7 @@ public sealed class WorkflowDefinitionValidator
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
             errors.AddRange(IssueCommentDefinitions.ValidateStep(step));
+            errors.AddRange(WorkflowEndDefinitions.ValidateStep(step));
             if (WorkflowWaitRegistry.Default.TryGet(step.Uses, out var waitDefinition))
             {
                 errors.AddRange(waitDefinition.Validate(step.Wait).Select(message => new WorkflowDefinitionValidationError("definition.wait.invalid", message, "steps[].wait", step.Id)));
@@ -300,6 +302,7 @@ public sealed class WorkflowDefinitionValidator
     public static string UsesFor(TaskRunKind kind)
         => kind switch
         {
+            TaskRunKind.End => WorkflowEndDefinitions.Uses,
             TaskRunKind.Plan => "builtins.plan",
             TaskRunKind.Implement => "builtins.implement",
             TaskRunKind.CreatePullRequest => "builtins.create-pull-request",

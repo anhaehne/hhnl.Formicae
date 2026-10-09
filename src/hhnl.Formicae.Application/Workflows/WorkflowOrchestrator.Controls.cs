@@ -104,7 +104,13 @@ public sealed partial class WorkflowOrchestrator
             }
         }
         if (!allStopped) return false;
-        if (cleanupOnly) return true;
+        if (cleanupOnly)
+        {
+            if (workflow.Status == WorkflowStatus.Completed
+                && (await store.ListTaskRunsAsync(workflow.Id, token)).Any(run => run.Kind == TaskRunKind.End && run.Status == TaskRunStatus.Succeeded))
+                await FinalizeStoppedControlExecutionsAsync(workflow, token);
+            return true;
+        }
         workflow.CancelCompletedAt = clock.UtcNow;
         workflow.IsPaused = false;
         await TransitionWorkflowAsync(workflow, workflow.Status == WorkflowStatus.Failed ? WorkflowStatus.Failed : WorkflowStatus.Canceled, WorkflowStep.Done, "Workflow cancellation completed.", token);

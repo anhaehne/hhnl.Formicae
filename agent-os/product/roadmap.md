@@ -32,6 +32,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Add a permission system.
 - Configure AI model/API settings through the UI.
 - Support customizable workflows.
+- Add terminal End nodes that complete the entire execution on first arrival and cancel other tasks, parallel branches and event waits (0.31.0; approved revision `workflow-end-node`).
 - Add a workflow editor.
 - Add named visual groups with preset background colors, shared movement, editable membership and saved layout (available in 0.28.0; approved baseline revision `workflow-editor-groups`).
 - Support loops and triggers as configurable workflow nodes (available).

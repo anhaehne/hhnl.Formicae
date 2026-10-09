@@ -16,10 +16,10 @@ public static class WorkflowParallelDefinitions
             while (nodes.TryGetValue(id, out var node) && seen.Add(id))
             {
                 branch.Add(node);
-                if (node.NextStepId == group.Id && node.NextStepPort == "join") return (IReadOnlyList<WorkflowDefinitionStep>)branch;
+                if (node.Uses == WorkflowEndDefinitions.Uses || node.NextStepId == group.Id && node.NextStepPort == "join") return (IReadOnlyList<WorkflowDefinitionStep>)branch;
                 id = node.NextStepId ?? "";
             }
-            throw new InvalidOperationException($"Parallel branch '{entry}' does not end at '{group.Id}' Join.");
+            throw new InvalidOperationException($"Parallel branch '{entry}' does not end at '{group.Id}' Join or an End node.");
         }).ToArray();
     }
 
@@ -53,7 +53,7 @@ public static class WorkflowParallelDefinitions
             foreach (var branch in branches)
             foreach (var task in branch)
             {
-                if (task.Uses != "builtins.plan") Error(task.Id, "Parallel branches support Plan tasks only. Tasks that modify the shared Git branch must run sequentially.");
+                if (task.Uses is not ("builtins.plan" or WorkflowEndDefinitions.Uses)) Error(task.Id, "Parallel branches support Plan tasks and terminal End nodes only. Tasks that modify the shared Git branch must run sequentially.");
                 if (!owners.TryAdd(task.Id, node.Id)) Error(task.Id, "Parallel branches cannot overlap or share tasks.");
                 if (task.NextStepId == node.NextStepId) Error(node.Id, "Parallel Next must be outside its branches.");
             }
@@ -94,7 +94,7 @@ public static class WorkflowParallelDefinitions
             for (var i = 0; i < branches.Count; i++)
             {
                 var last = branches[i][^1];
-                flattened[last.Id] = last with { NextStepId = i + 1 < branches.Count ? branches[i + 1][0].Id : nodes[id].NextStepId, NextStepPort = null };
+                flattened[last.Id] = last with { Uses = last.Uses == WorkflowEndDefinitions.Uses ? "builtins.plan" : last.Uses, NextStepId = i + 1 < branches.Count ? branches[i + 1][0].Id : nodes[id].NextStepId, NextStepPort = null };
             }
         }
         return WorkflowNodeDefinitions.Validate(document with { Steps = flattened.Values.ToArray() });

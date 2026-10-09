@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.30.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
+Scope: application behavior at version **0.31.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the requested scope, keep supporting specs/docs aligned, and verify against the documented requirements. Document scope changes before implementing them.
 
 Baseline process revision dated **2026-10-09**: remove the separate explicit approval gate while retaining required baseline updates before implementation. User request reference: **“Remove the explicit approval. Just make sure it is added to the document. Approved”**. Historical approval records below remain intact.
+
+Revision **workflow-end-node**, dated **2026-10-09**: **Approved; implemented and locally verified for 0.31.0**. User request reference: **“Create an end node. When the workflow reaches an end node the workflow is completed. If there are any parallel executions or waiting triggers, they are stopped. I explicitly approve of any changes.”** Add an End node (`builtins.end`) to the editor and immutable definitions. It accepts incoming control connections, has no outgoing control/data connections or worker settings, and launches no worker. The first incoming route reaching End completes the entire execution successfully, including task graphs and cycles; other active/queued tasks and event waits are canceled, and no new work or wait continuations may start. Preserve completion across restarts, retry failed runtime cleanup, and retain task/end-node evidence. Existing workflows without End retain their behavior. This interacts with Definitions and visual editor, Durable orchestration and runtimes, callable event waits, and Execution investigation and history. Parallel/loop evidence is finalized when stopped. Explicit Parallel branches may terminate at End instead of Join; their worker tasks remain Plan-only.
 
 Revision **workflow-management-layout**, dated **2026-10-09**: **Implemented in 0.27.0**. Fix output-port label overlap in running-workflow graphs, reorganize Workflow Management around a compact execution browser and adjacent execution detail, and relocate Manual Start into the selected workflow definition's panel. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Remove the explicit approval. Just make sure it is added to the document. Approved”**.
 

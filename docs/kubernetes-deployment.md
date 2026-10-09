@@ -9,6 +9,12 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.31.0 workflow End nodes
+
+Deploy matching **0.31.0** API and worker images with the **0.31.0** Helm chart. End completes a workflow on the first arriving route, cancels running/queued siblings and event waits, and preserves successful completion while failed worker cleanup retries. It is available in the palette with an input and no outgoing ports. Explicit Parallel branches may terminate at End instead of Join. No database migration is added. After rollout, connect a short route to End alongside a long worker and event wait; verify successful workflow completion, canceled siblings/waits and retained history. See [End node semantics](workflow-task-graphs.md#end-nodes-0310).
+
+Verification commands and test counts are recorded in the [End node spec](../agent-os/specs/2026-10-09-2145-workflow-end-node/plan.md).
+
 ## 0.30.0 variable ports and unbounded control cycles
 
 Deploy matching **0.30.0** API and worker images with the **0.30.0** Helm chart. Startup applies the generated `AddWorkflowControlCycles` migration for durable activations and repeated decision/parallel visit identities. Connect multiple GitHub Issue commented body outputs to one string variable; hover output ports to inspect types. Ordinary control back-edges and self-cycles execute without a repeat limit while preserving pause/resume/cancel and frozen retry inputs. Verify several distinct visits, pause/resume and cancellation after rollout. See [control cycle semantics and rollback considerations](workflow-task-graphs.md#unbounded-control-cycles-0300).

@@ -63,7 +63,7 @@ public static class WorkflowGraphDefinitions
         {
             var active = Reachable(document, entry);
             foreach (var step in nodes.Values.Where(step => step.Uses != WorkflowNodeDefinitions.TriggerUses && !active.Contains(step.Id)))
-                foreach (var next in Successors(step).Where(active.Contains))
+                foreach (var next in Successors(step).Where(next => active.Contains(next) && nodes[next].Uses != WorkflowEndDefinitions.Uses))
                     Error($"Join '{next}' depends on '{step.Id}', which is unreachable from entry '{entry}'.", next);
         }
         return new(errors);

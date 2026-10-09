@@ -14,7 +14,7 @@ import { StepIcon } from "./StepIcon";
 import type { Edge } from "@xyflow/react";
 import { type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot, type EnvironmentProfile, type EnvironmentSnapshot } from "../api";
 import { StepModelSettings } from "../StepModelSettings";
-import { waitUses, scriptUses, loopUses, isStartUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
+import { endUses, waitUses, scriptUses, loopUses, isStartUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
 import { titleFor } from "./catalog";
 
 type Props = { webhookUrl?: string; workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
@@ -24,16 +24,16 @@ type Props = { webhookUrl?: string; workflowStart: string; environments: Environ
 export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, close, begin, commit }: Props) {
   const data = node.data;
   if (data.variable) return <VariableSettings node={node} nodes={nodes} edges={edges} start={workflowStart} tasks={customTasks} disabled={disabled} errors={errors} update={update} rename={rename} move={move} close={close} begin={begin} commit={commit} />;
-  const workerTask = ![waitUses, loopUses, parallelUses, decisionUses, "builtins.create-pull-request", issueCommentUses].includes(data.uses) && !isStartUses(data.uses);
+  const workerTask = ![endUses, waitUses, loopUses, parallelUses, decisionUses, "builtins.create-pull-request", issueCommentUses].includes(data.uses) && !isStartUses(data.uses);
   const profileId = data.environmentId ?? defaultEnvironmentId ?? "default";
   const profile = environments.find(item => item.id === profileId) ?? (savedEnvironmentSnapshot?.id === profileId ? savedEnvironmentSnapshot : undefined);
   const connection = (port: string, label: string) => {
     const edge = edges.find(edge => edge.source === node.id && edge.sourceHandle === port);
     return <label><span>{label}</span><select aria-label={label} disabled={disabled} value={edge ? JSON.stringify([edge.target, edge.targetHandle || "input"]) : ""} onChange={event => { const value = event.target.value; if (!value) connect(port); else { const [target, targetPort] = JSON.parse(value); connect(port, target, targetPort); } }}>
       <option value="">Not connected</option>
-      {nodes.filter(other => other.id !== node.id && !other.data.variable && !isStartUses(other.data.uses) && (port !== "body" || (other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || other.data.uses === "builtins.plan")).flatMap(other => [
+      {nodes.filter(other => other.id !== node.id && !other.data.variable && !isStartUses(other.data.uses) && (port !== "body" || (other.data.uses !== endUses && other.data.uses !== loopUses && other.data.uses !== parallelUses && other.data.uses !== decisionUses)) && (!port.startsWith("branch:") || ["builtins.plan", endUses].includes(other.data.uses))).flatMap(other => [
         <option key={other.id} value={JSON.stringify([other.id, "input"])}>{other.data.displayName} ({other.id})</option>,
-        ...(other.data.uses === loopUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses ? [<option key={`${other.id}:return`} value={JSON.stringify([other.id, "return"])}>Return to {other.data.displayName} ({other.id})</option>] : [])
+        ...(other.data.uses === loopUses && data.uses !== endUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses ? [<option key={`${other.id}:return`} value={JSON.stringify([other.id, "return"])}>Return to {other.data.displayName} ({other.id})</option>] : [])
         , ...(other.data.uses === parallelUses && data.uses === "builtins.plan" ? [<option key={`${other.id}:join`} value={JSON.stringify([other.id, "join"])}>Join {other.data.displayName} ({other.id})</option>] : [])
       ])}
     </select></label>;
@@ -44,12 +44,12 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
     {errors.map((error, index) => <p role="alert" className="error-text" key={index}>{error.message}</p>)}
     <section className="editor-property-section"><h4>General</h4>
     <label><span>Display Name</span><input disabled={disabled} value={data.displayName} onChange={event => update({ displayName: event.target.value })} /></label>
-    {data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && <>
+    {data.uses !== endUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && <>
       <label><span>Task</span><select aria-label="Task" value={data.uses} disabled={disabled} onChange={event => update({ uses: event.target.value, wait: event.target.value === waitUses ? { issueNumber: 1 } : undefined, issueComment: event.target.value === issueCommentUses ? { inputs: {} } : undefined, customTask: event.target.value === "builtins.agent-task" ? { taskId: "", inputs: {}, definition: { promptTemplate: "", inputs: [], outputs: [], runner: { kind: "agent", timeoutSeconds: 1800 } } } : event.target.value === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, script: event.target.value === scriptUses ? defaultScript : undefined, ...(event.target.value === scriptUses ? { aiSettingsId: undefined, model: undefined, personaId: undefined, personaSnapshot: undefined, capabilities: null } : {}), ...([waitUses, "builtins.create-pull-request", issueCommentUses].includes(event.target.value) ? { aiSettingsId: undefined, model: undefined, personaId: undefined, personaSnapshot: undefined, environmentId: undefined, environmentSnapshot: undefined, imageSelection: undefined, imageSnapshot: undefined, capabilities: undefined, secretReferences: undefined } : {}) })}>{supportedUses.map(uses => <option key={uses} value={uses}>{titleFor(uses)}</option>)}</select></label>
 
     </>}
     </section>
-    {data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && data.uses !== issueCommentUses && data.uses !== waitUses && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
+    {data.uses !== endUses && data.uses !== loopUses && !isStartUses(data.uses) && data.uses !== parallelUses && data.uses !== decisionUses && data.uses !== "builtins.create-pull-request" && data.uses !== issueCommentUses && data.uses !== waitUses && <section className="editor-property-section"><h4>{data.uses === scriptUses ? "Environment" : "Model & configuration"}</h4>{data.uses !== scriptUses && <StepModelSettings key={node.id} disabled={disabled} aiSettingsId={data.aiSettingsId} model={data.model} onChange={update} />}<EnvironmentPicker label="Step environment" inheritedId={defaultEnvironmentId ?? "default"} value={data.environmentId} environments={environments} savedSnapshot={savedEnvironmentSnapshot} disabled={disabled} onChange={environmentId => update({ environmentId })} />{data.uses !== scriptUses && <PersonaPicker label="Step persona" value={data.personaId} inheritedId={defaultPersonaId || "default"} personas={personas} savedSnapshot={savedPersonaSnapshot} disabled={disabled} onChange={personaId => update({ personaId })} />}</section>}
     {data.uses === issueCommentUses && <IssueCommentSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.issueComment} tasks={customTasks} disabled={disabled} onChange={issueComment => update({ issueComment })} />}
     {data.uses === waitUses && <WaitSettings value={data.wait} nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} tasks={customTasks} disabled={disabled} onChange={wait => update({ wait })} />}
     {data.uses === scriptUses && <ScriptSettings value={data.script} disabled={disabled} onChange={script => update({ script })} />}
@@ -72,7 +72,8 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
       {data.loop.timeoutSeconds != null && data.loop.timeoutSeconds < 1 && <p className="error-text">Timeout must be positive.</p>}
     </section>}
     {data.event && <EventSettings uses={data.uses} value={data.event} disabled={disabled} webhookUrl={webhookUrl} onChange={event => update({ event })} />}
-    <section className="editor-property-section"><h4>Flow connections</h4>
+    {data.uses === endUses && <section className="editor-property-section"><p className="muted">The first incoming route reaching End completes this workflow. All other running tasks and waiting events are stopped.</p></section>}
+    {data.uses !== endUses && <section className="editor-property-section"><h4>Flow connections</h4>
     {data.decision ? <>{connection("true", "True route")}{connection("false", "False route")}</> : data.parallel ? <>{data.parallel.branchStepIds.map((_, index) => <div key={index}>{connection(`branch:${index}`, `Branch ${index + 1}`)}</div>)}{connection("next", "Next step")}</> : data.loop ? <>{connection("body", "Loop body")}{connection("exit", "Loop exit")}<p className="muted">Connect the last body task to Return. Exit runs after all repetitions.</p></> : connection("next", "Next step")}
     {!data.decision && !data.parallel && !data.loop && !data.event && <>
       <p className="muted">Connect multiple next steps to run them in parallel. Each step waits for all incoming tasks to succeed.</p>
@@ -81,7 +82,7 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
         <button type="button" disabled={disabled} aria-label={`Disconnect ${edge.target}`} onClick={() => disconnect(edge.id)}>Disconnect</button>
       </div>)}
     </>}
-    </section>
+    </section>}
     <details className="optional-settings editor-property-advanced"><summary>Advanced</summary>
       <label><span>Step ID</span><input key={node.id} defaultValue={node.id} disabled={disabled} onBlur={event => { rename(event.target.value.trim()); event.target.value = node.id; }} /></label>
       <div className="form-row">{(["x", "y"] as const).map(axis => <label key={axis}><span>Position {axis.toUpperCase()}</span><input type="number" value={Math.round(node.position[axis])} disabled={disabled} onChange={event => move(axis, Number(event.target.value))} /></label>)}</div>

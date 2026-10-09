@@ -37,7 +37,14 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
                 || workflow.Status == WorkflowStatus.Reviewing
                 || workflow.Status == WorkflowStatus.Running
                 || (workflow.CancelRequestedAt != null && workflow.CancelCompletedAt == null)
-                || dbContext.TaskRuns.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null)))))
+                || dbContext.TaskRuns.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending
+                    || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null))))
+                || (workflow.Status == WorkflowStatus.Completed
+                    && dbContext.TaskRuns.Any(run => run.WorkflowId == workflow.Id && run.Kind == TaskRunKind.End && run.Status == TaskRunStatus.Succeeded)
+                    && (dbContext.TaskRuns.Any(run => run.WorkflowId == workflow.Id && (run.Status == TaskRunStatus.Running || run.Status == TaskRunStatus.Queued || run.Status == TaskRunStatus.Waiting))
+                        || dbContext.WorkflowParallelExecutions.Any(execution => execution.WorkflowId == workflow.Id && execution.Outcome == WorkflowParallelExecutionOutcome.Running)
+                        || dbContext.WorkflowLoopIterations.Any(iteration => iteration.WorkflowId == workflow.Id && iteration.Outcome == WorkflowLoopIterationOutcome.Running)
+                        || dbContext.WorkflowNodeWaits.Any(wait => wait.WorkflowId == workflow.Id && !wait.IsCanceled))))
             .OrderBy(workflow => workflow.CreatedAt)
             .ToListAsync(cancellationToken);
 

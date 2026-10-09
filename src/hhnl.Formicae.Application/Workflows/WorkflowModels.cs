@@ -41,7 +41,8 @@ public enum TaskRunKind
     Script,
     Wait,
     AddIssueComment,
-    Event
+    Event,
+    End
 }
 
 public enum TaskRunStatus
@@ -210,7 +211,8 @@ public enum WorkflowParallelExecutionOutcome
 {
     Running,
     Succeeded,
-    Failed
+    Failed,
+    Canceled
 }
 
 public sealed class WorkflowParallelExecution
@@ -252,7 +254,8 @@ public enum WorkflowLoopIterationOutcome
 {
     Running,
     Succeeded,
-    Failed
+    Failed,
+    Canceled
 }
 
 public sealed class WorkflowLoopIteration
