@@ -49,21 +49,36 @@ internal static class CommandRunner
             }
         }
 
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start {fileName}.");
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-        var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+        using var process = new Process { StartInfo = startInfo };
+        var stdout = new StringBuilder();
+        var stderr = new StringBuilder();
+        process.OutputDataReceived += (_, entry) => { if (entry.Data is not null) lock (stdout) stdout.AppendLine(entry.Data); };
+        process.ErrorDataReceived += (_, entry) => { if (entry.Data is not null) lock (stderr) stderr.AppendLine(entry.Data); };
+        if (!process.Start()) throw new InvalidOperationException($"Failed to start {fileName}.");
+        var elapsed = Stopwatch.StartNew();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
 
         try
         {
             await process.WaitForExitAsync(timeoutCts.Token);
-            return new CommandResult(process.ExitCode, await stdoutTask, await stderrTask);
+            return new CommandResult(process.ExitCode, Output(stdout), Output(stderr));
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             TryKill(process);
-            throw new TimeoutException($"Command timed out: {Format(fileName, arguments)}");
+            // Allow redirected streams to drain after killing the local process tree.
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
+            cancellationToken.ThrowIfCancellationRequested();
+            var evidence = new CommandResult(-1, Output(stdout), Output(stderr)).CombinedOutput;
+            if (evidence.Length > 16000) evidence = "[earlier output omitted]\n" + evidence[^16000..];
+            throw new TimeoutException($"Command timed out after {elapsed.Elapsed.TotalSeconds:F1}s (limit {timeout.TotalSeconds:F1}s): "
+                + $"{Format(fileName, arguments)}{Environment.NewLine}{evidence}");
         }
     }
+
+    private static string Output(StringBuilder output) { lock (output) return output.ToString(); }
 
     public static async Task<CommandResult> RunRequiredAsync(
         string fileName,

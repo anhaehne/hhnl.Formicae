@@ -47,12 +47,15 @@ public sealed partial class KubernetesWorkflowE2ETests
                 """;
             var configuration = context.Configuration with { Tools = [new("output-probe", probe)] };
             var task = new AgentTask(Guid.NewGuid(), TaskRunKind.Custom, exhaust ? "Exhaust correction" : "Return summary", "https://example.invalid/repo", "main", null,
-                ExecutionAttemptId: Guid.NewGuid(), TimeoutSeconds: 60, EnvironmentSnapshot: context.Snapshot(configuration), Capabilities: [],
+                ExecutionAttemptId: Guid.NewGuid(), TimeoutSeconds: 60, EnvironmentSnapshot: context.Snapshot(configuration), Capabilities: ["tool:output-probe"],
                 OutputSchema: [new("summary", "string", true)]);
             var started = await context.StartAsync(task);
             var result = await context.WaitAsync(started.ExternalId);
             var logs = await context.Runtime.ReadJobLogsAsync(started.ExternalId, context.Token);
-            Assert.Equal(!exhaust, result.Succeeded);
+            var evidenceDirectory = Path.Combine(fixture.TempRoot, "worker-results");
+            Directory.CreateDirectory(evidenceDirectory);
+            await File.WriteAllTextAsync(Path.Combine(evidenceDirectory, started.ExternalId + ".log"), logs, context.Token);
+            Assert.True(result.Succeeded == !exhaust, $"{result.FailureReason}\n{logs}");
             Assert.Equal(!exhaust, result.OutputIsFinalResponse);
             Assert.Contains("Correction turn 1/2", logs);
             Assert.Contains(task.ExecutionAttemptId!.Value.ToString(), logs);

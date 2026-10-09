@@ -12,6 +12,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
 
+Revision **kubernetes-e2e-image-import**, dated **2026-10-09**: **Approved for implementation**. Repair the local Kubernetes E2E image-import timeout and diagnostics under Deployment, diagnostics and future operations. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Go ahead”** to the proposed revision approval question.
+
 Revision **agent-task-output-correction**, dated **2026-10-09**: **Approved for implementation**. Covers the agent/custom-task output-contract and correction requirements below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the proposed baseline revision `agent-task-output-correction`.
 
 Release integration for **agent-task-output-correction**, dated **2026-10-09**: **Approved** by the product owner (conversation user), reference **“Merge main, up the version if needed and push to main”**. Preserve the latest main features and release output correction as **0.26.0**, following main release **0.25.0**.
@@ -483,6 +485,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
 
       - Provide API/UI and worker images, Kubernetes/kustomize/Helm assets, configuration/Secrets/RBAC, health checks, version reporting and matching release versions.
       - Supply the local API/UI harness, browser smoke tests and Kubernetes E2E tests.
+      - **Approved revision kubernetes-e2e-image-import:** Import the actual API and worker images into the selected disposable kind cluster with a bounded, configurable deadline appropriate for large worker images. Diagnose the failing native import before selecting the loading strategy; use supported kind/container-runtime interfaces, retain command output and elapsed-time/phase evidence on failure, and verify imported images are usable before deployment. Preserve Docker/Podman support, temporary kubeconfig isolation and owned-cluster cleanup. Validate the repair by running the real Kubernetes E2E suite rather than substituting direct Docker checks.
       - Supply CI image/chart publishing, Helm deployment and rollout diagnostics.
       - **Planned:** Add automatic retry/backoff, retention pruning, notifications and artifact storage after an approved baseline update.
       - **Planned:** Add subworkflows, compensation, parallel shared-branch writes and task graphs combined with explicit control nodes after an approved baseline update.
@@ -493,6 +496,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Deployment configuration supplies provider credentials for **GitHub and Gitea connections** and operator-managed keys used by **Secret references**.
       - The local harness and browser smoke suite exercise **Definitions and visual editor** and management pages with fake adapters.
       - Kubernetes E2E checks verify **Durable orchestration and runtimes**, **Pause, resume, cancel and retry** and environment provisioning against the [deployment](../../docs/kubernetes-deployment.md) and [runtime configuration](../../docs/job-runtimes.md) contracts.
+      - **Approved revision kubernetes-e2e-image-import:** Image loading prepares the existing **Images and tool provisioning** worker for runtime tests and supplies setup diagnostics without changing application task behavior, production runtime settings, or default kubectl context.
 
 ## Managed agent images — authorized integration in 0.23.0
 

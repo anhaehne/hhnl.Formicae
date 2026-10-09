@@ -397,6 +397,8 @@ Linux workers can use the equivalent entry point:
 ./scripts/run-k8s-e2e.sh
 ```
 
+Image imports use a 15-minute deadline for each API/worker archive. Large worker images can exceed five minutes on a busy runner. Set `FORMICAE_E2E_IMAGE_LOAD_TIMEOUT_MINUTES` to an integer from 1 to 60 to adjust the bound; invalid values fail before creating a cluster. The fixture records archive size, image identity, loading phase and elapsed time, and verifies each imported image through the node's CRI before deployment. Timeout errors retain command output; setup diagnostics include containerd image availability and recent runtime logs. These settings affect local E2E setup only.
+
 When a cluster is preserved inside an agent job, inspect it with `kubectl --kubeconfig /tmp/formicae-e2e/kubeconfig`, port-forward the API for Playwright MCP, and delete the cluster before the job finishes.
 ## Notes
 

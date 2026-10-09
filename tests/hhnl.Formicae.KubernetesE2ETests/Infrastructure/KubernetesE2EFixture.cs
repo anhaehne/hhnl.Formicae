@@ -16,6 +16,7 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 
     private readonly List<Process> longRunningProcesses = [];
     private bool ownsCluster;
+    private readonly List<string> imageLoadEvidence = [];
 
     public string RepositoryRoot { get; } = FindRepositoryRoot();
     public string TempRoot { get; } = Path.Combine(Path.GetTempPath(), ClusterName);
@@ -30,12 +31,13 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        var imageLoadTimeout = ParseImageLoadTimeout(Environment.GetEnvironmentVariable("FORMICAE_E2E_IMAGE_LOAD_TIMEOUT_MINUTES"));
         Directory.CreateDirectory(TempRoot);
         await PreflightAsync();
         try
         {
             await EnsureClusterAsync();
-            await BuildAndLoadImagesAsync();
+            await BuildAndLoadImagesAsync(imageLoadTimeout);
             await DeployAsync();
         }
         catch (Exception exception)
@@ -110,6 +112,27 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
     public async Task<string> CaptureDiagnosticsAsync()
     {
         var sections = new List<string>();
+        sections.AddRange(imageLoadEvidence);
+        if (imageLoadEvidence.Count > 0)
+        {
+            try
+            {
+                var nodes = await CommandRunner.RunRequiredAsync("kind", ["get", "nodes", "--name", ClusterName], RepositoryRoot, TimeSpan.FromSeconds(30), KindEnvironment());
+                foreach (var node in nodes.StandardOutput.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                {
+                    foreach (var command in new[]
+                    {
+                        new[] { "ctr", "--namespace=k8s.io", "images", "check" },
+                        new[] { "journalctl", "-u", "containerd", "--no-pager", "-n", "50" }
+                    })
+                    {
+                        var result = await CommandRunner.RunAsync(ContainerCli, new[] { "exec", node }.Concat(command), RepositoryRoot, TimeSpan.FromSeconds(30));
+                        sections.Add($"{node}: {string.Join(' ', command)}\n{result.CombinedOutput}");
+                    }
+                }
+            }
+            catch (Exception exception) { sections.Add($"Image runtime diagnostics unavailable: {exception.Message}"); }
+        }
         await AddDiagnosticAsync(sections, "kubectl get all", ["get", "all", "-n", Namespace, "-o", "wide"]);
         await AddDiagnosticAsync(sections, "kubectl describe pods", ["describe", "pods", "-n", Namespace]);
         var apiDiagnostics = await RunRolloutDiagnosticsAsync("formicae");
@@ -157,7 +180,14 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         await CommandRunner.RunRequiredAsync("kind", ["create", "cluster", "--name", ClusterName, "--kubeconfig", KubeconfigPath, "--wait", "5m"], RepositoryRoot, TimeSpan.FromMinutes(6), KindEnvironment());
     }
 
-    private async Task BuildAndLoadImagesAsync()
+    internal static TimeSpan ParseImageLoadTimeout(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return TimeSpan.FromMinutes(15);
+        if (int.TryParse(value, out var minutes) && minutes is >= 1 and <= 60) return TimeSpan.FromMinutes(minutes);
+        throw new InvalidOperationException("FORMICAE_E2E_IMAGE_LOAD_TIMEOUT_MINUTES must be an integer between 1 and 60.");
+    }
+
+    private async Task BuildAndLoadImagesAsync(TimeSpan imageLoadTimeout)
     {
         await CommandRunner.RunRequiredAsync(ContainerCli, ["build", "-f", "src/hhnl.Formicae.Api/Dockerfile", "-t", ApiImage, "."], RepositoryRoot, TimeSpan.FromMinutes(5));
 
@@ -165,7 +195,7 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         File.Delete(apiArchive);
 
         await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", apiArchive, ApiImage], RepositoryRoot, TimeSpan.FromMinutes(3));
-        await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", apiArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(3), KindEnvironment());
+        await LoadImageAsync(ApiImage, apiArchive, imageLoadTimeout);
 
         // A supplied local image avoids rebuilding the worker during development. CI builds
         // the actual Dockerfile so these tests exercise the published worker contract.
@@ -176,7 +206,31 @@ public sealed class KubernetesE2EFixture : IAsyncLifetime
         var workerArchive = Path.Combine(TempRoot, "formicae-worker-e2e.tar");
         File.Delete(workerArchive);
         await CommandRunner.RunRequiredAsync(ContainerCli, ["save", "-o", workerArchive, WorkerImage], RepositoryRoot, TimeSpan.FromMinutes(5));
-        await CommandRunner.RunRequiredAsync("kind", ["load", "image-archive", workerArchive, "--name", ClusterName], RepositoryRoot, TimeSpan.FromMinutes(5), KindEnvironment());
+        await LoadImageAsync(WorkerImage, workerArchive, imageLoadTimeout);
+    }
+
+    private async Task LoadImageAsync(string image, string archive, TimeSpan timeout)
+    {
+        var started = Stopwatch.StartNew();
+        var phase = $"Loading {image} from {archive} ({new FileInfo(archive).Length} bytes), limit {timeout.TotalMinutes} minutes";
+        imageLoadEvidence.Add(phase);
+        Console.WriteLine(phase);
+        try
+        {
+            var result = await CommandRunner.RunRequiredAsync("kind", ["--verbosity", "1", "load", "image-archive", archive, "--name", ClusterName], RepositoryRoot, timeout, KindEnvironment());
+            imageLoadEvidence.Add(result.CombinedOutput);
+            var nodes = await CommandRunner.RunRequiredAsync("kind", ["get", "nodes", "--name", ClusterName], RepositoryRoot, TimeSpan.FromSeconds(30), KindEnvironment());
+            foreach (var node in nodes.StandardOutput.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                await CommandRunner.RunRequiredAsync(ContainerCli, ["exec", node, "crictl", "inspecti", image], RepositoryRoot, TimeSpan.FromSeconds(30));
+            var completed = $"Loaded and verified {image} in {started.Elapsed.TotalSeconds:F1}s";
+            imageLoadEvidence.Add(completed);
+            Console.WriteLine(completed);
+        }
+        catch (Exception exception)
+        {
+            imageLoadEvidence.Add($"{phase}: failed after {started.Elapsed.TotalSeconds:F1}s\n{exception.Message}");
+            throw;
+        }
     }
 
     private async Task DeployAsync()
