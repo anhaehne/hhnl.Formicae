@@ -22,3 +22,5 @@
 - `./scripts/run-k8s-e2e.sh`: all 32 cases passed in 14 minutes 51 seconds; the disposable cluster was cleaned up.
 
 Release completion requires successful automated deployment from the final main commit, the exact `docker.io/limeray/hhnl-formicae-api:0.30.0` image and Healthy `/healthz`.
+
+CI release verification encountered the Docker Hub unauthenticated pull rate limit twice for `registry:3.0.0`; each CI Kubernetes attempt passed 31 cases and failed only while creating that registry container. The original main run's .NET/browser, Helm and worker/tooling jobs passed, and local Kubernetes passed all 32 cases. Use the existing `docker/login-action@v4` and `DOCKERHUB_TOKEN` release credential for trusted Kubernetes CI runs. Fork pull requests do not receive the credential. This is release-verification wiring within the approved feature, with no application requirement or release-version change; 0.30.0 has not deployed yet. No tests added/removed/edited for this CI correction.

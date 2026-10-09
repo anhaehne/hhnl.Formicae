@@ -139,6 +139,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Authenticate Docker Hub test image pulls
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v4
+        with:
+          username: limeray
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
         with:
