@@ -65,6 +65,7 @@ test("history pages and saved filters apply server search presets", async ({ pag
  await fixture(page, { search: async route => { const url = new URL(route.request().url()); queries.push(url); return route.fulfill({ json: { items: [workflow], totalCount: 51, offset: Number(url.searchParams.get("offset")), limit: 25 } }); } });
  await page.goto(`/workflows?workflowId=${id}`); await page.getByRole("button", { name: "Failed", exact: true }).click();
  await expect.poll(() => queries.at(-1)?.searchParams.get("status")).toBe("Failed"); await page.getByLabel("Search workflows", { exact: true }).fill("failure detail");
+ await page.getByText("Filters and saved views", { exact: true }).click();
  await page.getByLabel("Saved view name", { exact: true }).fill("My failures"); await page.getByRole("button", { name: "Save current filters", exact: true }).click();
  await page.getByRole("button", { name: "Next workflows", exact: true }).click(); await expect.poll(() => queries.at(-1)?.searchParams.get("offset")).toBe("25");
  await page.getByRole("button", { name: "All runs", exact: true }).click(); await page.getByLabel("Saved filter views", { exact: true }).selectOption("My failures");
