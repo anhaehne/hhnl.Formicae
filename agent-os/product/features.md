@@ -12,6 +12,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
 
+Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved for implementation**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
+
 Revision **ai-setup-default-model-dropdown**, dated **2026-10-09**: **Approved; implemented in 0.26.3**. Replace AI Setup's Default Model text input with a dropdown consistent with the existing model selector. Reuse CLI model discovery for supported saved configurations, display discovered model names and CLI defaults, retain an existing saved model as an option, and allow an unset configuration default. Explain when discovery requires saving the configuration or is unsupported, and expose discovery progress and failures. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted revision approval request.
 
 Revision **identity-provider-restart-notice**, dated **2026-10-09**: **Approved; implemented in 0.26.2**. Correct the GitHub identity-provider restart notice to reflect whether the running application's login configuration has applied the saved integration settings. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user response **“Ok”** to the drafted revision approval request.
@@ -54,11 +56,20 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Preserve editor layout and guard unsaved edits.
       - Pin each run to its definition version while keeping legacy definitions readable.
 
+      **Approved revision workflow-editor-groups:**
+
+      - Create a group from selected workflow nodes, showing a containing background and visible name on the canvas. Allow adding nodes to an existing group and removing nodes from it; each node belongs to at most one group, with no nested groups.
+      - Drag a group to move all its members together while preserving their relative positions and existing connections. Individual member nodes remain editable and movable within the group; group bounds accommodate their positions.
+      - Edit a group's non-empty name and choose its background color from a fixed preset palette: gray, blue, green, yellow, orange, purple and pink. Show the chosen color behind member nodes while keeping names, nodes and connections readable.
+      - Ungroup or delete a group container without deleting its member nodes or connections. Include group creation, membership, movement, naming, color changes and ungrouping in undo/redo and unsaved-change tracking. Preserve valid membership when nodes are deleted or duplicated, and preserve groups when using Arrange.
+      - Save group identifiers, names, preset colors, membership and layout with each definition version; restore them when reopening the editor and display them when viewing saved versions. Existing workflows without groups remain compatible.
+
     - **Interactions with other features:**
 
       - Saving a version snapshots **Reusable custom tasks**, **Personas** and **Reusable profiles and inheritance** so catalog edits cannot change existing executions.
       - Node settings select configurations from **AI configuration and authentication** to determine the agent and model used during execution.
       - **Durable orchestration and runtimes** executes the saved graph, while **Execution investigation and history** displays the same pinned version.
+      - **Approved revision workflow-editor-groups:** Groups organize the visual editor only; they do not become executable steps or change control/data connections, validation, scheduling, or task settings. Immutable definition versions retain their own group metadata.
 
   - **Manual and issue-label starts**
     - **Requirements:**

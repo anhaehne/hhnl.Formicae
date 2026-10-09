@@ -1,5 +1,5 @@
 import { issueCommentUses, waitUses } from "./workflowData";
-import type { WorkflowIssueCommentSettings, ImageSelection, PreparedImageSnapshot } from "./api";
+import type { WorkflowEditorGroup, WorkflowIssueCommentSettings, ImageSelection, PreparedImageSnapshot } from "./api";
 import { isEventUses, adaptEventStep } from "./workflowEvents";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDefinitionDocument, WorkflowDefinitionResponse, WorkflowDefinitionVersionResponse, WorkflowTriggerNodeSettings, WorkflowEventSettings, WorkflowLoopNodeSettings, WorkflowParallelNodeSettings, WorkflowDecisionNodeSettings, PersonaSnapshot, WorkflowCustomTaskSettings, EnvironmentSnapshot, WorkflowScriptSettings, WorkflowWaitSettings, StepSecretReference } from "./api";
@@ -78,7 +78,7 @@ export function toNodeDefinition(original: WorkflowDefinitionDocument): Workflow
     positions: { ...document.editor.positions, [id]: { x: (target?.x ?? 0) - 350, y: target?.y ?? 80 } } } : undefined };
 }
 
-export function definitionToGraph(original: WorkflowDefinitionDocument, adaptStarts = true): { nodes: WorkflowStepNode[]; edges: Edge[] } {
+export function definitionToGraph(original: WorkflowDefinitionDocument, adaptStarts = true): { nodes: WorkflowStepNode[]; edges: Edge[]; groups: WorkflowEditorGroup[] } {
   const document = adaptStarts ? toNodeDefinition(original) : toLegacyNodeDefinition(original);
   const nodes: WorkflowStepNode[] = document.steps.map((step, index) => ({
     id: step.id, type: "workflowStep", position: document.editor?.positions[step.id] ?? { x: (index % 3) * 280, y: Math.floor(index / 3) * 200 + 80 },
@@ -102,11 +102,11 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
     if (step.loop?.bodyStepId) edges.push({ id: `${step.id}:body`, source: step.id, sourceHandle: "body",
       markerEnd: { type: MarkerType.ArrowClosed }, target: step.loop.bodyStepId, targetHandle: "input", label: "Body" });
   }
-  return { nodes, edges };
+  return { nodes, edges, groups: document.editor?.groups ?? [] };
 }
 
-export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string): WorkflowDefinitionDocument {
-  return { schema: workflowSchema, startStepId: nodes.some(node => isStartUses(node.data.uses)) ? nodes.find(node => node.data.uses === startUses && (node.data.event || node.data.trigger?.type === "Manual"))?.id ?? "" : startStepId, editor: { positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
+export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _schema: string, startStepId: string, groups: WorkflowEditorGroup[] = []): WorkflowDefinitionDocument {
+  return { schema: workflowSchema, startStepId: nodes.some(node => isStartUses(node.data.uses)) ? nodes.find(node => node.data.uses === startUses && (node.data.event || node.data.trigger?.type === "Manual"))?.id ?? "" : startStepId, editor: { groups, positions: Object.fromEntries(nodes.map(node => [node.id, node.position])) }, steps: nodes.map(node => {
     const next = edges.find(edge => edge.source === node.id && (edge.sourceHandle === "next" || edge.sourceHandle === "exit" || !edge.sourceHandle));
     const additional = edges.filter(edge => edge.source === node.id && edge !== next && (edge.sourceHandle === "next" || !edge.sourceHandle)).map(edge => edge.target);
     const body = edges.find(edge => edge.source === node.id && edge.sourceHandle === "body");

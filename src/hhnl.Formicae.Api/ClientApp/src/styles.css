@@ -1769,3 +1769,12 @@ pre.collapsed-content::after {
 .image-build-logs { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-picker { display: grid; gap: .5rem; margin: .5rem 0; }
 @media (max-width: 800px) { .images-page .personas-layout { grid-template-columns: 1fr; } }
+
+/* Group backgrounds sit beneath steps and connections; only the header starts a drag. */
+.editor-group-container { width: 100%; height: 100%; border: 2px solid #94a3b8; border-radius: 12px; }
+.editor-group-title { min-height: 38px; padding: 10px 16px; font-weight: 700; color: #1e293b; cursor: grab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.react-flow__node-workflowGroup.selected .editor-group-container { border-color: #2563eb; box-shadow: 0 0 0 2px #2563eb; }
+.editor-inspector fieldset { border: 1px solid #cbd5e1; border-radius: 8px; margin: 16px 0; padding: 12px; }
+
+.editor-inspector[aria-label="Group inspector"] > :not(.editor-panel-heading) { margin-left: 18px; margin-right: 18px; }
+.editor-inspector[aria-label="Group inspector"] > .editor-panel-heading { margin-bottom: 16px; }
