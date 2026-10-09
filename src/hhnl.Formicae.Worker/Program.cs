@@ -75,7 +75,8 @@ internal sealed record WorkerEnvironment(
     bool EnvironmentTimeoutLimit = false,
     Guid? ExecutionAttemptId = null,
     EnvironmentConfiguration? ExecutionConfiguration = null,
-    WorkflowScriptSettings? Script = null)
+    WorkflowScriptSettings? Script = null,
+    IReadOnlyList<CustomTaskOutputDefinition>? OutputSchema = null)
 {
     public static WorkerEnvironment Load()
     {
@@ -102,7 +103,8 @@ internal sealed record WorkerEnvironment(
             IsTrue("FORMICAE_ENVIRONMENT_TIMEOUT_LIMIT"),
             Guid.TryParse(Optional("FORMICAE_EXECUTION_ATTEMPT_ID"), out var attempt) ? attempt : null,
             JsonSerializer.Deserialize<EnvironmentConfiguration>(Optional("FORMICAE_EXECUTION_CONFIGURATION") ?? "{}", JsonSerializerOptions.Web),
-            Optional("FORMICAE_SCRIPT_SETTINGS") is { } script ? JsonSerializer.Deserialize<WorkflowScriptSettings>(script, JsonSerializerOptions.Web) : null);
+            Optional("FORMICAE_SCRIPT_SETTINGS") is { } script ? JsonSerializer.Deserialize<WorkflowScriptSettings>(script, JsonSerializerOptions.Web) : null,
+            Optional("FORMICAE_OUTPUT_SCHEMA") is { } outputs ? JsonSerializer.Deserialize<CustomTaskOutputDefinition[]>(outputs, JsonSerializerOptions.Web) : null);
     }
 
     public bool UsesCodexSubscription => string.Equals(AuthMethod, "CodexSubscription", StringComparison.OrdinalIgnoreCase);
@@ -131,7 +133,7 @@ internal sealed record WorkerEnvironment(
         => int.TryParse(Optional(name), out var value) && value >= 0 ? value : 0;
 }
 
-internal static class WorkerCommand
+internal static partial class WorkerCommand
 {
     internal const int CheckpointExitCode = 75;
     private const string WorkspaceDirectory = "/workspace";
@@ -231,7 +233,8 @@ internal static class WorkerCommand
 
     internal static async Task<int> RunCustomCommandAsync(WorkerEnvironment environment, string workingDirectory,
         WorkerReporter reporter, TimeProvider timeProvider, CancellationToken cancellationToken,
-        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? execute = null)
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? execute = null,
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Action<string>, Task<int>>? executeWithOutput = null)
     {
         if (environment.JobTimeoutSeconds is not (>= 1 and <= 3600))
             throw new InvalidOperationException("Custom tasks require a timeout between 1 and 3600 seconds.");
@@ -244,6 +247,8 @@ internal static class WorkerCommand
         }
         try
         {
+            if (environment.OutputSchema is { Count: > 0 })
+                return await RunOutputTaskAsync(environment, workingDirectory, reporter, linked.Token, executeWithOutput);
             var exit = await execute(environment.UsesCodexSubscription ? "npx" : "openhands",
                 environment.UsesCodexSubscription ? BuildCodexArguments(environment, workingDirectory)
                     : ["--headless", "--json", "--override-with-envs", "-t", environment.Prompt], workingDirectory, linked.Token);

@@ -182,6 +182,32 @@ public sealed class CustomTaskOrchestratorTests
     }
 
     [Fact]
+    public async Task Pending_output_correction_stays_on_same_attempt_after_restart_and_holds_consumer()
+    {
+        var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
+        var consumer = Snapshot() with { PromptTemplate = "Consume {{input.summary}}", Inputs = [new("summary", "string", true)] };
+        var steps = new[] { Custom("producer", "consumer") with { CustomTask = new("task", Snapshot: producer) },
+            Custom("consumer") with { CustomTask = new("task", Snapshot: consumer,
+                Bindings: new Dictionary<string, CustomTaskInputBinding> { ["summary"] = new("producer", "summary") }) } };
+        var (store, workflow) = await SetupAsync(steps: steps, start: "producer");
+        var agent = new Agent();
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        var run = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
+        var attempt = run.ExecutionAttemptId; var externalId = run.ExternalId;
+        Assert.Equal(TaskRunStatus.Running, run.Status); Assert.Null(run.StructuredOutputsJson);
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Single(agent.Tasks); Assert.Equal(attempt, run.ExecutionAttemptId); Assert.Equal(externalId, run.ExternalId);
+        Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
+        agent.PollOutput = "{\"summary\":\"corrected\"}";
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(TaskRunStatus.Succeeded, run.Status); Assert.Equal(attempt, run.ExecutionAttemptId);
+        agent.Immediate = "consumed";
+        await Orchestrator(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        Assert.Equal("Consume corrected", agent.Tasks.Last().Prompt);
+    }
+
+    [Fact]
     public async Task Producer_consumer_completion_survives_restart_and_consumer_retry_with_frozen_provenance()
     {
         var producer = Snapshot() with { Outputs = [new("summary", "string", true)] };
@@ -194,6 +220,7 @@ public sealed class CustomTaskOrchestratorTests
         var source = Assert.Single(await store.ListTaskRunsAsync(workflow.Id, default));
         Assert.Equal("ready", source.ToResponse().StructuredOutputs!["summary"].GetString());
         Assert.Contains("Output schema:", agent.Tasks[0].Prompt);
+        Assert.Equal(producer.Outputs, agent.Tasks[0].OutputSchema);
         agent.Immediate = null; agent.Permanent = true;
         await Orchestrator(store, agent).AdvanceAsync(workflow, default);
         Assert.Equal(WorkflowStatus.Failed, workflow.Status);

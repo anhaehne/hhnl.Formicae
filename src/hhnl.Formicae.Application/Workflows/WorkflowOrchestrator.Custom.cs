@@ -71,9 +71,9 @@ public sealed partial class WorkflowOrchestrator
                 run.ExecutionAttemptId ??= Guid.NewGuid();
                 var context = JsonSerializer.Serialize(new { execution.Inputs, execution.WorkflowFields, Outputs = settings.Snapshot!.Outputs }, CustomExecutionJsonOptions);
                 prepared = await PrepareAgentTaskAsync(workflow, run, new AgentTask(workflow.Id, TaskRunKind.Custom,
-                    execution.Prompt, workflow.RepositoryUrl, workflow.BaseBranch, workflow.Model,
+                    CustomTaskDefinitions.EnsureOutputInstruction(execution.Prompt, settings.Snapshot!.Outputs), workflow.RepositoryUrl, workflow.BaseBranch, workflow.Model,
                     [new AgentTaskContextFile("custom-task-inputs.json", context)],
-                    ExecutionAttemptId: run.ExecutionAttemptId, TimeoutSeconds: execution.TimeoutSeconds), token);
+                    ExecutionAttemptId: run.ExecutionAttemptId, TimeoutSeconds: execution.TimeoutSeconds, OutputSchema: settings.Snapshot.Outputs), token);
                 if (string.IsNullOrWhiteSpace(prepared.Task.Prompt) || Encoding.UTF8.GetByteCount(prepared.Task.Prompt) > 131072)
                     throw new InvalidOperationException("The composed custom task prompt must be nonblank and no larger than 131072 UTF-8 bytes.");
             }

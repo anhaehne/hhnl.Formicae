@@ -13,7 +13,7 @@ public sealed class WorkerAgentMessageService(IWorkflowStore store)
             || request.Sequence is < 0 || request.MessageId == Guid.Empty || request.ExecutionAttemptId == Guid.Empty)
             return false;
         var source = request.Stream?.ToLowerInvariant();
-        if (source is not ("stdout" or "stderr" or "worker-error" or "worker" or "worker-checkpoint")) return false;
+        if (source is not ("stdout" or "stderr" or "worker-error" or "worker" or "worker-checkpoint" or "worker-output-validation" or "worker-output-correction")) return false;
         var run = (await store.ListTaskRunsAsync(request.WorkflowId, cancellationToken)).SingleOrDefault(item =>
             item.Kind == kind && (string.Equals(item.ExternalId, request.ExternalId, StringComparison.Ordinal)
                 || (item.ExternalId is null && request.ExecutionAttemptId is { } attempt && item.ExecutionAttemptId == attempt)));

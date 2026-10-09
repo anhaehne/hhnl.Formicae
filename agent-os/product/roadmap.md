@@ -40,6 +40,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
 - Support named scalar custom-task outputs and explicit input bindings with frozen producer provenance (available in 0.18.0).
+- Include the pinned output contract in Agent/custom-task prompts and correct missing or invalid final output through at most two turns in the same conversation within the original timeout (available in 0.24.0; approved revision `agent-task-output-correction`).
 - Support inline Agent task nodes with personas and editable custom-task prefilling (available in 0.22.0).
 - Support reusable custom agent tasks with typed inputs and persisted outputs (available in 0.15.0).
 - Support per-step environment selection, inheritance and immutable profile history (available in 0.17.0).

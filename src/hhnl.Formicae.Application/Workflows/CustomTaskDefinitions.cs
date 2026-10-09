@@ -171,7 +171,9 @@ public static class CustomTaskDefinitions
         if (!references.SetEquals(prepared.WorkflowFields.Keys)
             || prepared.WorkflowFields.Values.Any(value => value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)))
             throw new InvalidOperationException("Prepared workflow fields do not match the template references.");
-        if (Encoding.UTF8.GetByteCount(prepared.Prompt) > MaximumPromptBytes || prepared.Prompt != WithOutputInstruction(Render(parts, prepared.Inputs, prepared.WorkflowFields), snapshot))
+        var rendered = Render(parts, prepared.Inputs, prepared.WorkflowFields);
+        if (Encoding.UTF8.GetByteCount(prepared.Prompt) > MaximumPromptBytes
+            || prepared.Prompt != WithOutputInstruction(rendered, snapshot) && prepared.Prompt != WithLegacyOutputInstruction(rendered, snapshot))
             throw new InvalidOperationException("Prepared custom task prompt is invalid.");
     }
 
@@ -226,6 +228,23 @@ public static class CustomTaskDefinitions
     }
 
     private static string WithOutputInstruction(string prompt, CustomTaskSnapshot snapshot)
+        => EnsureOutputInstruction(prompt, snapshot.Outputs);
+
+    public static string EnsureOutputInstruction(string prompt, IReadOnlyList<CustomTaskOutputDefinition> outputs)
+    {
+        if (outputs.Count == 0) return prompt;
+        var instruction = OutputInstruction(outputs);
+        return prompt.Contains(instruction, StringComparison.Ordinal) ? prompt : prompt + "\n\n" + instruction;
+    }
+
+    public static string OutputInstruction(IReadOnlyList<CustomTaskOutputDefinition> outputs)
+        => "Return your final response as one strict JSON object containing only the declared named outputs. "
+            + "Do not use markdown fences or additional commentary. Include every required output; omit optional outputs when unavailable. "
+            + "Do not return null values, duplicate names or undeclared names. Strings must be at most 16000 characters; "
+            + "numbers must be within ±9007199254740991 with at most 28 decimal places; booleans must be true or false. "
+            + "The JSON object must be at most 65536 UTF-8 bytes. Output schema: " + JsonSerializer.Serialize(outputs, Json);
+
+    private static string WithLegacyOutputInstruction(string prompt, CustomTaskSnapshot snapshot)
         => snapshot.Outputs.Count == 0 ? prompt : prompt + "\n\nReturn your final response as one strict JSON object containing only the declared named outputs. Do not use markdown fences or additional commentary. Omit optional outputs when unavailable. Output schema: " + JsonSerializer.Serialize(snapshot.Outputs, Json);
 
     private static IReadOnlyDictionary<string, JsonElement> BoundValues(WorkflowCustomTaskSettings settings, IReadOnlyDictionary<string, CustomTaskInputProvenance>? provenance)

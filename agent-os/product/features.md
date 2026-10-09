@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.23.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.24.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the approved scope, keep supporting specs/docs aligned, and verify against the approved requirements. Scope changes require another baseline update and approval before further implementation.
 
 Approval record for the existing-feature draft: **Pending**. This draft alone authorizes no new implementation; separately approved revisions are recorded below.
+
+Revision **agent-task-output-correction**, dated **2026-10-09**: **Approved for implementation**. Covers the agent/custom-task output-contract and correction requirements below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the proposed baseline revision `agent-task-output-correction`.
 
 Revision **workflow-start-nodes**, dated **2026-10-08**: **Approved for implementation**. Covers the start-node requirements and interactions below only; the remaining baseline draft is unchanged. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the summary of revision `workflow-start-nodes`.
 
@@ -161,6 +163,19 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Apply the documented optional/default rules and loop/path restrictions.
       - Keep data edges separate from scheduling.
       - Freeze producer attempt provenance and preparation across restart/retry.
+
+    - **Implemented in 0.24.0; approved revision agent-task-output-correction:**
+
+      - For both inline Agent nodes and reusable custom tasks with declared outputs, include the pinned output format directly in the effective agent prompt: output names, scalar types, required/optional rules, strict final JSON-object instructions and existing value/size limits. Retain free-text completion for tasks without declared outputs.
+      - Extract the authoritative final response and validate it against the pinned output schema before marking the task successful or releasing downstream consumers. Streaming logs and intermediate messages cannot substitute for the final response.
+      - When a successful agent turn has no extractable final response or returns invalid declared outputs, send the same agent conversation a correction message containing the validation error and required output format. Request corrected final output from its completed work, without repeating the original task. Allow at most two correction turns within the original task timeout; respect cancellation and do not correct failed agent execution.
+      - Persist correction progress and retain correction messages and responses in attempt evidence so orchestration restart cannot reset the correction limit or expose stale outputs. Fail with a clear output-validation reason if correction is exhausted; persist structured outputs only after successful validation.
+
+    - **Interactions for agent-task-output-correction:**
+
+      - **Reusable custom tasks**, inline Agent nodes, **Personas** and **Reusable profiles and inheritance** compose and retain the effective output instructions using the saved workflow snapshot.
+      - **Durable orchestration and runtimes** continues the agent conversation for correction within its existing execution bounds. **Pause, resume, cancel and retry** preserves correction progress on restart and clears outputs for a new attempt; **Execution investigation and history** retains validation failures and correction evidence.
+      - **Ordinary task graphs**, **Loops and explicit parallel groups** and **Decisions** consume only successfully validated outputs under the existing producer and provenance rules.
 
     - **Interactions with other features:**
 

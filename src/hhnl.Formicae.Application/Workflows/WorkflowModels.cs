@@ -672,7 +672,8 @@ public sealed record AgentTask(
     int? TimeoutSeconds = null,
     EnvironmentSnapshot? EnvironmentSnapshot = null,
     IReadOnlyList<string>? Capabilities = null, IReadOnlyList<WorkflowSecretReference>? SecretReferences = null,
-    WorkflowScriptSettings? Script = null, EnvironmentSnapshot? OriginalEnvironmentSnapshot = null, PreparedImageSnapshot? ImageSnapshot = null, ImageSelection? ImageSelection = null);
+    WorkflowScriptSettings? Script = null, EnvironmentSnapshot? OriginalEnvironmentSnapshot = null, PreparedImageSnapshot? ImageSnapshot = null, ImageSelection? ImageSelection = null,
+    IReadOnlyList<CustomTaskOutputDefinition>? OutputSchema = null);
 
 public sealed record AgentTaskContextFile(string FileName, string Content);
 

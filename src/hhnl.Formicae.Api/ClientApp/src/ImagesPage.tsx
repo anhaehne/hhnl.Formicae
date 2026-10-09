@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBeforeUnload, useBlocker } from "react-router-dom";
 import { ApiError, archiveImage, cancelImageBuild, createImage, imageConfiguration, listImageBuilds, listImages, queueImageBuild, updateImage, type ImageBuild, type ImageConfiguration, type ManagedImage, type ManagedImageInput } from "./api";
 
-const empty = (base: string): ManagedImageInput => ({ name: "", description: "", source: { dockerfile: `FROM ${base || "docker.io/limeray/hhnl-formicae-worker:0.23.0"}\n\n# Install task tools here. Keep the Formicae worker runtime.\n`, ref: "main", dockerfilePath: "Dockerfile", contextPath: ".", platform: "linux/amd64" } });
+const empty = (base: string): ManagedImageInput => ({ name: "", description: "", source: { dockerfile: `FROM ${base || "docker.io/limeray/hhnl-formicae-worker:0.24.0"}\n\n# Install task tools here. Keep the Formicae worker runtime.\n`, ref: "main", dockerfilePath: "Dockerfile", contextPath: ".", platform: "linux/amd64" } });
 const formFor = (image: ManagedImage): ManagedImageInput => ({ name: image.name, description: image.description, source: image.source });
 const terminal = (build: ImageBuild) => ["Ready", "Failed", "Cancelled", "TimedOut"].includes(build.state);
 export default function ImagesPage({ canAdminister }: { canAdminister: boolean }) {

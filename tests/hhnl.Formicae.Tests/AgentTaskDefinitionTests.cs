@@ -4,6 +4,30 @@ namespace hhnl.Formicae.Tests;
 
 public sealed class AgentTaskDefinitionTests
 {
+    [Fact]
+    public async Task Inline_and_catalog_tasks_include_the_same_pinned_output_contract_and_accept_legacy_preparation()
+    {
+        var outputs = new CustomTaskOutputDefinition[] { new("summary", "string", true), new("ready", "boolean") };
+        var document = Document("Summarize") with { Steps = [new("agent", CustomTaskDefinitions.AgentUses,
+            CustomTask: new("ignored", Definition: new("Summarize", [], new("agent", 60), outputs)))] };
+        var resolved = await CustomTaskDefinitions.ResolveAsync(document, null, default);
+        var inline = resolved.Document.Steps[0].CustomTask!;
+        var catalog = inline with { TaskId = "catalog", Definition = null, Snapshot = inline.Snapshot! with { Id = "catalog" } };
+        var workflow = new Workflow { IssueUrl = "https://example.test/issue/1", RepositoryUrl = "https://example.test/repo" };
+        var preparation = CustomTaskDefinitions.Prepare(inline, workflow);
+        Assert.Equal(preparation.Prompt, CustomTaskDefinitions.Prepare(catalog, workflow).Prompt);
+        Assert.Contains("65536 UTF-8 bytes", preparation.Prompt);
+        Assert.Contains("Include every required output", preparation.Prompt);
+        Assert.Equal(preparation.Prompt, CustomTaskDefinitions.EnsureOutputInstruction(preparation.Prompt, outputs));
+        var withPersona = preparation.Prompt + "\n\n## Persona guidance\nBe concise.";
+        Assert.Equal(withPersona, CustomTaskDefinitions.EnsureOutputInstruction(withPersona, outputs));
+        var legacy = "Summarize\n\nReturn your final response as one strict JSON object containing only the declared named outputs. Do not use markdown fences or additional commentary. Omit optional outputs when unavailable. Output schema: "
+            + System.Text.Json.JsonSerializer.Serialize(outputs, System.Text.Json.JsonSerializerOptions.Web);
+        CustomTaskDefinitions.ValidatePrepared(preparation with { Prompt = legacy }, inline);
+        Assert.EndsWith(CustomTaskDefinitions.OutputInstruction(outputs), CustomTaskDefinitions.EnsureOutputInstruction(legacy, outputs));
+        Assert.Throws<InvalidOperationException>(() => CustomTaskDefinitions.ValidatePrepared(preparation with { Prompt = "Forged" }, inline));
+    }
+
     private static WorkflowDefinitionDocument Document(string prompt = "Review {{workflow.issueUrl}}") =>
         new(DefaultWorkflowDefinitions.V1Alpha3Schema, "agent", [new("agent", CustomTaskDefinitions.AgentUses,
             CustomTask: new("ignored", Definition: new(prompt, [], new("agent", 60))))]);

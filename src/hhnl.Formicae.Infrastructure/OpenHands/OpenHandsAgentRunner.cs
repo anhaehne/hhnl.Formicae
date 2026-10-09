@@ -88,6 +88,9 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         var result = await jobRuntime.TryGetJobResultAsync(externalId, cancellationToken);
         if (result is null) return null;
         var rawLogs = UnwrapRuntimeLogs(result.Logs);
+        if (externalId.StartsWith("formicae-custom-", StringComparison.Ordinal) && TryReadCustomResult(result.Logs, out var custom) && custom is not null)
+            return new(result.Succeeded && custom.Succeeded, result.ExternalId, custom.Output ?? "",
+                custom.Succeeded ? result.FailureReason : custom.FailureReason, OutputIsFinalResponse: custom.Succeeded, ExitCode: result.ExitCode);
         if (externalId.StartsWith("formicae-script-", StringComparison.Ordinal) && TryReadScriptResult(result.Logs, out var scriptOutput, out var scriptExit, out var scriptFailure))
             return new(result.Succeeded && scriptExit == 0, result.ExternalId, scriptOutput,
                 scriptExit == 0 ? result.FailureReason : scriptFailure ?? $"Script exited with code {scriptExit}.", ExitCode: scriptExit);
@@ -251,6 +254,26 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         environment["FORMICAE_EXECUTION_CONFIGURATION"] = JsonSerializer.Serialize(configuration, JsonSerializerOptions.Web);
         environment["FORMICAE_SECRET_ENVIRONMENT_NAMES"] = JsonSerializer.Serialize((task.SecretReferences ?? []).Select(reference => reference.EnvironmentName));
         environment["FORMICAE_CAPABILITIES"] = JsonSerializer.Serialize(capabilities);
+    }
+
+    internal static bool TryReadCustomResult(string logs, out AgentTaskOutputResult? result)
+    {
+        result = null;
+        foreach (var line in logs.Split('\n').Reverse())
+        {
+            try
+            {
+                if (!TryReadRuntimeLog(line, out var entry) || entry!.Source != "worker") continue;
+                using var json = JsonDocument.Parse(entry.Message);
+                if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("formicaeCustomResult", out var marker)
+                    || marker.ValueKind != JsonValueKind.Object) continue;
+                result = marker.Deserialize<AgentTaskOutputResult>(JsonSerializerOptions.Web);
+                if (result is not null && (result.Succeeded ? result.Output is not null : !string.IsNullOrWhiteSpace(result.FailureReason))) return true;
+            }
+            catch (JsonException) { }
+        }
+        result = null;
+        return false;
     }
 
     internal static bool TryReadScriptResult(string logs, out string output, out int exitCode, out string? failureReason)
@@ -459,6 +482,8 @@ public sealed class OpenHandsAgentRunner : IAgentRunner
         };
 
         if (task.ExecutionAttemptId is { } attemptId) environment["FORMICAE_EXECUTION_ATTEMPT_ID"] = attemptId.ToString("D");
+        if (task.Kind == TaskRunKind.Custom && task.OutputSchema is { Count: > 0 })
+            environment["FORMICAE_OUTPUT_SCHEMA"] = JsonSerializer.Serialize(task.OutputSchema, JsonSerializerOptions.Web);
         if (!string.IsNullOrWhiteSpace(gitAccessToken)) environment["FORMICAE_GIT_ACCESS_TOKEN"] = gitAccessToken;
         if (!string.IsNullOrWhiteSpace(options.WorkerCallbackUrl)) environment["FORMICAE_WORKER_CALLBACK_URL"] = options.WorkerCallbackUrl;
         if (!string.IsNullOrWhiteSpace(options.WorkerCallbackSecret)) environment["FORMICAE_WORKER_CALLBACK_SECRET"] = options.WorkerCallbackSecret;

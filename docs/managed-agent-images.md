@@ -5,7 +5,7 @@ Manage → Images prepares custom execution images before users select them in A
 Start with the matching Formicae worker image, preferably pinned by digest:
 
 ```dockerfile
-FROM docker.io/limeray/hhnl-formicae-worker:0.23.0
+FROM docker.io/limeray/hhnl-formicae-worker:0.24.0
 RUN apt-get update && apt-get install -y --no-install-recommends jq \
     && rm -rf /var/lib/apt/lists/*
 ```
@@ -36,7 +36,7 @@ managedImages:
   enabled: true
   registry: images.example.com
   repositoryPrefix: formicae/installation-a
-  workerBaseImage: docker.io/limeray/hhnl-formicae-worker:0.23.0
+  workerBaseImage: docker.io/limeray/hhnl-formicae-worker:0.24.0
   buildNamespace: formicae-image-builds
   nodeSelector:
     formicae.io/image-builder: "true"

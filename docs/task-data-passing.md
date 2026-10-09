@@ -33,3 +33,13 @@ Within a loop, outputs resolve from the same iteration. A producer before loop e
 Preparation resolves only successful persisted producer runs with validated outputs and records values and run/attempt identities before launching the agent. Restart and consumer retry reuse this preparation even if source data changes. Producer retry clears its structured outputs. Streaming callbacks remain logs and cannot replace authoritative completion.
 
 Values reuse input limits: strings up to 16,000 characters, wire-safe numbers within ±9,007,199,254,740,991 and at most 28 decimal places, and booleans. Structured responses and resolved input objects are limited to 65,536 UTF-8 bytes. Schema names are case-sensitive identifiers starting with a letter, up to 64 characters.
+
+## Agent and custom task output correction (0.24.0)
+
+Inline Agent nodes and reusable Custom tasks automatically include their pinned output schema, required/optional rules, scalar bounds and JSON size limit in the effective prompt. Agents do not need hand-written output-format instructions in the task template.
+
+The worker extracts the authoritative final response from each successful CLI turn and applies the same strict output validation as orchestration. Missing final output or invalid JSON/schema values cause a correction message to the same saved Codex or OpenHands conversation, including the validation error and required format. The agent is asked to return corrected output using its completed work. There are at most two correction turns, all within the original task/environment timeout. Failed CLI execution and cancellation do not trigger correction. A CLI without a resumable conversation identity fails explicitly.
+
+Correction messages, numbered progress and agent responses remain in the task attempt's live and retained evidence. Orchestration restart polls the existing worker and does not reset its correction count. Kubernetes does not restart failed worker processes; retry creates a new attempt under the existing retry rules. Downstream tasks start only after corrected output validates and is persisted. Exhaustion fails with the output-validation reason and no structured outputs. Tasks without declared outputs retain free-text completion.
+
+Deploy matching 0.24.0 API and worker images and Helm chart. Rebuild custom images from the matching worker to support correction; no database migration is added. Previously prepared prompts remain readable and gain the full output contract when launched.

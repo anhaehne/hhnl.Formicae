@@ -9,6 +9,16 @@ namespace hhnl.Formicae.Tests;
 
 public sealed class CustomTaskWorkerTests
 {
+    [Fact]
+    public async Task Runner_passes_pinned_schema_to_custom_worker()
+    {
+        var runtime = new Runtime(); var runner = new OpenHandsAgentRunner(runtime, Options.Create(new RuntimeJobOptions()), Options.Create(new OpenHandsOptions()));
+        var outputs = new CustomTaskOutputDefinition[] { new("summary", "string", true) };
+        await runner.StartAsync(TaskDefinition(60) with { OutputSchema = outputs }, default);
+        Assert.Equal(outputs, System.Text.Json.JsonSerializer.Deserialize<CustomTaskOutputDefinition[]>(
+            runtime.Spec!.Environment["FORMICAE_OUTPUT_SCHEMA"], System.Text.Json.JsonSerializerOptions.Web));
+    }
+
     [Theory]
     [InlineData("CodexSubscription", "npx")]
     [InlineData("ApiKey", "openhands")]

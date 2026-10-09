@@ -8,6 +8,22 @@ namespace hhnl.Formicae.Tests;
 public sealed class CustomTaskCallbackTests
 {
     [Theory]
+    [InlineData("worker-output-validation")]
+    [InlineData("worker-output-correction")]
+    public async Task Output_correction_evidence_survives_callback_ingestion_without_releasing_task(string stream)
+    {
+        var (store, workflow, run, _) = await SetupAsync();
+        run.ExecutionAttemptId = Guid.NewGuid(); await store.UpsertTaskRunAsync(run, default);
+        var message = "Correction turn 1/2: return the declared output object.";
+        var request = new WorkerAgentMessageRequest(workflow.Id, "Custom", "first", stream, message, DateTimeOffset.UtcNow,
+            Guid.NewGuid(), run.ExecutionAttemptId, 1);
+        Assert.True(await new WorkerAgentMessageService(store).RecordAsync(request, default));
+        var log = Assert.Single(await store.ListLogsAsync(workflow.Id, default));
+        Assert.Equal(stream, log.Source); Assert.Equal(run.ExecutionAttemptId, log.ExecutionAttemptId); Assert.Equal(message, log.Message);
+        Assert.Equal(TaskRunStatus.Running, run.Status); Assert.Null(run.StructuredOutputsJson);
+    }
+
+    [Theory]
     [InlineData(TaskRunStatus.Running)]
     [InlineData(TaskRunStatus.Succeeded)]
     [InlineData(TaskRunStatus.Failed)]
