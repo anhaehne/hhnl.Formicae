@@ -4,4 +4,4 @@ Users select multiple nodes and create a group, edit its visible name, choose a 
 
 Use existing React Flow parent nodes. Keep persisted task positions absolute and derive container bounds from members so moving an individual member or arranging the graph updates the group bounds. Groups remain editor metadata and never become runtime steps. Duplication creates an ungrouped task; deletion removes membership and empty groups; renaming a step updates membership.
 
-Product alignment: visual organization for customizable workflows; no change to orchestration, worker images or integrations. No supplied visuals. Palette: gray, blue, green, yellow, orange, purple, pink.
+Product alignment: visual organization for customizable workflows; no change to orchestration, worker images or integrations. No supplied visuals. Browser verification screenshot: `visuals/workflow-groups.png`. Palette: gray, blue, green, yellow, orange, purple, pink.

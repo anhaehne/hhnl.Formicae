@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.27.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
+Scope: application behavior at version **0.28.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -14,7 +14,7 @@ Baseline process revision dated **2026-10-09**: remove the separate explicit app
 
 Revision **workflow-management-layout**, dated **2026-10-09**: **Implemented in 0.27.0**. Fix output-port label overlap in running-workflow graphs, reorganize Workflow Management around a compact execution browser and adjacent execution detail, and relocate Manual Start into the selected workflow definition's panel. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Remove the explicit approval. Just make sure it is added to the document. Approved”**.
 
-Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved for implementation**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
+Revision **workflow-editor-groups**, dated **2026-10-09**: **Approved; implemented in 0.28.0**. Add named visual groups to the workflow editor with multi-node membership, dragging all members together, editable names displayed on the canvas, and background colors selected from a preset palette. Requirements and interactions are specified under Definitions and visual editor below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted group requirements.
 
 Revision **ai-setup-default-model-dropdown**, dated **2026-10-09**: **Approved; implemented in 0.26.3**. Replace AI Setup's Default Model text input with a dropdown consistent with the existing model selector. Reuse CLI model discovery for supported saved configurations, display discovered model names and CLI defaults, retain an existing saved model as an option, and allow an unset configuration default. Explain when discovery requires saving the configuration or is unsupported, and expose discovery progress and failures. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Approved”** responding to the drafted revision approval request.
 

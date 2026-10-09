@@ -33,7 +33,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Configure AI model/API settings through the UI.
 - Support customizable workflows.
 - Add a workflow editor.
-- Add named visual groups with preset background colors, shared movement, editable membership and saved layout (approved baseline revision `workflow-editor-groups`; release planned as 0.28.0 after workflow management layout 0.27.0).
+- Add named visual groups with preset background colors, shared movement, editable membership and saved layout (available in 0.28.0; approved baseline revision `workflow-editor-groups`).
 - Support loops and triggers as configurable workflow nodes (available).
 - Represent workflow entrypoints as registered event nodes: built-in Start/Webhook, GitHub Issue created/Label added and Gitea Label added. Each integration owns its event settings and matching; the optional manual Start and selected-entry history remain available (0.22.0; approved revisions `workflow-start-nodes` and `integration-event-nodes`).
 - Implemented in 0.24.0, approved baseline revision `github-issue-comment-waits`: a callable GitHub Issue commented node accepting a repository-scoped issue number, with durable event waits that resume the same execution and expose comment outputs.
