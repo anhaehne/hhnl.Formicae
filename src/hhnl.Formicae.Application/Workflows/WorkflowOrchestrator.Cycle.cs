@@ -7,10 +7,12 @@ public sealed partial class WorkflowOrchestrator
     private async Task<bool> AdvanceCycleAsync(Workflow workflow, WorkflowDefinitionDocument document, CancellationToken token)
     {
         var state = WorkflowCycleDefinitions.State(workflow);
+        WorkflowDefinitionDocument? forwardGraph = null;
         if (workflow.CycleExecutionJson is null)
         {
             var entry = workflow.CurrentDefinitionStepId ?? document.StartStepId;
             state.Entry = entry;
+            state.EntryPlanArtifact = workflow.PlanArtifact;
             ActivateCycleNode(state, entry);
             WorkflowCycleDefinitions.Save(workflow, state);
             await store.UpdateWorkflowAsync(workflow, token);
@@ -31,6 +33,12 @@ public sealed partial class WorkflowOrchestrator
             // Selected-entry traversal defines initial versus feedback dependencies.
             Visit(state.Entry ?? entry);
             foreach (var id in nodes.Keys) Visit(id);
+            // Planning ancestry follows the forward pass; feedback is read through the visit snapshot.
+            forwardGraph = document with { Steps = document.Steps.Select(step => step with
+            {
+                NextStepId = WorkflowGraphDefinitions.Successors(step).FirstOrDefault(next => !feedback.Contains(CycleEdge(step.Id, next))),
+                NextStepIds = WorkflowGraphDefinitions.Successors(step).Where(next => !feedback.Contains(CycleEdge(step.Id, next))).Skip(1).ToArray()
+            }).ToArray() };
             var components = WorkflowCycleDefinitions.Components(document);
             var reachable = WorkflowGraphDefinitions.Reachable(document, state.Entry ?? entry);
             foreach (var step in document.Steps.Where(step => step.Trigger is null && reachable.Contains(step.Id) && !state.Active.ContainsKey(step.Id)))
@@ -63,16 +71,37 @@ public sealed partial class WorkflowOrchestrator
             token.ThrowIfCancellationRequested();
             if (workflow.IsPaused || workflow.CancelRequestedAt is not null) break;
             var step = document.Steps.Single(item => item.Id == id);
+            var activeVisit = WorkflowCycleDefinitions.Visit(workflow, id);
             workflow.CurrentDefinitionStepId = id;
+            if (forwardGraph is not null)
+            {
+                var sources = WorkflowCycleDefinitions.State(workflow).Active[id].Sources;
+                var runs = (await store.ListTaskRunsAsync(workflow.Id, token))
+                    .Where(run => sources.TryGetValue(run.DefinitionStepId, out var visit) && run.LoopIteration == visit)
+                    .ToDictionary(run => run.DefinitionStepId, StringComparer.Ordinal);
+                workflow.PlanArtifact = GraphPlanInput(forwardGraph, id, runs, state.EntryPlanArtifact);
+            }
             if (step.Decision is not null) { changed |= await AdvanceDecisionAsync(workflow, document, step, token); continue; }
-            if (step.Parallel is not null) { changed |= await AdvanceParallelAsync(workflow, document, step, token); continue; }
+            if (step.Parallel is not null)
+            {
+                try { changed |= await AdvanceParallelAsync(workflow, document, step, token); }
+                catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)
+                {
+                    // Preserve active sibling identities after uncertain persistence/provider responses.
+                    try { await store.AddLogAsync(new WorkflowLog { WorkflowId = workflow.Id, Level = "Warning",
+                        Message = $"Parallel group '{id}' will resume after an orchestration error: {exception.Message}", CreatedAt = clock.UtcNow }, token); }
+                    catch (Exception) when (!token.IsCancellationRequested) { }
+                }
+                continue;
+            }
             WorkflowDefinitionValidator.TryMapUsesToTaskKind(step.Uses, out var kind);
             workflow.CurrentStep = StepFor(kind);
             if (kind == TaskRunKind.Plan && workflow.Status == WorkflowStatus.Queued
                 && !(await workItems.GetIssueAsync(workflow.IssueUrl, token)).HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) continue;
             changed |= kind switch
             {
-                TaskRunKind.Plan => await RunPlanningAsync(workflow, null, token),
+                TaskRunKind.Plan => forwardGraph is null ? await RunPlanningAsync(workflow, null, token)
+                    : await AdvanceParallelTaskAsync(workflow, step, await GetCurrentTaskRunAsync(workflow, token), workflow.PlanArtifact, token),
                 TaskRunKind.Implement => await RunImplementationIfReadyAsync(workflow, token),
                 TaskRunKind.CreatePullRequest => await CreatePullRequestAsync(workflow, token),
                 TaskRunKind.AddressComments => await AddressPullRequestCommentsAsync(workflow, token),
@@ -83,9 +112,19 @@ public sealed partial class WorkflowOrchestrator
                 _ => false
             };
             if (workflow.Status is WorkflowStatus.Failed or WorkflowStatus.Canceled or WorkflowStatus.Completed) return true;
+            if (await store.GetTaskRunExecutionAsync(workflow.Id, id, activeVisit, token) is { Status: TaskRunStatus.Failed } failed)
+            { await FailWorkflowAsync(workflow, failed.FailureReason ?? $"Task '{id}' failed.", null, token); return true; }
             if (WorkflowCycleDefinitions.State(workflow).Active.ContainsKey(id)
                 && await GetCurrentTaskRunAsync(workflow, token) is { Status: TaskRunStatus.Succeeded })
             { await AdvanceDefinitionCursorAsync(workflow, "Cycle visit completed.", token); changed = true; }
+        }
+        state = WorkflowCycleDefinitions.State(workflow);
+        if (forwardGraph is not null && state.Active.Count == 0
+            && !state.Delivered.Any(item => item.Value > state.Consumed.GetValueOrDefault(item.Key)))
+        {
+            workflow.CurrentDefinitionStepId = null;
+            await TransitionWorkflowAsync(workflow, WorkflowStatus.Completed, WorkflowStep.Done, "All selected-entry task visits completed.", token);
+            return true;
         }
         return changed;
     }

@@ -157,6 +157,9 @@ public sealed class WorkflowService
             throw new InvalidOperationException("The previous worker is awaiting cleanup. Retry after cleanup completes.");
 
         var parallel = await GetCurrentParallelExecutionAsync(workflow, cancellationToken);
+        if (workflow.CycleExecutionJson is not null
+            && run.LoopIteration != (parallel?.Execution.VisitIteration ?? WorkflowCycleDefinitions.Visit(workflow, run.DefinitionStepId)))
+            throw new InvalidOperationException("Only an active cycle visit can be retried.");
         if (parallel is not null && !parallel.Value.StepIds.Contains(run.DefinitionStepId))
         {
             throw new InvalidOperationException("Only tasks in the active parallel group can be retried while that group is active.");
@@ -252,6 +255,7 @@ public sealed class WorkflowService
         if (parallel is not null)
         {
             var failedBranches = runs.Where(run => run.Status == TaskRunStatus.Failed
+                && run.LoopIteration == parallel.Value.Execution.VisitIteration
                 && parallel.Value.StepIds.Contains(run.DefinitionStepId)).ToArray();
             foreach (var branchRun in failedBranches)
             {
@@ -278,6 +282,14 @@ public sealed class WorkflowService
             return workflow.ToSummary();
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
+        if (workflow.CycleExecutionJson is not null && definition is not null && WorkflowGraphDefinitions.IsGraph(definition))
+        {
+            var active = WorkflowCycleDefinitions.State(workflow).Active;
+            var failedVisits = runs.Where(run => run.Status == TaskRunStatus.Failed
+                && active.TryGetValue(run.DefinitionStepId, out var activation) && run.LoopIteration == activation.Visit).ToArray();
+            foreach (var failed in failedVisits) await RetryTaskRunAsync(workflowId, failed.Id, cancellationToken);
+            if (failedVisits.Length > 0) return workflow.ToSummary();
+        }
         if (definition?.Steps.SingleOrDefault(step => step.Id == workflow.CurrentDefinitionStepId)?.Decision is not null)
         {
             workflow.Status = WorkflowStatus.Planning;
@@ -366,7 +378,8 @@ public sealed class WorkflowService
             }
             return null;
         }
-        var execution = await store.GetParallelExecutionAsync(workflow.Id, workflow.CurrentDefinitionStepId, cancellationToken);
+        var execution = await store.GetParallelExecutionAsync(workflow.Id, workflow.CurrentDefinitionStepId, cancellationToken,
+            WorkflowCycleDefinitions.Visit(workflow, workflow.CurrentDefinitionStepId));
         if (execution is null) return null;
         var group = document.Steps.Single(step => step.Id == execution.NodeId);
         var stepIds = WorkflowParallelDefinitions.Branches(document, group)

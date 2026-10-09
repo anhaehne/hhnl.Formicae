@@ -173,11 +173,27 @@ public sealed class WorkflowCycleTests
             new("left", "builtins.plan", "group", NextStepPort: "join"),
             new("right", "builtins.plan", "group", NextStepPort: "join"), Script("after", "group")]);
         var (store, workflow, agent) = await Setup(doc);
-        for (var tick = 0; tick < 20; tick++)
+        var failedOnce = false;
+        for (var tick = 0; tick < 24; tick++)
         {
             await Restart(store, agent).AdvanceAsync(workflow, default);
-            foreach (var run in (await store.ListTaskRunsAsync(workflow.Id, default)).Where(run => run.Status == TaskRunStatus.Running)) agent.Complete(run, "plan contents");
+            if (workflow.Status == WorkflowStatus.Failed)
+            {
+                await new WorkflowService(store).RetryWorkflowAsync(workflow.Id, default);
+                Assert.Equal("group", workflow.CurrentDefinitionStepId);
+            }
+            foreach (var run in (await store.ListTaskRunsAsync(workflow.Id, default)).Where(run => run.Status == TaskRunStatus.Running))
+            {
+                var fail = !failedOnce && run.DefinitionStepId == "left" && run.LoopIteration == 2;
+                failedOnce |= fail; agent.Complete(run, "plan contents", !fail);
+            }
         }
+        Assert.True(failedOnce);
+        var attempts = await store.ListTaskRunAttemptsAsync(workflow.Id, default);
+        var leftId = (await store.GetTaskRunExecutionAsync(workflow.Id, "left", 2, default))!.Id;
+        var rightId = (await store.GetTaskRunExecutionAsync(workflow.Id, "right", 2, default))!.Id;
+        Assert.Single(attempts, attempt => attempt.TaskRunId == leftId);
+        Assert.DoesNotContain(attempts, attempt => attempt.TaskRunId == rightId);
         var groups = await store.ListParallelExecutionsAsync(workflow.Id, default);
         Assert.True(groups.Count >= 3);
         Assert.Equal(groups.Count, groups.Select(group => group.VisitIteration).Distinct().Count());
@@ -185,6 +201,64 @@ public sealed class WorkflowCycleTests
         Assert.Equal(groups.Count, execution.Parallels.Count);
         Assert.All(execution.Parallels, group => Assert.NotNull(group.VisitIteration));
         Assert.NotEqual(WorkflowStatus.Failed, workflow.Status);
+    }
+
+    [Fact]
+    public async Task Cyclic_planning_join_uses_both_branch_plans_from_its_activation()
+    {
+        var (store, workflow, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "entry", [
+            Script("entry", "a", ["b"]), new("a", "builtins.plan", "join"), new("b", "builtins.plan", "join"),
+            new("join", "builtins.plan", "entry")]));
+        for (var pass = 1; pass <= 2; pass++)
+        {
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+            await Finish("entry", pass, "entry");
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+            await Finish("a", pass, "A plan " + pass);
+            await Finish("b", pass, "B plan " + pass);
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+            var prompt = agent.Tasks[^1].Prompt;
+            Assert.Contains("A plan " + pass, prompt); Assert.Contains("B plan " + pass, prompt);
+            await Finish("join", pass, "Joined plan " + pass);
+        }
+        async Task Finish(string id, int visit, string output)
+        {
+            agent.Complete((await store.GetTaskRunExecutionAsync(workflow.Id, id, visit, default))!, output);
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+        }
+    }
+
+    [Fact]
+    public async Task Completed_visit_is_not_relaunched_when_cursor_write_is_lost()
+    {
+        var (store, workflow, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "a", [Script("a", "a")]));
+        await Restart(store, agent).AdvanceAsync(workflow, default);
+        var beforeCompletion = workflow.CycleExecutionJson;
+        var run = (await store.GetTaskRunExecutionAsync(workflow.Id, "a", 1, default))!;
+        agent.Complete(run, "first visit"); await Restart(store, agent).AdvanceAsync(workflow, default);
+        workflow.CycleExecutionJson = beforeCompletion; await store.UpdateWorkflowAsync(workflow, default);
+        await Restart(store, agent).AdvanceAsync(workflow, default);
+        Assert.Single(agent.Tasks);
+        Assert.Equal(1, WorkflowCycleDefinitions.State(workflow).Completed["a"]);
+        await Restart(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(2, agent.Tasks.Count);
+    }
+
+    [Fact]
+    public async Task Selected_acyclic_entry_completes_when_another_entry_contains_a_cycle()
+    {
+        var (store, workflow, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "entry", [
+            Script("entry", "left", ["right"]), Script("left"), Script("right"),
+            new("other", WorkflowNodeDefinitions.TriggerUses, "repeat", Trigger: new(WorkflowTriggerType.Manual, false, [], null)),
+            Script("repeat", "repeat")]));
+        for (var tick = 0; tick < 8; tick++)
+        {
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+            foreach (var run in (await store.ListTaskRunsAsync(workflow.Id, default)).Where(run => run.Status == TaskRunStatus.Running)) agent.Complete(run, "done");
+        }
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        Assert.Equal(3, agent.Tasks.Count);
+        Assert.DoesNotContain(await store.ListTaskRunsAsync(workflow.Id, default), run => run.DefinitionStepId == "repeat");
     }
 
     private static WorkflowOrchestrator Restart(InMemoryWorkflowStore store, Agent agent)
@@ -201,7 +275,7 @@ public sealed class WorkflowCycleTests
     }
     private sealed class Prompt : IPromptRenderer
     {
-        public Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? item, CancellationToken token) => Task.FromResult("test");
+        public Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? item, CancellationToken token) => Task.FromResult(workflow.PlanArtifact ?? "test");
         public Task<string> RenderAsync(TaskRunKind kind, Workflow workflow, WorkItem? item, IReadOnlyList<PullRequestComment> comments, CancellationToken token) => Task.FromResult("test");
     }
     private sealed class Agent : IAgentRunner

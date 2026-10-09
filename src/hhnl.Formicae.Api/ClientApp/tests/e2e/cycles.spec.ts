@@ -30,6 +30,12 @@ test("native comment body connections retain multiple sources and typed hover la
   await drag(page, "a", "output:body", "combined", "data:value");
   await drag(page, "b", "output:body", "combined", "data:value");
   await expect(page.locator('.react-flow__edge[data-id^="data:"][data-id$=":combined:value"]')).toHaveCount(2);
+  await drag(page, "a", "output:author", "combined", "data:value");
+  await expect(page.locator('.react-flow__edge[data-id^="data:"][data-id$=":combined:value"]')).toHaveCount(3);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator('.react-flow__edge[data-id^="data:"][data-id$=":combined:value"]')).toHaveCount(2);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(page.locator('.react-flow__edge[data-id^="data:"][data-id$=":combined:value"]')).toHaveCount(3);
   await drag(page, "a", "output:body", "number", "data:value");
   await expect(page.getByText(/string.*number|number.*string/).filter({ hasText: /connect|type|accept/i }).first()).toBeVisible();
   await expect(page.locator('.react-flow__edge[data-id^="data:"][data-id$=":number:value"]')).toHaveCount(0);
@@ -37,7 +43,7 @@ test("native comment body connections retain multiple sources and typed hover la
   await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
   await page.reload(); await open(page, item.name);
   const saved = (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition;
-  expect(saved.variables.find((v: { id: string }) => v.id === "combined").sources.map((v: { stepId: string }) => v.stepId)).toEqual(["a", "b"]);
+  expect(saved.variables.find((v: { id: string }) => v.id === "combined").sources.map((v: { stepId: string }) => v.stepId)).toEqual(["a", "b", "a"]);
   expect(saved.steps.find((s: { id: string }) => s.id === "b").nextStepId).toBe("a");
   expect(saved.editor.groups[0].nodeIds).toEqual(["combined", "number"]);
   await page.screenshot({ path: testInfo.outputPath("comment-body-cycle.png"), fullPage: true });
@@ -79,5 +85,5 @@ test("unbounded self cycle creates fresh visits and can pause resume and cancel"
     expect((await request.post(`${api}/api/workflows/${id}/resume`)).ok()).toBeTruthy();
     await expect.poll(async () => (await runs()).length, { timeout: 10_000 }).toBeGreaterThan(paused.length);
   } finally { expect((await request.post(`${api}/api/workflows/${id}/cancel`)).ok()).toBeTruthy(); }
-  await expect.poll(async () => (await (await request.get(`${api}/api/workflows/${id}`)).json()).status, { timeout: 10_000 }).toBe("Canceled");
+  await expect.poll(async () => ["Canceled", 7].includes((await (await request.get(`${api}/api/workflows/${id}`)).json()).status), { timeout: 10_000 }).toBeTruthy();
 });

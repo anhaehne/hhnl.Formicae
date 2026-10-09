@@ -81,6 +81,7 @@ public sealed partial class WorkflowOrchestrator
     private async Task<bool> AdvanceParallelTaskAsync(Workflow workflow, WorkflowDefinitionStep step, TaskRun? run,
         string? input, CancellationToken cancellationToken)
     {
+        if (run?.Status == TaskRunStatus.Succeeded) return false;
         run ??= new TaskRun { WorkflowId = workflow.Id, Kind = TaskRunKind.Plan, DefinitionStepId = step.Id,
             LoopIteration = WorkflowCycleDefinitions.Visit(workflow, workflow.CurrentDefinitionStepId ?? step.Id), CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow };
         if (run.Status == TaskRunStatus.Running && run.ExternalId is not null)

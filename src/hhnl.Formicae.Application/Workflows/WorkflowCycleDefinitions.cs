@@ -62,6 +62,7 @@ public static class WorkflowCycleDefinitions
 public sealed class WorkflowCycleState
 {
     public string? Entry { get; set; }
+    public string? EntryPlanArtifact { get; set; }
     public Dictionary<string, int> Completed { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, WorkflowCycleActivation> Active { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> Delivered { get; set; } = new(StringComparer.Ordinal);
