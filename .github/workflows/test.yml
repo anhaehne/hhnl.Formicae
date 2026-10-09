@@ -38,6 +38,9 @@ jobs:
 
   unit-and-browser:
     runs-on: ubuntu-latest
+    env:
+      # Match Testcontainers 4.14.0's Ryuk release; pin its official Linux amd64 GHCR image.
+      TESTCONTAINERS_RYUK_CONTAINER_IMAGE: ghcr.io/testcontainers/ryuk:0.14.0@sha256:f0456560ea5b4acdbed0da0efc33b5f9dd6bc1e59f2337106826dcb5b0b0e981
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
