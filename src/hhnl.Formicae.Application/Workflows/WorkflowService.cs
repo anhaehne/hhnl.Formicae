@@ -398,6 +398,7 @@ public sealed class WorkflowService
             TaskRunKind.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             TaskRunKind.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             TaskRunKind.Script => (WorkflowStatus.Running, WorkflowStep.Script),
+            TaskRunKind.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 
@@ -411,6 +412,7 @@ public sealed class WorkflowService
             WorkflowStep.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             WorkflowStep.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             WorkflowStep.Script => (WorkflowStatus.Running, WorkflowStep.Script),
+            WorkflowStep.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
 

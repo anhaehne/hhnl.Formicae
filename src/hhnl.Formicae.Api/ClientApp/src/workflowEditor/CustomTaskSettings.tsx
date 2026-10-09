@@ -1,4 +1,4 @@
-import { eligibleProducer, type WorkflowStepNode } from "../workflowGraph";
+import { waitUses, waitOutputs, eligibleProducer, type WorkflowStepNode } from "../workflowGraph";
 import type { Edge } from "@xyflow/react";
 import type { CustomTaskDefinition, CustomTaskSnapshot, WorkflowCustomTaskSettings } from "../api";
 import { initialScalar, ScalarField } from "./CustomTaskSchema";
@@ -13,9 +13,9 @@ export function CustomTaskSettings({ value, tasks, savedSnapshot, inline = false
     {!current && value?.taskId && <p className="persona-revision-notice">{saved ? "The saved version remains runnable with its recorded task. " : "This custom task is unavailable. "}A new enabled version needs an active task selection.</p>}
     {preview && <><p className="muted">{preview.description}</p><p className="muted">Agent runner · {preview.runner.timeoutSeconds}s timeout · scratch workspace</p>
       {preview.inputs.map(input => { const present = Object.hasOwn(values, input.name); const binding = value?.bindings?.[input.name];
-        const candidates = nodes.filter(node => ["builtins.agent-task", "builtins.custom-task", "builtins.script"].includes(node.data.uses) && eligibleProducer(nodes, edges, start, node.id, stepId)).flatMap(node => {
+        const candidates = nodes.filter(node => [waitUses, "builtins.agent-task", "builtins.custom-task", "builtins.script"].includes(node.data.uses) && eligibleProducer(nodes, edges, start, node.id, stepId)).flatMap(node => {
           const schema = node.data.customTask?.definition ?? tasks.find(task => task.id === node.data.customTask?.taskId) ?? node.data.customTask?.snapshot;
-          return (node.data.uses === "builtins.script" ? [{ name: "output", valueType: "string" }] : schema?.outputs ?? []).filter(output => output.valueType === input.valueType).map(output => ({ value: JSON.stringify([node.id, output.name]), label: `${node.data.displayName} · ${output.name}`, stepId: node.id, outputName: output.name }));
+          return (node.data.uses === waitUses ? waitOutputs : node.data.uses === "builtins.script" ? [{ name: "output", valueType: "string" }] : schema?.outputs ?? []).filter(output => output.valueType === input.valueType).map(output => ({ value: JSON.stringify([node.id, output.name]), label: `${node.data.displayName} · ${output.name}`, stepId: node.id, outputName: output.name }));
         });
         const selected = binding ? JSON.stringify([binding.stepId, binding.outputName]) : "";
         return <fieldset key={input.name}><legend>{input.name} · {input.valueType}{input.required ? " · required" : " · optional"}</legend>

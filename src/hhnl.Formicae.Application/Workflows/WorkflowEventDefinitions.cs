@@ -6,7 +6,7 @@ namespace hhnl.Formicae.Application.Workflows;
 
 public sealed record WorkflowEventField(string Name, string Label, string Kind, bool Required = false);
 public sealed record WorkflowEventDescriptor(string Uses, string Title, string Description, string? Provider,
-    bool Manual, bool Webhook, IReadOnlyList<WorkflowEventField> Fields, bool Legacy = false);
+    bool Manual, bool Webhook, IReadOnlyList<WorkflowEventField> Fields, bool Legacy = false, bool Callable = false);
 
 /// <summary>Implemented by an integration to own its configuration, validation and delivery matching.</summary>
 public interface IWorkflowEventDefinition

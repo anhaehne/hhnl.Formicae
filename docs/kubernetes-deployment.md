@@ -406,7 +406,7 @@ Codex subscription profiles labeled ACP / Codex remain supported by the existing
 
 The editor saves formicae.workflow/v1alpha3 definitions. Add Step offers Task, Trigger and Loop nodes. Select a node to configure it; separate trigger/loop lists have been removed. Triggers start at their outgoing connection. Loop Body connects to its first task, the last task connects to Return, and Exit leads to the next task or loop. Manual start can reference a task or loop. Loop count, maximum iterations and timeout are configured on the loop node.
 
-The API validates and normalizes control nodes into the existing task/iteration execution plan. Legacy v1alpha1/v1alpha2 versions remain readable and executable; editing converts only a draft and Save Version creates a new immutable v1alpha3 version. Task IDs and model overrides are retained. No migration is required. Nested loops, event waits, conditional looping and parallel execution are not part of this release.
+The API validates and normalizes control nodes into the existing task/iteration execution plan. Legacy v1alpha1/v1alpha2 versions remain readable and executable; editing converts only a draft and Save Version creates a new immutable v1alpha3 version. Task IDs and model overrides are retained. No migration is required. Nested loops and conditional looping remain outside this scope. Callable GitHub issue-comment waits are described in [event waits](workflow-event-waits.md).
 
 ## 0.11.0 workflow editor usability
 

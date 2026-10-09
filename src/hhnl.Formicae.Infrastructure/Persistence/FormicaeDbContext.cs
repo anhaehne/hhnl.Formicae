@@ -9,6 +9,8 @@ namespace hhnl.Formicae.Infrastructure.Persistence;
 
 public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> options) : IdentityDbContext<FormicaeUser>(options)
 {
+    public DbSet<WorkflowNodeWait> WorkflowNodeWaits => Set<WorkflowNodeWait>();
+    public DbSet<WorkflowWaitEvent> WorkflowWaitEvents => Set<WorkflowWaitEvent>();
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<TaskRunAttempt> TaskRunAttempts => Set<TaskRunAttempt>();
@@ -48,6 +50,21 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasOne<ImageDefinition>().WithMany().HasForeignKey(x => x.ImageId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<WorkflowNodeWait>(entity =>
+        {
+            entity.ToTable("workflow_node_waits"); entity.HasKey(wait => wait.Id);
+            entity.HasIndex(wait => wait.ExecutionAttemptId).IsUnique();
+            entity.HasIndex(wait => new { wait.WorkflowId, wait.MatchedEventId }).IsUnique();
+            entity.HasOne<TaskRun>().WithMany().HasForeignKey(wait => wait.TaskRunId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkflowWaitEvent>().WithMany().HasForeignKey(wait => wait.MatchedEventId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WorkflowWaitEvent>(entity =>
+        {
+            entity.ToTable("workflow_wait_events"); entity.HasKey(evt => evt.Id);
+            entity.HasIndex(evt => new { evt.Provider, evt.DeliveryId }).IsUnique();
+            entity.HasIndex(evt => new { evt.Provider, evt.EventKey }).IsUnique();
+            entity.HasIndex(evt => new { evt.Uses, evt.RepositoryUrl, evt.IssueUrl, evt.CreatedAt });
+        });
         modelBuilder.Entity<Workflow>(entity =>
         {
             entity.ToTable("workflows");

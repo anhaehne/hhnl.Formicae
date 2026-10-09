@@ -199,6 +199,7 @@ public static class CustomTaskDefinitions
     }
 
     public static IReadOnlyList<CustomTaskOutputDefinition> OutputSchemaFor(WorkflowDefinitionStep step) =>
+        WorkflowWaitRegistry.Default.TryGet(step.Uses, out var wait) ? wait.Outputs :
         step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
 
     public static IReadOnlyDictionary<string, JsonElement> ParseOutputs(string response, IReadOnlyList<CustomTaskOutputDefinition> schema)
@@ -243,10 +244,14 @@ public static class CustomTaskDefinitions
         return values;
     }
 
+    public static IReadOnlyDictionary<string, CustomTaskInputBinding> BindingsFor(WorkflowDefinitionStep step) =>
+        step.Wait?.IssueNumberBinding is { } binding ? new Dictionary<string, CustomTaskInputBinding> { ["issueNumber"] = binding }
+            : step.CustomTask?.Bindings ?? new Dictionary<string, CustomTaskInputBinding>();
+
     public static IReadOnlyList<WorkflowDefinitionValidationError> ValidateBindings(WorkflowDefinitionDocument document)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
-        if (!document.Steps.Any(step => step.CustomTask?.Bindings?.Count > 0)) return errors;
+        if (!document.Steps.Any(step => BindingsFor(step).Count > 0)) return errors;
         WorkflowDefinitionDocument plan;
         try { plan = WorkflowNodeDefinitions.Normalize(document); }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or KeyNotFoundException or NullReferenceException)
@@ -276,10 +281,11 @@ public static class CustomTaskDefinitions
         }
         var entries = new[] { plan.StartStepId }.Concat(plan.Triggers?.Select(trigger => trigger.NextStepId ?? plan.StartStepId) ?? []).Distinct().ToArray();
         foreach (var consumer in plan.Steps)
-        foreach (var (name, binding) in consumer.CustomTask?.Bindings ?? new Dictionary<string, CustomTaskInputBinding>())
+        foreach (var (name, binding) in BindingsFor(consumer))
         {
             if (binding is null || string.IsNullOrWhiteSpace(binding.StepId) || string.IsNullOrWhiteSpace(binding.OutputName)) continue;
-            var input = consumer.CustomTask?.Snapshot?.Inputs?.FirstOrDefault(input => input?.Name == name);
+            var input = consumer.Wait is not null && name == "issueNumber" ? new CustomTaskInputDefinition("issueNumber", "number", true)
+                : consumer.CustomTask?.Snapshot?.Inputs?.FirstOrDefault(input => input?.Name == name);
             nodes.TryGetValue(binding.StepId, out var producer);
             var output = producer is null ? null : OutputSchemaFor(producer).FirstOrDefault(output => output?.Name == binding.OutputName);
             if (input is null || output is null || input.ValueType != output.ValueType)

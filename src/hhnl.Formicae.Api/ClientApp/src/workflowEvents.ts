@@ -6,7 +6,7 @@ export function registerEventDefinitions(definitions: WorkflowEventDescriptor[])
   eventDefinitions.splice(0, eventDefinitions.length, ...definitions);
 }
 export const eventDefinition = (uses: string) => eventDefinitions.find(item => item.uses === uses);
-export const isEventUses = (uses: string) => uses === "builtins.start" || uses === "builtins.trigger" || !!eventDefinition(uses);
+export const isEventUses = (uses: string) => uses === "builtins.start" || uses === "builtins.trigger" || (!!eventDefinition(uses) && !eventDefinition(uses)?.callable);
 export const defaultEventSettings = (uses: string): WorkflowEventSettings => ({ enabled: true,
   ...Object.fromEntries((eventDefinition(uses)?.fields ?? []).map(field => [field.name, field.kind === "repositories" ? [] : ""])) });
 export function adaptEventStep(step: WorkflowDefinitionStep): WorkflowDefinitionStep {
