@@ -7,6 +7,11 @@ using Microsoft.Extensions.Options;
 
 namespace hhnl.Formicae.Tests;
 
+[CollectionDefinition("Worker output correction", DisableParallelization = true)]
+public sealed class TaskOutputCorrectionCollection { }
+
+// Native worker execution reads CODEX_HOME, which other test collections temporarily replace.
+[Collection("Worker output correction")]
 public sealed class TaskOutputCorrectionTests
 {
     private static readonly CustomTaskOutputDefinition[] Schema = [new("summary", "string", true), new("ready", "boolean")];

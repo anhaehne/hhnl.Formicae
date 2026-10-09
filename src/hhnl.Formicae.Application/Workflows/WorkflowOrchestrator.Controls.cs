@@ -69,10 +69,11 @@ public sealed partial class WorkflowOrchestrator
 
     private async Task<bool> CancelWorkflowRuntimeAsync(Workflow workflow, CancellationToken token, bool cleanupOnly = false)
     {
+        await store.CancelWaitsAsync(workflow.Id, token);
         var allStopped = true;
         foreach (var run in await store.ListTaskRunsAsync(workflow.Id, token))
         {
-            if (run.Status is not (TaskRunStatus.Running or TaskRunStatus.Queued)) continue;
+            if (run.Status is not (TaskRunStatus.Running or TaskRunStatus.Queued or TaskRunStatus.Waiting)) continue;
             try
             {
                 // A crash may happen after launch acceptance and before recording the external ID.
@@ -115,6 +116,7 @@ public sealed partial class WorkflowOrchestrator
         try
         {
             var running = (await store.ListTaskRunsAsync(workflow.Id, token)).Where(run => run.Status == TaskRunStatus.Running).ToArray();
+            await MatchPausedWaitsAsync(workflow, token);
             if (running.Length == 0) return false;
             var definition = await ResolveDefinitionAsync(workflow, token);
             if (WorkflowGraphDefinitions.IsGraph(definition))

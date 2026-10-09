@@ -17,7 +17,7 @@ public sealed class IssueWorkflowEventDefinition : IWorkflowEventDefinition
         if (action == "labeled") fields.Add(new("label", "Label", "text", true));
         fields.Add(new("baseBranch", "Base Branch", "text"));
         fields.Add(new("model", "Workflow model", "text"));
-        Descriptor = new(uses, title, $"Start when an issue is {(action == "opened" ? "created" : "given the selected label") }.", provider?.ToString(), false, false, fields, legacy);
+        Descriptor = new(uses, title, $"Start when an issue is {(action == "opened" ? "created" : "given the selected label") }.", provider?.ToString(), false, false, fields, legacy, Outputs: uses == "github.issue-created" ? [new("issue", "string", true), new("issueId", "number", true)] : null);
     }
     public WorkflowTriggerNodeSettings Compile(JsonElement configuration)
     {

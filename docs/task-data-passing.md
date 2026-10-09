@@ -34,7 +34,9 @@ Preparation resolves only successful persisted producer runs with validated outp
 
 Values reuse input limits: strings up to 16,000 characters, wire-safe numbers within ±9,007,199,254,740,991 and at most 28 decimal places, and booleans. Structured responses and resolved input objects are limited to 65,536 UTF-8 bytes. Schema names are case-sensitive identifiers starting with a letter, up to 64 characters.
 
-## Agent and custom task output correction (0.24.0)
+GitHub Issue created also produces `issue` (the full issue JSON as a string) and `issueId` (the repository-local issue number). Bind event outputs only where that event is the guaranteed selected entrypoint. The full persisted event snapshot is retained; normal input size limits apply when a consumer uses it. Add issue comment accepts `issueId` and `text` from literals or compatible producer outputs and records its frozen inputs and provenance. See [issue event outputs and comments](workflow-start-nodes.md#github-issue-outputs-0250).
+
+## Agent and custom task output correction (0.26.0)
 
 Inline Agent nodes and reusable Custom tasks automatically include their pinned output schema, required/optional rules, scalar bounds and JSON size limit in the effective prompt. Agents do not need hand-written output-format instructions in the task template.
 
@@ -42,4 +44,4 @@ The worker extracts the authoritative final response from each successful CLI tu
 
 Correction messages, numbered progress and agent responses remain in the task attempt's live and retained evidence. Orchestration restart polls the existing worker and does not reset its correction count. Kubernetes does not restart failed worker processes; retry creates a new attempt under the existing retry rules. Downstream tasks start only after corrected output validates and is persisted. Exhaustion fails with the output-validation reason and no structured outputs. Tasks without declared outputs retain free-text completion.
 
-Deploy matching 0.24.0 API and worker images and Helm chart. Rebuild custom images from the matching worker to support correction; no database migration is added. Previously prepared prompts remain readable and gain the full output contract when launched.
+Deploy matching 0.26.0 API and worker images and Helm chart. Rebuild custom images from the matching worker to support correction; no database migration is added. Previously prepared prompts remain readable and gain the full output contract when launched.

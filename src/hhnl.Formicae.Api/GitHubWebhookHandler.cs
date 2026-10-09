@@ -57,11 +57,32 @@ public sealed class GitHubWebhookHandler(
 
         var action = envelope?.Action ?? string.Empty;
         var issueCommentIsPullRequest = envelope?.Issue?.PullRequest is not null;
+        var waitEventAccepted = false;
+        if (eventName == "issue_comment" && action == "created" && !issueCommentIsPullRequest)
+        {
+            if (string.IsNullOrWhiteSpace(options.Value.Secret)) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(deliveryId)) return Results.BadRequest(new { error = "Missing X-GitHub-Delivery header." });
+            if (envelope?.Comment is { Id: > 0, CreatedAt: not null, User.Login: not null, HtmlUrl: not null, Body: not null } comment
+                && envelope.Repository?.HtmlUrl is { } repositoryUrl && envelope.Issue?.Number is > 0)
+            {
+                var repository = repositoryUrl.TrimEnd('/').ToLowerInvariant();
+                waitEventAccepted = await store.AcceptWaitEventAsync(new WorkflowWaitEvent
+                {
+                    Provider = "GitHub", DeliveryId = deliveryId, EventSequence = comment.Id, EventKey = comment.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Uses = hhnl.Formicae.Application.Integrations.GitHubIssueCommentWaitDefinition.Uses,
+                    RepositoryUrl = repository, IssueUrl = $"{repository}/issues/{envelope.Issue.Number}",
+                    CreatedAt = comment.CreatedAt.Value, ReceivedAt = DateTimeOffset.UtcNow,
+                    OutputsJson = JsonSerializer.Serialize(new { commentId = comment.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        body = comment.Body, author = comment.User.Login, url = comment.HtmlUrl, createdAt = comment.CreatedAt.Value.ToString("O") }, JsonOptions)
+                }, cancellationToken);
+                if (waitEventAccepted) notifier.Signal();
+            }
+        }
         var startedWorkflowIds = triggerService is null
             ? []
-            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, cancellationToken);
+            : await HandleIssueEventAsync(triggerService, eventName, deliveryId, envelope, body, cancellationToken);
         var shouldTriggerWorkflowTick = ShouldTriggerWorkflowTick(eventName, action, issueCommentIsPullRequest);
-        if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0)
+        if (!shouldTriggerWorkflowTick && startedWorkflowIds.Count == 0 && !waitEventAccepted)
         {
             return Results.Accepted(value: new { accepted = false, eventName, action, deliveryId, startedWorkflowIds, startedWorkflowCount = 0 });
         }
@@ -102,6 +123,7 @@ public sealed class GitHubWebhookHandler(
             deliveryId,
             startedWorkflowIds,
             startedWorkflowCount = startedWorkflowIds.Count,
+            waitEventAccepted,
             processingResult?.CompletedWorkflowId,
             processingResult?.RequeuedWorkflowId
         });
@@ -112,6 +134,7 @@ public sealed class GitHubWebhookHandler(
         string eventName,
         string deliveryId,
         GitHubWebhookEnvelope? envelope,
+        byte[] body,
         CancellationToken cancellationToken)
     {
         var action = envelope?.Action;
@@ -127,6 +150,7 @@ public sealed class GitHubWebhookHandler(
             return [];
         }
 
+        using var payload = JsonDocument.Parse(body);
         return await triggerService.HandleIntegrationEventAsync(new WorkflowIntegrationEvent(
             hhnl.Formicae.Application.Integrations.DevOpsProviderType.GitHub,
             deliveryId,
@@ -135,7 +159,7 @@ public sealed class GitHubWebhookHandler(
             repositoryUrl!,
             issueUrl!,
             label ?? "",
-            envelope?.Repository?.FullName), cancellationToken);
+            envelope?.Repository?.FullName, payload.RootElement.GetProperty("issue").Clone()), cancellationToken);
     }
 
     private async Task<Guid?> CompleteMergedPullRequestWorkflowAsync(
@@ -270,9 +294,16 @@ public sealed class GitHubWebhookHandler(
         GitHubWebhookIssue? Issue,
         GitHubWebhookRepository? Repository,
         GitHubWebhookLabel? Label,
-        [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
+        [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest,
+        GitHubWebhookComment? Comment);
+
+    private sealed record GitHubWebhookComment(long Id, string? Body, GitHubWebhookUser? User,
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt);
+    private sealed record GitHubWebhookUser(string? Login);
 
     private sealed record GitHubWebhookIssue(
+        int? Number,
         [property: JsonPropertyName("html_url")] string? HtmlUrl,
         [property: JsonPropertyName("pull_request")] GitHubWebhookPullRequest? PullRequest);
 

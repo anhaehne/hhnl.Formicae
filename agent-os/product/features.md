@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.24.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
+Scope: application behavior at version **0.26.0**. **Status: existing-feature draft awaiting product-owner approval; approved revisions are recorded below.** Features below are implemented unless explicitly marked **Planned**; planned entries are not implementation authorization.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -14,9 +14,21 @@ Approval record for the existing-feature draft: **Pending**. This draft alone au
 
 Revision **agent-task-output-correction**, dated **2026-10-09**: **Approved for implementation**. Covers the agent/custom-task output-contract and correction requirements below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the proposed baseline revision `agent-task-output-correction`.
 
+Release integration for **agent-task-output-correction**, dated **2026-10-09**: **Approved** by the product owner (conversation user), reference **“Merge main, up the version if needed and push to main”**. Preserve the latest main features and release output correction as **0.26.0**, following main release **0.25.0**.
+
+Revision **github-issue-created-output**, dated **2026-10-09**: **Approved for implementation** for the original `issue` JSON-string output scope. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“Looks good so far”** responding to the original revision summary. The expanded requirements under revision `github-issue-comment-task` below are separately approved.
+
+Revision **github-issue-comment-task**, dated **2026-10-09**: **Approved for implementation**. Extends GitHub Issue created with an Issue id output and introduces an Add issue comment task as specified below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-09**. Approval reference: user message **“lgtm”** following the expanded revision summary.
+
+Release integration for **github-issue-comment-task**, dated **2026-10-09**: **Approved** by the product owner (conversation user), reference **“Merge main, up the version if needed and push to main”**. Merge the latest main, preserve the released wait feature, and release the approved issue outputs/comment task as **0.25.0**.
+
 Revision **workflow-start-nodes**, dated **2026-10-08**: **Approved for implementation**. Covers the start-node requirements and interactions below only; the remaining baseline draft is unchanged. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the summary of revision `workflow-start-nodes`.
 
 Revision **integration-event-nodes**, dated **2026-10-08**: **Approved for implementation**. Revises workflow start-node terminology and extensibility as specified below. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** following the revised event-node baseline and implementation plan.
+
+Revision **github-issue-comment-waits**, dated **2026-10-08**: **Approved for implementation**. Covers the GitHub Issue commented node and durable wait requirements below, including single-instance advancement and one continuation per wait activation. Approver: **Product owner (conversation user)**. Approval date: **2026-10-08**. Approval reference: user message **“Approved”** after the clarification that multiple comments must not create parallel workflow copies and only a new wait activation may be triggered again.
+
+Revision **github-issue-comment-waits release 0.24.0**, dated **2026-10-09**: **Approved**. Release the approved issue-comment wait feature as **0.24.0**, align application/chart/image versions and deployment documentation, and persist the rule that a new feature merged after a previous release bump receives its own semantic version increase. Approver: **Product owner (conversation user)**. Approval reference: user message **“Do it, also remember that.”** following the proposed 0.24.0 bump. Feature behavior and scope are unchanged.
 
 Revision **managed-agent-images integration**, dated **2026-10-08**: documents implementation authorized before this baseline was introduced. Approver: **Product owner (conversation user)**. Approval references: **“Go ahed” / “Continue”** for the prepared-image implementation, followed by **“Merge main, push, and validate deployment”** for integration of the concrete verified result. This entry records that existing authorization; it does not extend implementation scope.
 
@@ -70,6 +82,8 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Use **event** instead of **trigger** for the workflow entrypoint concept in the editor, application contracts and documentation. Provide a shared event-node contract and an integration registration mechanism for distinct event definitions, validation, settings and delivery matching; do not expose a universal event node with a selector containing every provider's options.
       - Provide the manual **Start** event in application code, and an authenticated **Webhook** event as a separate built-in event definition. Retain at most one manual Start event per workflow, optional for workflows started only by external events. Event nodes have no incoming control connections, launch no agent worker, and connect to one execution entry.
       - Have the GitHub integration contribute separate **Issue created** and **Label added** event nodes, matching signed `issues/opened` and `issues/labeled` deliveries respectively. Both select connected GitHub repositories and supported branch/model overrides; only Label added exposes a label filter. Retain existing Gitea label-start behavior through a separate Gitea-owned Label added event definition.
+      - **Implemented in 0.25.0 — approved revision github-issue-created-output:** GitHub **Issue created** declares an output named `issue` of type string. Serialize the complete `issue` object from the validated GitHub `issues/opened` webhook as JSON, retaining all supplied fields and nested values rather than projecting a subset. Persist this string for the selected event's execution and expose it for downstream task input bindings and execution evidence. Preserve the event-time issue snapshot across restarts and retries.
+      - **Implemented in 0.25.0 — approved revision github-issue-comment-task:** GitHub **Issue created** also declares an **Issue id** output (`issueId`) containing the repository-local GitHub issue number as a number. Retain this output with the event-time snapshot and make it bindable to downstream Add issue comment tasks.
       - Persist each event's stable type identity and its own configuration, pin these with the workflow version, and dispatch only matching enabled event nodes. Retain independent entry scheduling, authenticated/signed delivery validation, duplicate suppression, delivery audit and selected-event execution history.
       - Keep old serialized trigger/start definitions, pinned runs and delivery audit records readable through compatibility adapters. Adapt existing definitions in editor drafts; update the built-in workflow template to include a Start event, and create new versions when upgrading existing workflows rather than rewriting saved versions. Verify distinct event catalog entries, provider-specific settings, signed GitHub issue-created/label-added matching, webhook delivery, manual execution and compatibility with E2E coverage.
 
@@ -78,6 +92,22 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - **Definitions and visual editor** consumes registered built-in and integration event definitions to list distinct nodes and display only that event's settings. Integration registration supplies both backend behavior and editor metadata without a central provider-type selector.
       - **GitHub and Gitea connections**, **Connected repositories** and **Webhooks and provider feedback** supply provider registration, connected-repository selection and validated deliveries. Existing workflow progression and planning/implementation gates continue to apply after entry.
       - **Durable orchestration and runtimes**, **Typed task data** and **Execution investigation and history** resolve execution from the selected event node, retain its identity and preserve historical evidence. Compatibility adapters retain legacy serialized field names and database records where needed without destructive migration.
+      - **Approved — revision github-issue-created-output:** **Webhooks and provider feedback** supplies the complete issue object after signature validation. **Definitions and visual editor** exposes the `issue` string output on GitHub Issue created nodes; **Typed task data** permits bindings from that event only where it is the guaranteed selected entrypoint. **Durable orchestration and runtimes** retains the output before downstream scheduling, and **Execution investigation and history** displays the persisted JSON string.
+
+  - **GitHub issue-comment waits — Implemented in 0.24.0; approved revision github-issue-comment-waits**
+    - **Requirements:**
+
+      - Add a distinct GitHub-owned **Issue commented** node callable within an existing workflow through ordinary incoming and outgoing control connections. Reaching this node arms a wait; a matching comment completes the node and continues the same execution and pinned definition version. It does not create a new execution or launch an agent worker.
+      - Accept a required positive issue number (the proposed meaning of “issue id”), either literal or bound through existing typed task data, scoped to one connected GitHub repository. Default to the execution repository when it is a connected GitHub repository; permit explicit selection. Resolve and freeze these inputs on activation. Validate missing, invalid or inaccessible repository/issue inputs before waiting.
+      - Match the first newly created comment after the wait is durably armed, from a verified GitHub `issue_comment/created` delivery for that exact repository and issue. Exclude pull-request comments, edits, deletions and comments created before activation, including late delivery of an older comment. Human and bot comments both qualify. Expose persisted scalar outputs for comment ID, body, author login, URL and creation time to downstream bindings.
+      - Provide an extensible durable node-wait/resume contract for integrations, distinguishing callable waits from entry events. Persist execution, node, attempt/iteration identity, frozen correlation inputs, activation boundary, wait state and matched evidence. Recover waits and accepted events after service restarts; waiting occupies no Kubernetes worker. Block dependent paths until matched while independent branches continue. Preserve supported graph, decision and loop restrictions; repeated loop activations receive distinct wait identities.
+      - Deduplicate provider deliveries and comment identities. Atomically claim an armed wait activation for exactly one qualifying comment and persist its completion evidence; further comments cannot claim that activation, enqueue another continuation or create a parallel copy of the workflow instance. Serialize advancement of each workflow instance across webhook handlers, scheduler ticks and service replicas, including recovery after a restart. A subsequent comment can trigger the instance only after it enters a wait node again and durably arms a new activation; comments arriving while it is not waiting are not queued for a later wait, and a consumed comment cannot satisfy a later activation. Existing explicitly configured graph branches remain supported within the same execution. Handle concurrent delivery, arming, scheduling and cancellation without an event-loss gap. Operator pause retains matching evidence while preventing downstream scheduling; operator resume alone cannot satisfy a wait. Cancellation invalidates outstanding waits and prevents revival. Show waiting state, target issue and matched evidence in history; preserve successful predecessors, normal retries, version pinning and existing entry-event behavior.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** and **Integration event nodes** distinguish entry events from callable wait nodes. GitHub owns this node's catalog metadata, settings, validation and matching; existing Start, Webhook, Issue created and Label added events remain entrypoints.
+      - **Connected repositories**, **GitHub and Gitea connections** and **Webhooks and provider feedback** supply repository access, signed delivery validation and wake-up signaling. Comment deliveries resume armed waits without applying start-event existing-issue suppression.
+      - **Durable orchestration and runtimes**, **Ordinary task graphs**, **Loops and explicit parallel groups** and **Pause, resume, cancel and retry** persist activation/completion, resume dependent work and reject stale or canceled waits. **Typed task data** binds issue numbers and exposes comment outputs. **Execution investigation and history** distinguishes event waiting from operator pause and retains correlation evidence.
 
   - **Ordinary task graphs**
     - **Requirements:**
@@ -123,6 +153,18 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - **Execution investigation and history** displays the recorded condition and route, while **Pause, resume, cancel and retry** preserves successful routing decisions.
 
 - **2. Tasks and AI behavior**
+  - **Add issue comment — Implemented in 0.25.0; approved revision github-issue-comment-task**
+    - **Requirements:**
+
+      - Provide an **Add issue comment** task type in the workflow editor, with a required numeric **Issue id** input (`issueId`) and required string **Text** input (`text`). Accept literals or typed bindings, including Issue created → Issue id and text supplied by an upstream task.
+      - Interpret Issue id as the positive integer issue number in the execution's connected GitHub repository; use that repository's integration credentials. Reject invalid issue numbers and empty comment text before posting.
+      - Execute the task through the existing DevOps comment API without launching an agent worker. Mark success only after the provider accepts the comment; expose provider failures in task history and preserve successful task results during workflow retries.
+
+    - **Interactions with other features:**
+
+      - **Definitions and visual editor** configures and pins the task and its input bindings. **Typed task data** validates producer availability and input types and freezes resolved input values before execution.
+      - **Connected repositories** and **GitHub and Gitea connections** provide the execution's GitHub repository and authenticated platform client. **Durable orchestration and runtimes** schedules the task on its selected route; **Execution investigation and history** retains resolved inputs and task outcomes. This revision adds GitHub comment posting only.
+
   - **Built-in development workflow**
     - **Requirements:**
 
@@ -164,7 +206,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
       - Keep data edges separate from scheduling.
       - Freeze producer attempt provenance and preparation across restart/retry.
 
-    - **Implemented in 0.24.0; approved revision agent-task-output-correction:**
+    - **Implemented in 0.26.0; approved revision agent-task-output-correction:**
 
       - For both inline Agent nodes and reusable custom tasks with declared outputs, include the pinned output format directly in the effective agent prompt: output names, scalar types, required/optional rules, strict final JSON-object instructions and existing value/size limits. Retain free-text completion for tasks without declared outputs.
       - Extract the authoritative final response and validate it against the pinned output schema before marking the task successful or releasing downstream consumers. Streaming logs and intermediate messages cannot substitute for the final response.

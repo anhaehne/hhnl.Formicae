@@ -35,7 +35,7 @@ public sealed class WorkflowEventApiTests
                 new("label", "github.label-added", "label-plan", Event: WorkflowEventDefinitions.Configuration(new IssueEventSettings(true, [repo.Id], "ready"))),
                 new("created-plan", "builtins.plan"), new("label-plan", "builtins.plan")])), default);
         var body = JsonSerializer.Serialize(new { action, repository = new { html_url = repo.RepositoryUrl, full_name = "acme/repo" },
-            issue = new { html_url = repo.RepositoryUrl + "/issues/1" }, label = action == "labeled" ? new { name = "ready" } : null });
+            issue = new { html_url = repo.RepositoryUrl + "/issues/1", number = 1, title = "A full issue", body = "Text\nwith unicode ✓", user = new { login = "author" }, labels = new[] { new { name = "ready" } }, future_field = new { value = 7 } }, label = action == "labeled" ? new { name = "ready" } : null });
         async Task<HttpResponseMessage> Deliver(string signature)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/github") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -53,6 +53,21 @@ public sealed class WorkflowEventApiTests
         Assert.Equal(version.Id, workflow.WorkflowDefinitionVersionId);
         Assert.Equal(eventId, Assert.Single(await store.ListTriggerEventsAsync(workflow.Id, default)).TriggerId);
         Assert.Contains($"\"eventNodeId\":\"{eventId}\"", (await store.ListEventsAsync(workflow.Id, default)).First(item => item.Type == WorkflowEventTypes.WorkflowQueued).DetailsJson!);
+        var runs = await store.ListTaskRunsAsync(workflow.Id, default);
+        if (action == "opened")
+        {
+            var evidence = Assert.Single(runs, run => run.Kind == TaskRunKind.Event);
+            Assert.Equal(eventId, evidence.DefinitionStepId);
+            Assert.Equal(TaskRunStatus.Succeeded, evidence.Status);
+            Assert.False(workflow.IsPaused);
+            using var outputs = JsonDocument.Parse(evidence.StructuredOutputsJson!);
+            Assert.Equal(1, outputs.RootElement.GetProperty("issueId").GetInt32());
+            Assert.Equal(JsonValueKind.String, outputs.RootElement.GetProperty("issue").ValueKind);
+            using var captured = JsonDocument.Parse(outputs.RootElement.GetProperty("issue").GetString()!);
+            using var original = JsonDocument.Parse(body);
+            Assert.Equal(original.RootElement.GetProperty("issue").GetRawText(), captured.RootElement.GetRawText());
+        }
+        else Assert.DoesNotContain(runs, run => run.Kind == TaskRunKind.Event);
         var replay = (await (await Deliver(signature)).Content.ReadFromJsonAsync<JsonElement>());
         Assert.Equal(0, replay.GetProperty("startedWorkflowCount").GetInt32());
         Assert.Single(await store.ListRecentWorkflowsAsync(10, default));

@@ -1,3 +1,5 @@
+import { inputsFor, outputsFor, issueCommentUses } from "./workflowData";
+import { waitUses } from "./workflowGraph";
 import { defaultEventSettings, registerEventDefinitions } from "./workflowEvents";
 import { listWorkflowEventDefinitions } from "./api";
 import { dataEdge, isDataEdge, eligibleProducer } from "./workflowGraph";
@@ -110,10 +112,9 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
   const validConnection = (connection: Connection | Edge) => {
     const source = draft.nodes.find(node => node.id === connection.source), target = draft.nodes.find(node => node.id === connection.target);
     if (connection.sourceHandle?.startsWith("output:") || connection.targetHandle?.startsWith("data:")) {
-      if (!source || !target || !["builtins.agent-task", "builtins.custom-task", "builtins.script"].includes(source.data.uses) || !["builtins.agent-task", "builtins.custom-task"].includes(target.data.uses) || !connection.sourceHandle?.startsWith("output:") || !connection.targetHandle?.startsWith("data:")) return false;
-      const schemaFor = (node: WorkflowStepNode) => node.data.customTask?.definition ?? customTasks.find(task => task.id === node.data.customTask?.taskId) ?? node.data.customTask?.snapshot;
-      const output = source.data.uses === "builtins.script" && connection.sourceHandle === "output:output" ? { name: "output", valueType: "string" } : schemaFor(source)?.outputs?.find(output => output.name === connection.sourceHandle!.slice(7));
-      const input = schemaFor(target)?.inputs.find(input => input.name === connection.targetHandle!.slice(5));
+      if (!source || !target || outputsFor(source, customTasks).length === 0 || inputsFor(target, customTasks).length === 0 || !connection.sourceHandle?.startsWith("output:") || !connection.targetHandle?.startsWith("data:")) return false;
+      const output = outputsFor(source, customTasks).find(output => output.name === connection.sourceHandle!.slice(7));
+      const input = inputsFor(target, customTasks).find(input => input.name === connection.targetHandle!.slice(5));
       return !!output && !!input && output.valueType === input.valueType && eligibleProducer(draft.nodes, draft.edges, manualStartId, source.id, target.id);
     }
     return !!source && !!target && source.id !== target.id && !isStartUses(target.data.uses) && !(connection.sourceHandle === "body" && (target.data.uses === loopUses || target.data.uses === parallelUses || target.data.uses === decisionUses)) && (!connection.sourceHandle?.startsWith("branch:") || (target.data.uses === "builtins.plan" && connection.targetHandle !== "join" && connection.targetHandle !== "return")) && (connection.targetHandle !== "join" || (target.data.uses === parallelUses && source.data.uses === "builtins.plan")) && (connection.targetHandle !== "return" || (target.data.uses === loopUses && !isStartUses(source.data.uses) && source.data.uses !== loopUses && source.data.uses !== parallelUses && source.data.uses !== decisionUses));
@@ -126,7 +127,10 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     if (target && !validConnection(makeEdge(source, port, target, targetPort))) { setNotice("That connection is not allowed."); return; }
     if (existing?.target === target && existing?.targetHandle === targetPort && (!data || (existing.source === source && existing.sourceHandle === port))) return;
     const action = () => { state.commit(); state.update(current => ({ ...current, nodes: data && target ? current.nodes.map(node => {
-        if (node.id !== target || !node.data.customTask) return node;
+        if (node.id !== target) return node;
+        if (node.data.issueComment) { const inputs = { ...node.data.issueComment.inputs }; delete inputs[targetPort.slice(5)]; return { ...node, data: { ...node.data, issueComment: { ...node.data.issueComment, inputs } } }; }
+        if (node.data.uses === waitUses) return { ...node, data: { ...node.data, wait: { ...node.data.wait, issueNumber: undefined } } };
+        if (!node.data.customTask) return node;
         const inputs = { ...node.data.customTask.inputs }; delete inputs[targetPort.slice(5)];
         return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
       }) : current.nodes, edges: target ? addEdge(makeEdge(source, port, target, targetPort), current.edges.filter(edge => data ? !(edge.target === target && edge.targetHandle === targetPort) : multiple ? edge.id !== replaceEdgeId : !(edge.source === source && edge.sourceHandle === port))) : current.edges.filter(edge => !(edge.source === source && edge.sourceHandle === port)) })); };
@@ -148,11 +152,11 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
     while (draft.nodes.some(node => node.id === id)) id = `step${draft.nodes.filter(node => !isStartUses(node.data.uses)).length + 1}-${suffix++}`;
     const bounds = canvas.current!.getBoundingClientRect();
     const source = draft.nodes.find(node => node.id === context?.source);
-    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { script: uses === "builtins.script" ? { shell: "sh", script: "", timeoutSeconds: 300, workingDirectory: "workspace" } : undefined, customTask: uses === "builtins.agent-task" ? { taskId: "", inputs: {}, definition: { promptTemplate: "", inputs: [], outputs: [], runner: { kind: "agent", timeoutSeconds: 1800 } } } : uses === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
+    const node: WorkflowStepNode = { id, type: "workflowStep", position: source ? { x: source.position.x + 350, y: source.position.y + (context?.port === "exit" ? 200 : 0) } : screenToFlowPosition({ x: bounds.x + bounds.width / 2 - 120, y: bounds.y + bounds.height / 2 - 60 }), data: { issueComment: uses === issueCommentUses ? { inputs: {} } : undefined, script: uses === "builtins.script" ? { shell: "sh", script: "", timeoutSeconds: 300, workingDirectory: "workspace" } : undefined, customTask: uses === "builtins.agent-task" ? { taskId: "", inputs: {}, definition: { promptTemplate: "", inputs: [], outputs: [], runner: { kind: "agent", timeoutSeconds: 1800 } } } : uses === "builtins.custom-task" ? { taskId: "", inputs: {} } : undefined, stepId: id, displayName: catalog.find(item => item.uses === uses)!.title, uses,
       decision: uses === decisionUses ? { condition: { source: "literal", valueType: "string", operator: "equals", value: "", compareTo: "", missingValue: "error" }, trueStepId: "", falseStepId: "" } : undefined,
       parallel: uses === parallelUses ? { branchStepIds: ["", ""] } : undefined,
       loop: uses === loopUses ? { bodyStepId: "", repeatCount: 2, maxIterations: 2 } : undefined,
-      event: isStartUses(uses) ? defaultEventSettings(uses) : undefined } };
+      wait: uses === waitUses ? { issueNumber: 1 } : undefined, event: isStartUses(uses) ? defaultEventSettings(uses) : undefined } };
     state.commit(); state.update(current => ({ ...current, nodes: [...current.nodes, node], edges: context ? [...current.edges.filter(edge => edge !== existing), makeEdge(context.source, context.port, id), ...(existing ? [makeEdge(id, "next", existing.target, existing.targetHandle || "input")] : [])] : current.edges }));
     setMenu(false); setContext(undefined); reveal(id);
   }
@@ -237,7 +241,9 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
               if (isDataEdge(old)) {
                 if (!validConnection(connection)) { setNotice("That data connection is not allowed."); return; }
                 state.commit(); state.update(current => ({ ...current, nodes: current.nodes.map(node => {
-                  if (node.id !== connection.target || !node.data.customTask) return node;
+                  if (node.id !== connection.target) return node;
+                  if (node.data.issueComment) { const inputs = { ...node.data.issueComment.inputs }; delete inputs[connection.targetHandle!.slice(5)]; return { ...node, data: { ...node.data, issueComment: { ...node.data.issueComment, inputs } } }; }
+                  if (!node.data.customTask) return node;
                   const inputs = { ...node.data.customTask.inputs }; delete inputs[connection.targetHandle!.slice(5)];
                   return { ...node, data: { ...node.data, customTask: { ...node.data.customTask, inputs } } };
                 }), edges: [...current.edges.filter(edge => edge.id !== old.id && !(edge.target === connection.target && edge.targetHandle === connection.targetHandle)), makeEdge(connection.source, connection.sourceHandle!, connection.target, connection.targetHandle!)] }));
@@ -259,10 +265,10 @@ function Editor({ definitions, loading, error, canAdminister, onRefresh, onSaved
         <p className="muted">Enabled versions can start workflows. Disabled versions may be saved with incomplete steps.</p>
         <label className="toggle-label"><input type="checkbox" checked={draft.isDefault} disabled={!editable} onChange={event => update(current => ({ ...current, isDefault: event.target.checked }))} /><span>Default</span></label><p className="muted">Saving a default enabled version changes the default for new runs. Existing versions and runs remain intact.</p>
         <details className="optional-settings"><summary>Advanced</summary><label><span>Schema</span><input readOnly value={workflowSchema} /></label><label><span>Version number</span><input type="number" min="1" disabled={!editable} placeholder="Automatic" value={draft.version} onChange={event => update(current => ({ ...current, version: event.target.value }))} /></label></details>
-      </aside> : inspector && selectedNode ? <Inspector workflowStart={manualStartId} webhookUrl={versionId ? `/api/webhooks/workflows/${versionId}/${encodeURIComponent(selectedNode.id)}` : undefined} key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={{ ...selectedNode, data: { ...selectedNode.data, customTask: document.steps.find(step => step.id === selectedNode.id)?.customTask } }} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
+      </aside> : inspector && selectedNode ? <Inspector workflowStart={manualStartId} webhookUrl={versionId ? `/api/webhooks/workflows/${versionId}/${encodeURIComponent(selectedNode.id)}` : undefined} key={selectedNode.id} environments={environments} defaultEnvironmentId={draft.defaultEnvironmentId} savedEnvironmentSnapshot={savedStepEnvironment} customTasks={customTasks} savedCustomSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.customTask?.snapshot} savedPersonaSnapshot={state.savedDraft.nodes.find(node => node.id === selectedNode.id)?.data.personaSnapshot} personas={personas} defaultPersonaId={draft.defaultPersonaId} node={{ ...selectedNode, data: { ...selectedNode.data, wait: document.steps.find(step => step.id === selectedNode.id)?.wait, issueComment: document.steps.find(step => step.id === selectedNode.id)?.issueComment, customTask: document.steps.find(step => step.id === selectedNode.id)?.customTask } }} nodes={draft.nodes} edges={draft.edges} disabled={!editable} errors={errors.filter(error => error.nodeId === selectedNode.id)} begin={state.begin} commit={state.commit} close={() => setInspector(false)}
         update={values => update(current => ({ ...current,
           nodes: current.nodes.map(node => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...values } } : node),
-          edges: values.customTask ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...Object.entries(values.customTask.bindings ?? {}).map(([name, binding]) => dataEdge(binding.stepId, binding.outputName, selectedNode.id, name))] : current.edges
+          edges: values.wait ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...(values.wait.issueNumberBinding ? [dataEdge(values.wait.issueNumberBinding.stepId, values.wait.issueNumberBinding.outputName, selectedNode.id, "issueNumber")] : [])] : values.customTask || values.issueComment ? [...current.edges.filter(edge => !isDataEdge(edge) || edge.target !== selectedNode.id), ...Object.entries(values.issueComment?.bindings ?? values.customTask?.bindings ?? {}).map(([name, binding]) => dataEdge(binding.stepId, binding.outputName, selectedNode.id, name))] : current.edges
         }))}
         resizeBranches={count => {
           if (count < 2 || count > 8) return;

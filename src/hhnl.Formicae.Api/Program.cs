@@ -788,7 +788,7 @@ app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId
     };
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
-app.MapGet("/api/workflow-events", (WorkflowEventRegistry registry) => Results.Ok(registry.Catalog));
+app.MapGet("/api/workflow-events", (WorkflowEventRegistry registry) => Results.Ok(registry.Catalog.Concat(WorkflowWaitRegistry.Default.Catalog)));
 
 app.MapGet("/api/workflow-definitions", async (
     WorkflowDefinitionService workflowDefinitions,

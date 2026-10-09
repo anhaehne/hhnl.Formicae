@@ -26,7 +26,9 @@ public enum WorkflowStep
     AddressComments,
     Done,
     Custom,
-    Script
+    Script,
+    Wait,
+    AddIssueComment
 }
 
 public enum TaskRunKind
@@ -36,7 +38,10 @@ public enum TaskRunKind
     CreatePullRequest,
     AddressComments,
     Custom,
-    Script
+    Script,
+    Wait,
+    AddIssueComment,
+    Event
 }
 
 public enum TaskRunStatus
@@ -45,7 +50,8 @@ public enum TaskRunStatus
     Running,
     Succeeded,
     Failed,
-    Canceled
+    Canceled,
+    Waiting
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -157,7 +163,9 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("nextStepIds")] IReadOnlyList<string>? NextStepIds = null,
     [property: JsonPropertyName("imageSelection")] ImageSelection? ImageSelection = null,
     [property: JsonPropertyName("imageSnapshot")] PreparedImageSnapshot? ImageSnapshot = null,
-    [property: JsonPropertyName("event")] JsonElement? Event = null);
+    [property: JsonPropertyName("event")] JsonElement? Event = null,
+    [property: JsonPropertyName("issueComment")] WorkflowIssueCommentSettings? IssueComment = null,
+    [property: JsonPropertyName("wait")] WorkflowWaitSettings? Wait = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -331,7 +339,7 @@ public sealed record StartGitHubIssueWorkflowRequest(
 public sealed record WorkflowIntegrationEvent(
     hhnl.Formicae.Application.Integrations.DevOpsProviderType ProviderType,
     string DeliveryId, string EventName, string Action, string RepositoryUrl, string IssueUrl,
-    string? Label = null, string? RepositoryFullName = null);
+    string? Label = null, string? RepositoryFullName = null, JsonElement? Issue = null);
 
 // Legacy caller compatibility; new integrations use WorkflowIntegrationEvent.
 public sealed record DevOpsIssueLabelTriggerEvent(
@@ -475,7 +483,7 @@ public sealed record TaskRunResponse(
     string DefinitionStepId,
     int? LoopIteration,
     PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null,
-    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null);
+    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null, PreparedIssueCommentExecution? IssueCommentExecution = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,

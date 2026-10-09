@@ -1076,6 +1076,70 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.ToTable("workflow_loop_iterations", (string)null);
                 });
 
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowNodeWait", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ArmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("EventSequenceFloor")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ExecutionAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InputProvenanceJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsCanceled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("IssueUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("MatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("MatchedEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RepositoryUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TaskRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Uses")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExecutionAttemptId")
+                        .IsUnique();
+
+                    b.HasIndex("MatchedEventId");
+
+                    b.HasIndex("TaskRunId");
+
+                    b.HasIndex("WorkflowId", "MatchedEventId")
+                        .IsUnique();
+
+                    b.ToTable("workflow_node_waits", (string)null);
+                });
+
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowParallelExecution", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1171,6 +1235,62 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("workflow_trigger_events", (string)null);
+                });
+
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowWaitEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeliveryId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("EventSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("IssueUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OutputsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RepositoryUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Uses")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "DeliveryId")
+                        .IsUnique();
+
+                    b.HasIndex("Provider", "EventKey")
+                        .IsUnique();
+
+                    b.HasIndex("Uses", "RepositoryUrl", "IssueUrl", "CreatedAt");
+
+                    b.ToTable("workflow_wait_events", (string)null);
                 });
 
             modelBuilder.Entity("hhnl.Formicae.Infrastructure.Persistence.FormicaeUser", b =>
@@ -1361,6 +1481,20 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.HasOne("hhnl.Formicae.Application.Workflows.Workflow", null)
                         .WithMany()
                         .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowNodeWait", b =>
+                {
+                    b.HasOne("hhnl.Formicae.Application.Workflows.WorkflowWaitEvent", null)
+                        .WithMany()
+                        .HasForeignKey("MatchedEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("hhnl.Formicae.Application.Workflows.TaskRun", null)
+                        .WithMany()
+                        .HasForeignKey("TaskRunId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -27,7 +27,8 @@ public sealed class WorkflowService
     public async Task<WorkflowSummaryResponse> StartGitHubIssueWorkflowAsync(
         StartGitHubIssueWorkflowRequest request,
         CancellationToken cancellationToken,
-        string? triggerNodeId = null)
+        string? triggerNodeId = null,
+        IReadOnlyDictionary<string, JsonElement>? eventOutputs = null)
     {
         if (string.IsNullOrWhiteSpace(request.IssueUrl))
         {
@@ -69,6 +70,7 @@ public sealed class WorkflowService
             BaseBranch = string.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : request.BaseBranch,
             Model = model,
             Status = WorkflowStatus.Queued,
+            IsPaused = eventOutputs is not null,
             CurrentStep = WorkflowStep.None,
             WorkflowDefinitionId = definitionVersion.WorkflowDefinitionId,
             WorkflowDefinitionVersionId = definitionVersion.Id,
@@ -77,6 +79,19 @@ public sealed class WorkflowService
         };
 
         await store.CreateWorkflowAsync(workflow, cancellationToken);
+        if (eventOutputs is not null)
+        {
+            if (triggerNodeId is null) throw new InvalidOperationException("Event outputs require an external event node.");
+            await store.UpsertTaskRunAsync(new TaskRun
+            {
+                WorkflowId = workflow.Id, DefinitionStepId = triggerNodeId, Kind = TaskRunKind.Event,
+                Status = TaskRunStatus.Succeeded, ExecutionAttemptId = Guid.NewGuid(),
+                StructuredOutputsJson = JsonSerializer.Serialize(eventOutputs),
+                StartedAt = clock.UtcNow, CompletedAt = clock.UtcNow, CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow
+            }, cancellationToken);
+            workflow.IsPaused = false;
+            await store.UpdateWorkflowAsync(workflow, cancellationToken);
+        }
         var startNodeId = triggerNodeId ?? manualStart?.Id;
         var queuedMessage = startNodeId is null ? "Workflow queued from manual GitHub issue event." : $"Workflow queued from event node '{startNodeId}'.";
         await store.AddEventAsync(new WorkflowEvent
@@ -148,7 +163,7 @@ public sealed class WorkflowService
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
         if (parallel is null && definition is not null && !WorkflowGraphDefinitions.IsGraph(definition)
-            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses)
+            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses)
             && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
                 || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
         {
@@ -277,7 +292,7 @@ public sealed class WorkflowService
             }, cancellationToken);
             return workflow.ToSummary();
         }
-        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses) == true;
+        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses) == true;
         var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed
             && (!requiresCurrentTask || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
         if (failedRun is not null)
@@ -398,6 +413,8 @@ public sealed class WorkflowService
             TaskRunKind.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             TaskRunKind.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             TaskRunKind.Script => (WorkflowStatus.Running, WorkflowStep.Script),
+            TaskRunKind.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            TaskRunKind.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 
@@ -411,6 +428,8 @@ public sealed class WorkflowService
             WorkflowStep.AddressComments => (WorkflowStatus.Reviewing, WorkflowStep.AddressComments),
             WorkflowStep.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             WorkflowStep.Script => (WorkflowStatus.Running, WorkflowStep.Script),
+            WorkflowStep.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            WorkflowStep.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };
 

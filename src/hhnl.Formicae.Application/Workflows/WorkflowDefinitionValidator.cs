@@ -10,7 +10,8 @@ public sealed class WorkflowDefinitionValidator
         ["builtins.address-comments"] = TaskRunKind.AddressComments,
         [CustomTaskDefinitions.Uses] = TaskRunKind.Custom,
         [CustomTaskDefinitions.AgentUses] = TaskRunKind.Custom,
-        [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script
+        [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script,
+        [IssueCommentDefinitions.Uses] = TaskRunKind.AddIssueComment
     };
 
     public WorkflowDefinitionValidationResult ValidateDefinitionName(string? name)
@@ -50,6 +51,14 @@ public sealed class WorkflowDefinitionValidator
         foreach (var step in document.Steps)
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
+            errors.AddRange(IssueCommentDefinitions.ValidateStep(step));
+            if (WorkflowWaitRegistry.Default.TryGet(step.Uses, out var waitDefinition))
+            {
+                errors.AddRange(waitDefinition.Validate(step.Wait).Select(message => new WorkflowDefinitionValidationError("definition.wait.invalid", message, "steps[].wait", step.Id)));
+                if (step.AiSettingsId is not null || step.Model is not null || step.PersonaId is not null || step.EnvironmentId is not null)
+                    errors.Add(new("definition.wait.invalid", "Wait nodes do not select worker settings.", "steps[].wait", step.Id));
+            }
+            else if (step.Wait is not null) errors.Add(new("definition.wait.invalid", "Only wait nodes may carry wait settings.", "steps[].wait", step.Id));
             if (step.CustomTask is not null && !CustomTaskDefinitions.IsAgentTask(step.Uses))
                 errors.Add(new("definition.customTask.invalid", "Only agent task nodes may carry custom task settings.", "steps[].customTask", step.Id));
             if (step.Uses == CustomTaskDefinitions.AgentUses && step.CustomTask?.Definition is null)
@@ -105,7 +114,7 @@ public sealed class WorkflowDefinitionValidator
 
         foreach (var step in document.Steps)
         {
-            if (!SupportedBuiltins.ContainsKey(step.Uses))
+            if (!TryMapUsesToTaskKind(step.Uses, out _))
             {
                 errors.Add(new WorkflowDefinitionValidationError(
                     "definition.step.uses.unsupported",
@@ -282,7 +291,10 @@ public sealed class WorkflowDefinitionValidator
     }
 
     public static bool TryMapUsesToTaskKind(string uses, out TaskRunKind kind)
-        => SupportedBuiltins.TryGetValue(uses, out kind);
+        {
+        if (WorkflowWaitRegistry.Default.TryGet(uses, out _)) { kind = TaskRunKind.Wait; return true; }
+        return SupportedBuiltins.TryGetValue(uses, out kind);
+    }
 
     public static string UsesFor(TaskRunKind kind)
         => kind switch
@@ -293,6 +305,8 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.AddressComments => "builtins.address-comments",
             TaskRunKind.Custom => CustomTaskDefinitions.Uses,
             TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses,
+            TaskRunKind.AddIssueComment => IssueCommentDefinitions.Uses,
+            TaskRunKind.Wait => hhnl.Formicae.Application.Integrations.GitHubIssueCommentWaitDefinition.Uses,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
 }

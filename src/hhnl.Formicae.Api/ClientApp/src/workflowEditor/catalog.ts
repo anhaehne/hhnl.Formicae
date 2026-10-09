@@ -1,6 +1,8 @@
+import { issueCommentUses } from "../workflowData";
 import { eventDefinitions } from "../workflowEvents";
 import { scriptUses, agentTaskUses, customTaskUses, loopUses, parallelUses, decisionUses } from "../workflowGraph";
 export const taskCatalog = [
+  { uses: issueCommentUses, title: "Add issue comment", icon: "☰", description: "Post text to an issue in the connected GitHub repository." },
   { uses: scriptUses, title: "Script", icon: ">_", description: "Run a bounded shell script and retain output and exit code." },
   { uses: agentTaskUses, title: "Agent task", icon: "✧", description: "Run an agent prompt with a persona, typed inputs and outputs." },
   { uses: customTaskUses, title: "Custom task", icon: "✧", description: "Run a reusable agent prompt with typed inputs in a scratch workspace." },

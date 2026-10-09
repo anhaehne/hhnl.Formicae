@@ -46,8 +46,10 @@ export type WorkflowDefinitionLoop = {
   exitStepId: string;
 };
 
+export type WorkflowWaitSettings = { repositoryId?: string | null; issueNumber?: number | null; issueNumberBinding?: { stepId: string; outputName: string } | null };
 export type WorkflowEventSettings = { enabled: boolean; repositoryIds?: string[]; label?: string | null; baseBranch?: string | null; model?: string | null; webhookSecretName?: string | null; [key: string]: unknown };
-export type WorkflowEventDescriptor = { uses: string; title: string; description: string; provider?: string | null; manual: boolean; webhook: boolean; legacy: boolean; fields: { name: string; label: string; kind: string; required: boolean }[] };
+export type WorkflowIssueCommentSettings = { inputs?: Record<string, string | number | boolean>; bindings?: Record<string, CustomTaskInputBinding> };
+export type WorkflowEventDescriptor = { outputs?: CustomTaskOutputDefinition[] | null; uses: string; title: string; description: string; provider?: string | null; manual: boolean; webhook: boolean; legacy: boolean; callable?: boolean; fields: { name: string; label: string; kind: string; required: boolean }[] };
 export const listWorkflowEventDefinitions = () => send<WorkflowEventDescriptor[]>("/api/workflow-events");
 
 export type WorkflowTriggerType = "Manual" | "DevOpsIssueLabel" | "Webhook" | "DevOpsIssueCreated";
@@ -91,11 +93,12 @@ export type WorkflowDefinitionStep = {
   environmentId?: string | null;
   environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
-  script?: WorkflowScriptSettings | null;
+  script?: WorkflowScriptSettings | null; issueComment?: WorkflowIssueCommentSettings | null;
   capabilities?: string[] | null;
   secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null;
   event?: WorkflowEventSettings | null;
+  wait?: WorkflowWaitSettings | null;
   loop?: WorkflowLoopNodeSettings | null;
   parallel?: WorkflowParallelNodeSettings | null;
   decision?: WorkflowDecisionNodeSettings | null;
@@ -168,7 +171,9 @@ export class ApiError extends Error {
   }
 }
 
+export type PreparedIssueCommentExecution = { inputs: Record<string, string | number | boolean>; provenance: Record<string, CustomTaskInputProvenance> };
 export type TaskRun = {
+  issueCommentExecution?: PreparedIssueCommentExecution | null;
   id: string;
   workflowId: string;
   kind: string | number;
@@ -710,6 +715,7 @@ export type TaskRunAttempt = {
 };
 export type WorkflowExecution = {
  workflow: WorkflowSummary; definitionVersionId?: string | null; definition: WorkflowDefinitionDocument | null;
+ waits?: Array<{ id: string; workflowId: string; taskRunId: string; executionAttemptId: string; issueUrl: string; armedAt: string; matchedAt?: string | null; matchedEventId?: string | null; isCanceled: boolean; inputProvenanceJson?: string | null }>;
  runs: TaskRun[]; attempts: TaskRunAttempt[]; loops: WorkflowLoopIteration[]; decisions: WorkflowDecisionExecution[];
  parallels?: Array<{ id: string; workflowId: string; nodeId: string; outcome: string; startedAt: string; completedAt?: string | null }>;
  resolvedSettings?: Array<{ taskRunId: string; executionAttemptId?: string | null; aiSettingsId?: string | null; model?: string | null; personaId?: string | null; personaRevision?: number | null; personaName?: string | null; capabilities?: string[] | null; secretReferences?: StepSecretReference[] | null; environment?: unknown }>;
