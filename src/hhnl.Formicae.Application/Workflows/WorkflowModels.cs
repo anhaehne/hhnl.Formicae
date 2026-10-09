@@ -121,7 +121,8 @@ public sealed record WorkflowDefinitionDocument(
 
 public sealed record WorkflowEditorPosition(double X, double Y);
 public sealed record WorkflowEditorViewport(double X, double Y, double Zoom);
-public sealed record WorkflowEditorMetadata(IReadOnlyDictionary<string, WorkflowEditorPosition> Positions, WorkflowEditorViewport? Viewport = null);
+public sealed record WorkflowEditorGroup(string Id, string Name, string Color, IReadOnlyList<string> NodeIds);
+public sealed record WorkflowEditorMetadata(IReadOnlyDictionary<string, WorkflowEditorPosition> Positions, WorkflowEditorViewport? Viewport = null, IReadOnlyList<WorkflowEditorGroup>? Groups = null);
 
 public sealed record WorkflowDefinitionLoop(
     [property: JsonPropertyName("id")] string Id,

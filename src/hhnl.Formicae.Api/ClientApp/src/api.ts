@@ -35,7 +35,7 @@ export type WorkflowDefinitionDocument = {
   variables?: WorkflowDataVariable[] | null;
   triggers?: WorkflowDefinitionTrigger[] | null;
   loops?: WorkflowDefinitionLoop[] | null;
-  editor?: { positions: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null } | null;
+  editor?: { groups?: WorkflowEditorGroup[] | null; positions: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null } | null;
 };
 
 export type WorkflowDefinitionLoop = {
@@ -764,3 +764,5 @@ export const archiveImage = (id: string, expectedRevision: number) => sendNoCont
 export const listImageBuilds = (id: string) => send<ImageBuild[]>(`/api/images/${encodeURIComponent(id)}/builds`);
 export const queueImageBuild = (id: string, expectedRevision: number) => send<ImageBuild>(`/api/images/${encodeURIComponent(id)}/builds`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision }) });
 export const cancelImageBuild = (id: string, buildId: string) => send<ImageBuild>(`/api/images/${encodeURIComponent(id)}/builds/${encodeURIComponent(buildId)}/cancel`, { method: "POST" });
+
+export type WorkflowEditorGroup = { id: string; name: string; color: string; nodeIds: string[] };

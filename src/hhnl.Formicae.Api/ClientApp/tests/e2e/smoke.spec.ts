@@ -154,6 +154,9 @@ test("UI loads without page or console errors", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Management" })).toBeVisible();
   await historyReady;
   await expect(page.getByRole("region", { name: "Workflow history" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Workflow", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Definitions", exact: true }).click();
+  await page.getByRole("button", { name: "Manual Start", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start Workflow", exact: true })).toBeEnabled();
 
   expect(errors).toEqual([]);
@@ -257,4 +260,97 @@ test("trigger and loop nodes can be created configured connected and deleted", a
   expect(saved.steps.find((step: { id: string }) => step.id === "plan").nextStepPort).toBe("return");
   expect(saved.steps.some((step: { uses: string }) => step.uses === "builtins.trigger")).toBe(false);
   expect(errors).toEqual([]);
+});
+
+test("Manual Start uses only the selected definition's saved enabled versions", async ({ page, request }) => {
+  const name = `Manual start layout ${Date.now()}`;
+  const definition = await (await request.post(`${apiUrl}/api/workflow-definitions`, { data: { name } })).json();
+  const document = { schema: "formicae.workflow/v1alpha3", startStepId: "start", steps: [
+    { id: "start", uses: "builtins.start", displayName: "Start", event: { type: "builtins.start", enabled: true }, nextStepId: "plan" },
+    { id: "plan", uses: "builtins.plan", displayName: "Plan" }
+  ] };
+  const enabled = await request.post(`${apiUrl}/api/workflow-definitions/${definition.id}/versions`, { data: { isEnabled: true, isDefault: false, definition: document } });
+  expect(enabled.ok()).toBe(true);
+  const version = await enabled.json();
+  const disabled = await request.post(`${apiUrl}/api/workflow-definitions/${definition.id}/versions`, { data: { isEnabled: false, isDefault: false, definition: document } });
+  expect(disabled.ok()).toBe(true);
+  await page.goto("/workflow-definitions"); await openWorkflow(page, name);
+  await page.getByRole("button", { name: "Manual Start", exact: true }).click();
+  const form = page.getByRole("form", { name: "Manual Start" });
+  await expect(form.getByLabel("Version", { exact: true }).locator("option")).toHaveCount(1);
+  await expect(form.getByLabel("Version", { exact: true })).toHaveValue(version.id);
+  await form.getByLabel("Issue URL", { exact: true }).fill(`https://example.test/issues/${Date.now()}`);
+  await form.getByLabel("Repository URL", { exact: true }).fill("https://example.test/repository");
+  await form.getByLabel("Base Branch", { exact: true }).fill("work");
+  await form.getByLabel("Model", { exact: true }).fill("chosen-model");
+  const started = page.waitForRequest(request => request.url().endsWith("/api/workflows/github-issue") && request.method() === "POST");
+  await form.getByRole("button", { name: "Start Workflow", exact: true }).click();
+  expect((await started).postDataJSON()).toMatchObject({ workflowDefinitionId: definition.id, workflowDefinitionVersionId: version.id, baseBranch: "work", model: "chosen-model" });
+  await expect(page).toHaveURL(/\/workflows\?workflowId=/);
+  await expect(page.getByRole("region", { name: "Workflow execution", exact: true })).toBeVisible();
+});
+
+test("Manual Start explains unavailable versions and preserves command permissions", async ({ page, request }) => {
+  const name = `Disabled manual ${Date.now()}`;
+  const definition = await (await request.post(`${apiUrl}/api/workflow-definitions`, { data: { name } })).json();
+  const created = await request.post(`${apiUrl}/api/workflow-definitions/${definition.id}/versions`, { data: {
+    isEnabled: false, isDefault: false, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "plan", steps: [{ id: "plan", uses: "builtins.plan", displayName: "Plan" }] }
+  } });
+  expect(created.ok()).toBe(true);
+  await page.goto("/workflow-definitions"); await openWorkflow(page, name);
+  await page.getByRole("button", { name: "Manual Start", exact: true }).click();
+  await expect(page.getByText("This definition has no enabled version with a manual Start event.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Workflow", exact: true })).toBeDisabled();
+  await page.route("**/api/auth/current-user", async route => {
+    const response = await route.fetch(); const user = await response.json();
+    await route.fulfill({ json: { ...user, canTriggerWorkflows: false } });
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Manual Start", exact: true }).click();
+  await expect(page.getByText("Workflow command permission is required to start a run.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Workflow", exact: true })).toBeDisabled();
+});
+
+test("execution ports stay separate from content and status in the compact management layout", async ({ page, request }, testInfo) => {
+  const definition = await (await request.post(`${apiUrl}/api/workflow-definitions`, { data: { name: `Execution ports ${Date.now()}` } })).json();
+  const created = await request.post(`${apiUrl}/api/workflow-definitions/${definition.id}/versions`, { data: {
+    isEnabled: true, isDefault: false, definition: { schema: "formicae.workflow/v1alpha3", startStepId: "start", steps: [
+      { id: "start", uses: "builtins.start", displayName: "Start", event: { enabled: true }, nextStepId: "plan" },
+      { id: "plan", uses: "builtins.plan", displayName: "Plan" }
+    ] }
+  } });
+  expect(created.ok()).toBe(true);
+  const version = await created.json();
+  const started = await request.post(`${apiUrl}/api/workflows/github-issue`, { data: { issueUrl: `https://example.test/issues/${Date.now()}`, repositoryUrl: "https://example.test/repository", workflowDefinitionId: definition.id, workflowDefinitionVersionId: version.id } });
+  expect(started.ok()).toBe(true);
+  const workflow = await started.json();
+  await page.route(`**/api/workflows/${workflow.workflowId}/execution`, async route => {
+    const response = await route.fetch(); const execution = await response.json();
+    const start = execution.definition.steps.find((step: { id: string }) => step.id === execution.definition.startStepId);
+    start.uses = "github.issue-created"; start.displayName = "GitHub: Issue created with a long descriptive name"; start.event = { type: "github.issue-created", enabled: true };
+    await route.fulfill({ json: execution });
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`/workflows?workflowId=${workflow.workflowId}`);
+  const graph = page.locator(".execution-graph");
+  await expect(graph.locator(".editor-data-output").filter({ hasText: "Issue id" })).toBeAttached();
+  const measurements = await graph.locator(".execution-node").filter({ hasText: "GitHub: Issue created with a long descriptive name" }).evaluate(node => {
+    const rect = (selector: string) => { const box = node.querySelector(selector)!.getBoundingClientRect(); return { top: box.top, bottom: box.bottom }; };
+    return { title: rect("strong"), summary: rect(".editor-node-summary"), next: rect(".editor-port"), ports: rect(".editor-data-ports"), status: rect(".execution-node-state") };
+  });
+  expect(measurements.next.top).toBeGreaterThanOrEqual(measurements.summary.bottom);
+  expect(measurements.ports.top).toBeGreaterThanOrEqual(measurements.next.bottom);
+  expect(measurements.status.top).toBeGreaterThanOrEqual(measurements.ports.bottom);
+  const history = page.getByRole("region", { name: "Workflow history" });
+  const detail = page.getByRole("region", { name: "Workflow execution", exact: true });
+  expect((await history.boundingBox())!.x + (await history.boundingBox())!.width).toBeLessThan((await detail.boundingBox())!.x);
+  await history.locator("summary").filter({ hasText: "Filters and saved views" }).click();
+  const filtered = page.waitForRequest(request => request.url().includes("/api/workflows/search?") && request.url().includes("status=Failed"));
+  await history.getByLabel("Workflow status", { exact: true }).selectOption("Failed"); await filtered;
+  await expect(detail).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("workflow-management-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 600, height: 900 });
+  expect((await detail.boundingBox())!.y).toBeGreaterThan((await history.boundingBox())!.y + (await history.boundingBox())!.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("workflow-management-mobile.png"), fullPage: true });
 });

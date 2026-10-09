@@ -1,3 +1,4 @@
+import { inputsFor, outputsFor } from "../workflowData";
 import type { Edge } from "@xyflow/react";
 import { loopUses, isStartUses, parallelUses, decisionUses, type WorkflowStepNode } from "../workflowGraph";
 export async function arrange(nodes: WorkflowStepNode[], edges: Edge[]): Promise<WorkflowStepNode[]> {
@@ -5,8 +6,9 @@ export async function arrange(nodes: WorkflowStepNode[], edges: Edge[]): Promise
   const graph = await new ELK().layout({
     id: "workflow", layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "70", "elk.layered.spacing.nodeNodeBetweenLayers": "110" },
     children: nodes.map(node => {
-      const schema = node.data.customTask?.definition ?? node.data.customTask?.snapshot;
-      return { id: node.id, width: node.data.variable ? 180 : 240, height: node.data.variable ? 88 : schema ? 145 + Math.max(schema.inputs.length, schema.outputs?.length ?? 0) * 28 : node.data.uses === parallelUses ? 142 + (node.data.parallel?.branchStepIds.length ?? 2) * 34 : (node.data.uses === loopUses || node.data.uses === decisionUses) ? 160 : 120,
+      const rows = Math.max(inputsFor(node).length, outputsFor(node).length);
+      const controls = node.data.uses === parallelUses ? (node.data.parallel?.branchStepIds.length ?? 2) + 1 : node.data.uses === loopUses || node.data.uses === decisionUses ? 2 : 1;
+      return { id: node.id, width: node.data.variable ? 180 : 240, height: node.data.variable ? node.measured?.height ?? 100 : node.measured?.height ?? 155 + (rows + controls) * 28 + (node.data.executionStatus ? 46 : 0),
       layoutOptions: { "elk.portConstraints": "FIXED_ORDER" },
       ports: node.data.variable ? [] : [ ...(!isStartUses(node.data.uses) ? [{ id: `${node.id}:input`, properties: { "port.side": "WEST" } }] : []),
         ...(node.data.uses === decisionUses ? [{ id: `${node.id}:true`, properties: { "port.side": "EAST" } }, { id: `${node.id}:false`, properties: { "port.side": "EAST" } }] : node.data.uses === parallelUses ? [{ id: `${node.id}:join`, properties: { "port.side": "NORTH" } }, ...(node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => ({ id: `${node.id}:branch:${index}`, properties: { "port.side": "EAST" } })), { id: `${node.id}:next`, properties: { "port.side": "EAST" } }] : node.data.uses === loopUses ? [ { id: `${node.id}:return`, properties: { "port.side": "NORTH" } }, { id: `${node.id}:body`, properties: { "port.side": "EAST" } }, { id: `${node.id}:exit`, properties: { "port.side": "EAST" } } ] : [{ id: `${node.id}:next`, properties: { "port.side": "EAST" } }]) ] }; }),

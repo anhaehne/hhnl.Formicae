@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import type { EnvironmentSnapshot } from "../api";
+import type { EnvironmentSnapshot, WorkflowEditorGroup } from "../api";
 import type { Edge } from "@xyflow/react";
 import type { WorkflowStepNode } from "../workflowGraph";
 
-export type EditorDraft = { defaultEnvironmentId?: string | null; defaultEnvironmentSnapshot?: EnvironmentSnapshot | null; name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
+export type EditorDraft = { groups?: WorkflowEditorGroup[]; defaultEnvironmentId?: string | null; defaultEnvironmentSnapshot?: EnvironmentSnapshot | null; name: string; version: string; defaultPersonaId?: string | null; enabled: boolean; isDefault: boolean; start: string; nodes: WorkflowStepNode[]; edges: Edge[] };
 const comparable = (draft: EditorDraft) => ({ ...draft, defaultEnvironmentSnapshot: undefined, nodes: draft.nodes.map(node => ({ ...node, data: { ...node.data, personaSnapshot: undefined, environmentSnapshot: undefined, customTask: node.data.customTask ? { ...node.data.customTask, snapshot: undefined } : node.data.customTask } })) });
 const equal = (a: EditorDraft, b: EditorDraft) => JSON.stringify(comparable(a)) === JSON.stringify(comparable(b));
 export function useEditorState(initial: EditorDraft) {

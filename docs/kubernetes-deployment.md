@@ -9,29 +9,49 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.28.0 Workflow editor groups
+
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Workflow definitions save named visual groups, preset background colors and membership alongside the existing node layout. Drag a group header to move its members together; use the group inspector to edit names, colors or membership. Group containers do not become runtime steps. Existing definitions without groups remain readable; no database migration or worker protocol change is added. After rollout, group two nodes, rename and recolor the group, drag it, save a version and reopen it to verify persistence. This release preserves the 0.27.0 workflow management layout and Manual Start behavior.
+
+Local validation: all 1,144 .NET tests and all 96 single-worker browser smoke tests pass, along with the frontend build, Helm lint/render and live Playwright MCP console/network checks. Tests added: 3; removed: 0; existing tests edited: 0. Exact commands and environment details are recorded in the [groups feature spec](../agent-os/specs/2026-10-09-1656-workflow-editor-groups/plan.md).
+
+## 0.27.0 workflow management layout
+
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Workflow Management places its bounded run browser beside execution detail on wide screens and stacks them on narrow screens. Search and presets stay visible; expanded filters and saved views remain available. Output ports occupy dedicated rows below node descriptions and above execution status/timing.
+
+To start a workflow, open **Definitions**, select a definition and choose **Manual Start**. The side panel offers only that definition's enabled, manually startable saved versions, along with the existing issue, repository, branch and model fields. Save or discard unsaved editor changes before starting. Successful starts open the resulting execution. No database migration or worker protocol change is added. The baseline remains mandatory documentation; a separate baseline approval step is no longer required.
+
+Local verification for this release:
+
+- `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-restore --configuration Release`: **1,143 passed**.
+- `npm run build` from `src/hhnl.Formicae.Api/ClientApp`: **passed**, including refreshed tracked production assets.
+- With `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-layout-browsers`, `npm run test:smoke -- --workers=1`: **90/94 passed initially**. The four failures exposed the default zoom limit, an outdated saved-view test interaction and a version-selector label. After corrections, `npm run test:smoke -- --workers=1 tests/e2e/execution.spec.ts tests/e2e/smoke.spec.ts` passed **20/21**, including all original failures; the remaining failure exposed a palette node covering another node. After insertion spacing was corrected, `npm run test:smoke -- --workers=1 --grep 'trigger and loop nodes|contextual insertion preserves|parallel branch resizing|decision.*routes persist'` passed **5/5**. Test changes: **3 added, 0 removed, 2 edited**.
+- `./scripts/formicae-dev.sh prepare` restored/built the solution and installed frontend dependencies; its Chromium installation needed the isolated browser cache above. `./scripts/formicae-dev.sh start`, `status`, `logs` and `stop` passed. Playwright MCP inspected Manual Start and the resulting execution, console/network activity, screenshots and a trace; no console errors occurred.
+- `helm lint deploy/helm/formicae` and `git diff --check`: **passed**. This release changes frontend presentation and version tags; deployment-sensitive runtime configuration is unchanged.
+
 ## 0.26.3 AI Setup default model dropdown
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. AI Setup selects its Default Model through a dropdown using the existing CLI discovery API. Saved selections remain available, including models absent from discovery; clearing the selection uses the runtime default. Supported saved configurations expose Discover / refresh models with progress and error feedback. Save new configurations or runtime/authentication changes before discovery. No database migration or worker protocol change is added. After rollout, discover models in AI Setup, save a selection, and reload to confirm it persists.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. AI Setup selects its Default Model through a dropdown using the existing CLI discovery API. Saved selections remain available, including models absent from discovery; clearing the selection uses the runtime default. Supported saved configurations expose Discover / refresh models with progress and error feedback. Save new configurations or runtime/authentication changes before discovery. No database migration or worker protocol change is added. After rollout, discover models in AI Setup, save a selection, and reload to confirm it persists.
 
 ## 0.26.2 GitHub identity-provider restart notice
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. GitHub login reads saved integration settings on every challenge and callback, so enabling the identity provider takes effect immediately. Integration list/detail responses ignore legacy persisted restart flags, and activation no longer creates a restart requirement. This release preserves the administrator restart endpoint, activation permissions and invitations. No database migration or worker protocol change is added. After rollout, refresh the integration detail page: an already-enabled GitHub provider must retain its checked state without the stale restart notice.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. GitHub login reads saved integration settings on every challenge and callback, so enabling the identity provider takes effect immediately. Integration list/detail responses ignore legacy persisted restart flags, and activation no longer creates a restart requirement. This release preserves the administrator restart endpoint, activation permissions and invitations. No database migration or worker protocol change is added. After rollout, refresh the integration detail page: an already-enabled GitHub provider must retain its checked state without the stale restart notice.
 
 ## 0.26.1 Codex reconnect device-code extraction
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Codex connect/reconnect decodes native worker log envelopes before removing terminal formatting and reads the server-provided one-time code from the login prompt without fixed group lengths. AI Setup displays the code and device URL with its Copy action. No database migration or worker protocol change is added.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Codex connect/reconnect decodes native worker log envelopes before removing terminal formatting and reads the server-provided one-time code from the login prompt without fixed group lengths. AI Setup displays the code and device URL with its Copy action. No database migration or worker protocol change is added.
 
 ## 0.26.0 agent task output correction
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Agent and Custom tasks with declared outputs validate final responses inside the worker and send up to two correction messages to the same native CLI conversation within the original timeout. Rebuild custom images from the matching worker for this behavior. No database migration is added. See [task output correction](task-data-passing.md#agent-and-custom-task-output-correction-0260).
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Agent and Custom tasks with declared outputs validate final responses inside the worker and send up to two correction messages to the same native CLI conversation within the original timeout. Rebuild custom images from the matching worker for this behavior. No database migration is added. See [task output correction](task-data-passing.md#agent-and-custom-task-output-correction-0260).
 
 ## 0.25.0 issue event outputs and comments
 
-Deploy matching **0.26.3** API and worker images and Helm chart. GitHub Issue created exposes full JSON-string issue evidence and a numeric Issue id; Add issue comment posts through the connected integration without a worker. These contracts use existing definition JSON and task-run evidence columns; no additional database migration is required. See [issue event outputs](workflow-start-nodes.md#github-issue-outputs-0250).
+Deploy matching **0.28.0** API and worker images and Helm chart. GitHub Issue created exposes full JSON-string issue evidence and a numeric Issue id; Add issue comment posts through the connected integration without a worker. These contracts use existing definition JSON and task-run evidence columns; no additional database migration is required. See [issue event outputs](workflow-start-nodes.md#github-issue-outputs-0250).
 
 ## 0.24.0 issue-comment waits
 
-Deploy matching **0.26.3** API, worker and Helm chart versions. Startup applies the generated `AddWorkflowEventWaits` migration. Callable Issue commented nodes wait without a worker and resume the same execution once per activation. See [workflow event waits](workflow-event-waits.md).
+Deploy matching **0.28.0** API, worker and Helm chart versions. Startup applies the generated `AddWorkflowEventWaits` migration. Callable Issue commented nodes wait without a worker and resume the same execution once per activation. See [workflow event waits](workflow-event-waits.md).
 
 ## 0.23.0 managed agent images
 
@@ -39,21 +59,21 @@ Startup applies the generated managed-image catalog migration. Dockerfile builds
 
 ## 0.22.0 workflow event nodes
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Manual Start, authenticated Webhook and integration-owned issue events are separate event nodes. Startup creates a new version of the existing simple built-in workflow with a manual Start event under the orchestration lock; pinned versions are preserved. Existing pinned definitions remain readable and editor drafts adapt legacy manual entrypoints when saving a new version. Start-node settings and selected-entry audit use existing persisted JSON records; no database migration or worker protocol change is required.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Manual Start, authenticated Webhook and integration-owned issue events are separate event nodes. Startup creates a new version of the existing simple built-in workflow with a manual Start event under the orchestration lock; pinned versions are preserved. Existing pinned definitions remain readable and editor drafts adapt legacy manual entrypoints when saving a new version. Start-node settings and selected-entry audit use existing persisted JSON records; no database migration or worker protocol change is required.
 
 Webhook starts reference API configuration `WorkflowWebhooks:Secrets:<name>`. Provision each value through the API environment or mounted configuration, for example an environment variable `WorkflowWebhooks__Secrets__build-hook` backed by an operator-managed Kubernetes Secret key. Keep secret values outside workflow definitions, use HTTPS for external ingress, and retain the existing provider webhook secrets for GitHub/Gitea. See [workflow start nodes](workflow-start-nodes.md) for delivery and retry semantics.
 
 ## 0.22.0 Agent tasks
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Agent task definitions use the existing workflow JSON and agent execution protocol; no database migration is required. See [Agent tasks](agent-tasks.md).
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Agent task definitions use the existing workflow JSON and agent execution protocol; no database migration is required. See [Agent tasks](agent-tasks.md).
 
 ## 0.21.0 task dependency graphs
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Ordinary task outputs accept multiple connections; independent successor workloads run concurrently and every task waits for all incoming tasks to succeed. Existing sequential definitions and explicit parallel controls remain compatible. No new database migration is required for the graph connections, which are stored in immutable definition JSON and reuse persisted task executions. See [task graph connections](workflow-task-graphs.md) for scope and configuration.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Ordinary task outputs accept multiple connections; independent successor workloads run concurrently and every task waits for all incoming tasks to succeed. Existing sequential definitions and explicit parallel controls remain compatible. No new database migration is required for the graph connections, which are stored in immutable definition JSON and reuse persisted task executions. See [task graph connections](workflow-task-graphs.md) for scope and configuration.
 
 ## 0.20.0 workflow and environment extensions
 
-Deploy matching **0.26.3** API and worker images with the **0.26.3** Helm chart. Startup applies the generated nullable script exit-code migration for tasks and attempts. Existing versions remain readable. Custom execution images should extend the matching worker image so they implement the current worker protocol. Operator-managed step and image-pull Secrets must exist in the configured worker namespace; the API service account uses its existing Secret get permission to validate selected references before launch. Values are never exposed through the configuration API.
+Deploy matching **0.28.0** API and worker images with the **0.28.0** Helm chart. Startup applies the generated nullable script exit-code migration for tasks and attempts. Existing versions remain readable. Custom execution images should extend the matching worker image so they implement the current worker protocol. Operator-managed step and image-pull Secrets must exist in the configured worker namespace; the API service account uses its existing Secret get permission to validate selected references before launch. Values are never exposed through the configuration API.
 
 See [workflow environment extensions](workflow-environment-extensions.md) for scripts, capabilities, secret bindings, MCP configuration and tool installation.
 
@@ -71,7 +91,7 @@ Release 0.8.1 restores workflow loops and replaces the unapplied 0.8.0 loop migr
 
 Missing, ambiguous, or duplicate mappings abort the migration transaction and identify the workflow in the error. Investigate the pinned definition and historical rows before retrying; do not delete history to bypass the index. This replacement targets databases where the original `20260904150621_AddWorkflowLoops` migration never committed. A database that successfully applied that migration requires a separately reviewed upgrade path.
 
-Deploy matching API and worker images and Helm chart version **0.26.3**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
+Deploy matching API and worker images and Helm chart version **0.28.0**. The migration is generated with EF tooling; its backfill SQL is inserted by `WorkflowMigrationDesignTimeServices` from `Persistence/Design/NormalizeLegacyTaskRuns.sql`, so migration files and snapshots do not require manual edits.
 
 After a deployment failure, the GitHub Actions workflow collects resource status, descriptions, ordered events, and current and previous logs for each API container. For manual diagnostics with the deployment kubeconfig:
 
@@ -520,4 +540,4 @@ Before rollback, stop creating or executing workflows using output schemas or bi
 
 See [the two-task example](task-data-passing.md) for configuration and execution rules.
 
-Automatic deployment uses matching API, worker and Helm release versions (0.26.3 for the AI Setup default model dropdown fix). Increase the semantic version for each release so Kubernetes receives a new image tag. Deployment validation checks the exact version-tagged API image reference and HTTP `/healthz` after rollout.
+Automatic deployment uses matching API, worker and Helm release versions (0.28.0 for workflow editor groups). Increase the semantic version for each release so Kubernetes receives a new image tag. Deployment validation checks the exact version-tagged API image reference and HTTP `/healthz` after rollout.

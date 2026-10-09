@@ -1525,7 +1525,7 @@ pre.collapsed-content::after {
 .editor-inspector .form-row { grid-template-columns: 1fr 1fr; }
 .editor-inspector fieldset { border: 1px solid #d7dbd2; margin-bottom: 12px; }
 .editor-inspector .toggle-label { display: flex; align-items: center; }
-.editor-node { position: relative; width: 240px; min-height: 120px; padding: 14px 62px 14px 14px; border: 1px solid #bdc6bd; border-left: 4px solid #12625d; border-radius: 10px; background: white; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 2px 6px #18201b14; }
+.editor-node { position: relative; width: 240px; min-height: 120px; padding: 14px; border: 1px solid #bdc6bd; border-left: 4px solid #12625d; border-radius: 10px; background: white; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 2px 6px #18201b14; }
 .editor-node.loop { min-height: 160px; border-left-color: #a57422; }
 .editor-node.event { border-left-color: #5f61a6; }
 .editor-node.selected { outline: 3px solid #218b8150; border-color: #12625d; }
@@ -1536,7 +1536,7 @@ pre.collapsed-content::after {
 .editor-start { font-size: .64rem; font-weight: 750; color: #12625d; }
 .editor-node-error { color: #a3352c; font-size: .67rem; }
 .editor-return { position: absolute; top: -22px; left: 38%; font-size: .72rem; color: #805919; }
-.editor-port { position: absolute; right: 0; display: flex; align-items: center; gap: 3px; transform: translateY(-50%); font-size: .65rem; }
+.editor-port { position: relative; display: flex; justify-content: flex-end; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px; font-size: .65rem; }
 .editor-port button { padding: 0; min-height: 26px; min-width: 26px; margin-right: 6px; }
 .editor-port .react-flow__handle { right: -6px; }
 .editor-node .react-flow__handle { width: 12px; height: 12px; border: 2px solid white; background: #12625d; }
@@ -1736,8 +1736,7 @@ pre.collapsed-content::after {
 .execution-inspector { overflow: auto; max-height: 620px; padding: 16px; border-left: 1px solid #dce4d6; }
 .execution-inspector h3 { margin-top: 0; }
 .execution-inspector > label { margin-bottom: 12px; }
-.execution-node .editor-node { padding-bottom: 50px; }
-.execution-node-state { position: absolute; bottom: 10px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 10px; pointer-events: none; }
+.execution-node-state { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid #e1e7dc; font-size: 10px; pointer-events: none; }
 .execution-failure { padding: 12px; background: #fff2ee; color: #933726; border: 1px solid #e7bdb2; border-radius: 6px; overflow-wrap: anywhere; }
 .execution-confirm { padding: 14px; background: #fff8e9; border: 1px solid #e8d3a5; border-radius: 8px; }
 .execution-confirm button { margin-right: 12px; }
@@ -1769,6 +1768,57 @@ pre.collapsed-content::after {
 .image-build-logs { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-picker { display: grid; gap: .5rem; margin: .5rem 0; }
 @media (max-width: 800px) { .images-page .personas-layout { grid-template-columns: 1fr; } }
+
+/* Group backgrounds sit beneath steps and connections; only the header starts a drag. */
+.editor-group-container { width: 100%; height: 100%; border: 2px solid #94a3b8; border-radius: 12px; }
+.editor-group-title { min-height: 38px; padding: 10px 16px; font-weight: 700; color: #1e293b; cursor: grab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.react-flow__node-workflowGroup.selected .editor-group-container { border-color: #2563eb; box-shadow: 0 0 0 2px #2563eb; }
+.editor-inspector[aria-label="Group inspector"] fieldset { border: 1px solid #cbd5e1; border-radius: 8px; margin: 16px 0; padding: 12px; }
+
+.editor-inspector[aria-label="Group inspector"] > :not(.editor-panel-heading) { margin-left: 18px; margin-right: 18px; }
+.editor-inspector[aria-label="Group inspector"] > .editor-panel-heading { margin-bottom: 16px; }
+/* Ports occupy their own rows below content, above execution evidence. */
+.editor-ports { margin: 5px -14px 0; }
+.editor-data-ports { border-top: 1px solid #edf0e9; }
+.editor-data-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 28px; font-size: 11px; }
+.editor-data-input, .editor-data-output { position: relative; display: flex; align-items: center; padding: 5px 10px; min-width: 0; overflow-wrap: anywhere; }
+.editor-data-output { justify-content: flex-end; text-align: right; }
+.editor-node .editor-data-input .react-flow__handle, .editor-node .editor-data-output .react-flow__handle { background: #168b85; }
+.definition-manual-start { display: grid; gap: 14px; padding: 0 18px 18px; }
+.definition-manual-start h3, .definition-manual-start p { margin: 0; }
+.definition-manual-start label { display: grid; gap: 5px; font-size: .8rem; }
+.definition-manual-start .form-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.workflow-management { display: grid; grid-template-columns: minmax(270px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.workflow-investigation { min-width: 0; }
+.workflow-investigation .execution-panel { margin-top: 0; }
+.workflow-investigation .panel-heading { flex-wrap: wrap; }
+.workflow-management .recent-panel { min-width: 0; position: sticky; top: 20px; }
+.workflow-management .recent-panel .panel-heading { flex-wrap: wrap; gap: 6px; }
+.workflow-management .recent-panel .panel-heading span { font-size: .75rem; }
+.history-search label { display: grid; gap: 6px; font-size: .8rem; }
+.history-options { margin: 14px 0; font-size: .8rem; }
+.history-options summary { cursor: pointer; color: #405d45; }
+.history-options .execution-filters { grid-template-columns: minmax(0, 1fr); }
+.history-options[open] { max-height: 40vh; overflow-y: auto; padding-right: 4px; }
+.workflow-run-list { max-height: min(58vh, 650px); overflow-y: auto; display: grid; gap: 8px; }
+.workflow-run { border: 1px solid #dce4d5; border-radius: 7px; background: #fbfcf9; }
+.workflow-run.selected { border-color: #12625d; background: #e7f0e8; }
+.workflow-run-select { display: grid; gap: 8px; width: 100%; text-align: left; padding: 12px; background: transparent; border: 0; color: #354b3b; border-radius: 7px; cursor: pointer; }
+.workflow-run-select:hover { background: #eaf1e4; }
+.workflow-run-select:focus-visible { outline: 2px solid #12625d; outline-offset: -2px; }
+.workflow-run-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.workflow-run-select span, .workflow-run > a { font-size: .72rem; }
+.workflow-run-select strong { font-size: .8rem; overflow-wrap: anywhere; }
+.workflow-run > a { display: inline-block; margin: 0 12px 12px; }
+.workflow-run-failure { color: #933726; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.workflow-management .recent-panel > .execution-toolbar { gap: 6px; }
+.workflow-management .recent-panel > .execution-toolbar:last-child { justify-content: space-between; font-size: .7rem; }
+.workflow-management .recent-panel > .execution-toolbar:last-child button { padding: 6px; font-size: .7rem; }
+@media (max-width: 900px) {
+  .workflow-management { grid-template-columns: minmax(0, 1fr); }
+  .workflow-management .recent-panel { position: static; }
+  .workflow-run-list { max-height: 260px; }
+}
 
 .editor-node.variable { width: 180px; min-height: 88px; border-radius: 44px; padding: 16px 22px; border-color: #168b85; background: #eefaf8; }
 .editor-node.variable .editor-node-kind { color: #13746f; font-size: 10px; }

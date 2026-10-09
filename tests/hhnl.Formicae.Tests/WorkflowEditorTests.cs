@@ -46,6 +46,30 @@ public sealed class WorkflowEditorTests
     }
 
     [Fact]
+    public async Task Named_groups_round_trip_without_changing_execution_or_older_versions()
+    {
+        var store = new InMemoryWorkflowStore();
+        var service = new WorkflowDefinitionService(store, new());
+        var definition = await service.CreateAsync(new("Groups"), default);
+        var document = Document() with { Editor = Document().Editor! with {
+            Groups = [new("group-1", "Planning", "purple", ["plan"])]
+        } };
+        var first = await service.CreateVersionAsync(definition.Id, new(null, true, false, document), default);
+        await service.CreateVersionAsync(definition.Id, new(null, true, false, document with {
+            Editor = document.Editor! with { Groups = [new("group-1", "Delivery", "blue", ["plan"])] }
+        }), default);
+        var saved = WorkflowDefinitionJson.Deserialize((await store.GetWorkflowDefinitionVersionAsync(first.Id, default))!.DefinitionJson)!;
+        var group = Assert.Single(saved.Editor!.Groups!);
+        Assert.Equal("group-1", group.Id);
+        Assert.Equal("Planning", group.Name);
+        Assert.Equal("purple", group.Color);
+        Assert.Equal("plan", Assert.Single(group.NodeIds));
+        Assert.Equal(document.Editor.Positions["plan"], saved.Editor.Positions["plan"]);
+        Assert.Equal(WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(saved with { Editor = null })),
+            WorkflowDefinitionJson.Serialize(WorkflowNodeDefinitions.Normalize(saved)));
+    }
+
+    [Fact]
     public async Task Validation_does_not_create_definitions_or_versions()
     {
         var store = new InMemoryWorkflowStore();
