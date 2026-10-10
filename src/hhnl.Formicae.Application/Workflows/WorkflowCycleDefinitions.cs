@@ -9,7 +9,7 @@ public static class WorkflowCycleDefinitions
     {
         var loop = document.Loops?.FirstOrDefault(item => item.BodyStepIds.LastOrDefault() == step.Id);
         if (loop is not null) return [loop.ExitStepId];
-        return step.Decision is { } decision ? [decision.TrueStepId, decision.FalseStepId]
+        return step.Decision is { } decision ? WorkflowDecisionDefinitions.Routes(decision).Select(route => route.Target)
             : WorkflowGraphDefinitions.Successors(step);
     }
 

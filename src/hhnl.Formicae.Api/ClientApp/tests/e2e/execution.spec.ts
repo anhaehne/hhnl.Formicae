@@ -132,3 +132,18 @@ test("unsaved graph positions finish slow initial layout while execution snapsho
  await expect.poll(() => snapshots, { timeout: 10000 }).toBeGreaterThanOrEqual(4);
  await expect(nodes).toHaveCount(4); expect(await page.locator(".execution-graph .react-flow__viewport").getAttribute("style")).toBe(viewport);
 });
+
+test("management details display pinned groups with colors and selectable members", async ({ page }, testInfo) => {
+ const snapshot = execution();
+ const grouped = { ...snapshot, definition: { ...definition, editor: { ...definition.editor, groups: [{ id: "saved", name: "Saved delivery group", color: "purple", nodeIds: ["summary", "route"] }] } } };
+ await fixture(page, { snapshot: () => grouped }); await page.goto(`/workflows?workflowId=${id}`);
+ const group = page.locator('.execution-graph .react-flow__node[data-id="group:saved"]');
+ await expect(group).toBeVisible(); await expect(group.getByText("Saved delivery group", { exact: true })).toBeVisible();
+ await expect(group.locator(".editor-group-container")).toHaveCSS("background-color", "rgb(243, 232, 255)");
+ await expect(page.locator('.execution-graph .react-flow__node[data-id="summary"]')).toBeVisible();
+ await page.locator('.execution-graph .react-flow__node[data-id="summary"]').click();
+ await expect(page.getByLabel("Task / node", { exact: true })).toHaveValue("summary");
+ await expect(page.getByLabel("Group name", { exact: true })).toHaveCount(0);
+ await page.screenshot({ path: testInfo.outputPath("management-groups.png") });
+ await page.waitForTimeout(3200); await expect(group.getByText("Saved delivery group", { exact: true })).toBeVisible();
+});

@@ -137,7 +137,10 @@ public static class WorkflowNodeDefinitions
             {
                 ConfiguredTrueStepId = n.Decision.ConfiguredTrueStepId ?? n.Decision.TrueStepId,
                 ConfiguredFalseStepId = n.Decision.ConfiguredFalseStepId ?? n.Decision.FalseStepId,
-                TrueStepId = Entry(n.Decision.TrueStepId), FalseStepId = Entry(n.Decision.FalseStepId)
+                TrueStepId = n.Decision.InputType is null or "boolean" ? Entry(n.Decision.TrueStepId) : "",
+                FalseStepId = n.Decision.InputType is null or "boolean" ? Entry(n.Decision.FalseStepId) : "",
+                Cases = n.Decision.Cases?.Select(item => item with { StepId = Entry(item.StepId) }).ToArray(),
+                DefaultStepId = n.Decision.DefaultStepId is { } fallback ? Entry(fallback) : null
             }
         }).ToArray();
         var triggers = nodes.Values.Where(n => n.Uses == TriggerUses).Select(n => new WorkflowDefinitionTrigger(

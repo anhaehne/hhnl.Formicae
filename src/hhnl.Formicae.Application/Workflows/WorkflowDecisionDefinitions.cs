@@ -6,6 +6,42 @@ public static class WorkflowDecisionDefinitions
     public const string Uses = "builtins.decision";
     private sealed record Link(string Source, string Target, string Role);
 
+    public static IEnumerable<(string Port, string Target)> Routes(WorkflowDecisionNodeSettings settings)
+        => settings.InputType is null or "boolean" ? [("true", settings.TrueStepId), ("false", settings.FalseStepId)]
+            : settings.InputType == "any" ? [] : (settings.Cases ?? []).Where(item => item is not null).Select(item => ($"case:{item.Id}", item.StepId))
+                .Append(("default", settings.DefaultStepId ?? ""));
+
+    public static WorkflowDefinitionValidationResult ValidateInput(WorkflowDecisionNodeSettings settings)
+    {
+        var errors = new List<WorkflowDefinitionValidationError>();
+        void Error(string message) => errors.Add(new("definition.decision.input.invalid", message, "decision"));
+        if (settings.InputType is not ("boolean" or "string" or "number")) Error("Connect a boolean, string or number input to the Decision.");
+        if (settings.InputBinding is null || string.IsNullOrWhiteSpace(settings.InputBinding.StepId) || string.IsNullOrWhiteSpace(settings.InputBinding.OutputName))
+            Error("Decision requires a connected typed input.");
+        if (settings.InputType == "boolean" && ((settings.Cases?.Count ?? 0) > 0 || settings.DefaultStepId is not null))
+            Error("Boolean decisions have only True and False exits.");
+        if (settings.InputType is "string" or "number")
+        {
+            if (string.IsNullOrWhiteSpace(settings.DefaultStepId)) Error("Decision requires a connected Default exit.");
+            if (settings.Cases is null || settings.Cases.Count > 32) Error("Decision supports at most 32 cases.");
+            var ids = new HashSet<string>(StringComparer.Ordinal); var strings = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in settings.Cases ?? [])
+            {
+                if (item is null) { Error("Decision cases must be objects."); continue; }
+                if (string.IsNullOrWhiteSpace(item.Id) || !ids.Add(item.Id)) Error("Case identifiers must be nonempty and unique.");
+                if (settings.InputType == "string")
+                {
+                    if (item.Operator != "equals" || !CustomTaskDefinitions.ValidScalar(item.Value, "string")) Error("String cases require an exact string value.");
+                    else if (!strings.Add(item.Value.GetString()!)) Error("String case values must be unique.");
+                }
+                else if (item.Operator is not ("equals" or "notEquals" or "greaterThan" or "greaterThanOrEqual" or "lessThan" or "lessThanOrEqual")
+                    || !CustomTaskDefinitions.ValidScalar(item.Value, "number"))
+                    Error("Numeric cases require a supported comparison and a finite decimal operand.");
+            }
+        }
+        return new(errors);
+    }
+
     public static WorkflowDefinitionValidationResult Validate(WorkflowDefinitionDocument document)
     {
         var errors = new List<WorkflowDefinitionValidationError>();
@@ -43,15 +79,15 @@ public static class WorkflowDecisionDefinitions
             }
             if (isDecision)
             {
-                if (node.NextStepId is not null) Error(node.Id, "Decision nodes use True and False outputs, not Next.");
+                if (node.NextStepId is not null) Error(node.Id, "Decision nodes use their route exits, not Next.");
                 if (node.Decision is not { } decision) { Error(node.Id, "Decision settings are required."); continue; }
-                if (decision.TrueStepId == decision.FalseStepId) Error(node.Id, "True and False must reference different targets.");
-                foreach (var (role, target) in new[] { ("true", decision.TrueStepId), ("false", decision.FalseStepId) })
+                if (decision.InputType is null or "boolean" && decision.TrueStepId == decision.FalseStepId) Error(node.Id, "True and False must reference different targets.");
+                foreach (var (role, target) in Routes(decision))
                 {
                     if (!ValidTarget(target)) Error(node.Id, $"Decision {role} must reference an execution node.");
                     else links.Add(new(node.Id, target, role));
                 }
-                foreach (var error in WorkflowDecisionEvaluator.Validate(decision.Condition).Errors)
+                foreach (var error in (decision.InputType is null ? WorkflowDecisionEvaluator.Validate(decision.Condition) : ValidateInput(decision)).Errors)
                     errors.Add(error with { NodeId = node.Id });
             }
             if (isLoop)
@@ -156,7 +192,7 @@ public static class WorkflowDecisionDefinitions
             }
             return true;
         }
-        foreach (var node in nodes.Values.Where(n => n.Decision?.Condition.Source == "taskOutput"))
+        foreach (var node in nodes.Values.Where(n => n.Decision?.InputType is null && n.Decision?.Condition.Source == "taskOutput"))
         {
             var reference = node.Decision!.Condition.Reference;
             if (reference is null || !nodes.TryGetValue(reference, out var source)

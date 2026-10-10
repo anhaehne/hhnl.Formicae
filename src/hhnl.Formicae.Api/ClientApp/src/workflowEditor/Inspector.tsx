@@ -1,3 +1,4 @@
+import { TypedDecisionSettings } from "./TypedDecisionSettings";
 import { VariableSettings } from "./VariableSettings";
 import { issueCommentUses } from "../workflowData";
 import { IssueCommentSettings } from "./IssueCommentSettings";
@@ -9,19 +10,20 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { AgentTaskSettings } from "./AgentTaskSettings";
 import { CustomTaskSettings } from "./CustomTaskSettings";
 import { PersonaPicker } from "./PersonaPicker";
-import { DecisionSettings } from "./DecisionSettings";
+import { LegacyDecisionSettings } from "./DecisionSettings";
 import { StepIcon } from "./StepIcon";
 import type { Edge } from "@xyflow/react";
 import { type WorkflowDefinitionValidationError, type Persona, type PersonaSnapshot, type CustomTaskDefinition, type CustomTaskSnapshot, type EnvironmentProfile, type EnvironmentSnapshot } from "../api";
 import { StepModelSettings } from "../StepModelSettings";
-import { endUses, waitUses, scriptUses, loopUses, isStartUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
+import { decisionPorts, endUses, waitUses, scriptUses, loopUses, isStartUses, parallelUses, decisionUses, supportedUses, type WorkflowStepNode, type WorkflowStepNodeData } from "../workflowGraph";
 import { titleFor } from "./catalog";
 
 type Props = { webhookUrl?: string; workflowStart: string; environments: EnvironmentProfile[]; defaultEnvironmentId?: string | null; savedEnvironmentSnapshot?: EnvironmentSnapshot | null; customTasks: CustomTaskDefinition[]; savedCustomSnapshot?: CustomTaskSnapshot | null; savedPersonaSnapshot?: PersonaSnapshot | null; personas: Persona[]; defaultPersonaId?: string | null; node: WorkflowStepNode; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; errors: WorkflowDefinitionValidationError[];
   update: (values: Partial<WorkflowStepNodeData>) => void; rename: (id: string) => void; move: (axis: "x" | "y", value: number) => void;
   resizeBranches: (count: number) => void;
+  connectInput: (source: string, port: string, target?: string, targetPort?: string) => void;
   connect: (port: string, target?: string, targetPort?: string) => void; disconnect: (edgeId: string) => void; close: () => void; begin: () => void; commit: () => void };
-export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, disconnect, resizeBranches, close, begin, commit }: Props) {
+export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvironmentId, savedEnvironmentSnapshot, customTasks, savedCustomSnapshot, savedPersonaSnapshot, personas, defaultPersonaId, node, nodes, edges, disabled, errors, update, rename, move, connect, connectInput, disconnect, resizeBranches, close, begin, commit }: Props) {
   const data = node.data;
   if (data.variable) return <VariableSettings node={node} nodes={nodes} edges={edges} start={workflowStart} tasks={customTasks} disabled={disabled} errors={errors} update={update} rename={rename} move={move} close={close} begin={begin} commit={commit} />;
   const workerTask = ![endUses, waitUses, loopUses, parallelUses, decisionUses, "builtins.create-pull-request", issueCommentUses].includes(data.uses) && !isStartUses(data.uses);
@@ -57,7 +59,7 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
     {workerTask && <ExecutionSettings capabilities={data.capabilities} references={data.secretReferences} environment={profile} script={data.uses === scriptUses} disabled={disabled} onChange={update} />}
     {data.uses === "builtins.agent-task" && <AgentTaskSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.customTask} tasks={customTasks} disabled={disabled} onChange={customTask => update({ customTask })} />}
     {data.uses === "builtins.custom-task" && <CustomTaskSettings nodes={nodes} edges={edges} stepId={node.id} start={workflowStart} value={data.customTask} tasks={customTasks} savedSnapshot={savedCustomSnapshot} disabled={disabled} onChange={customTask => update({ customTask })} />}
-    {data.decision && <DecisionSettings condition={data.decision.condition} nodes={nodes} edges={edges} disabled={disabled} update={condition => update({ decision: { ...data.decision!, condition } })} />}
+    {data.decision && (data.decision.inputType ? <TypedDecisionSettings value={data.decision} nodes={nodes} edges={edges} tasks={customTasks} stepId={node.id} start={workflowStart} disabled={disabled} update={decision => update({ decision })} connect={connectInput} disconnect={disconnect} /> : <LegacyDecisionSettings condition={data.decision.condition} nodes={nodes} edges={edges} disabled={disabled} update={condition => update({ decision: { ...data.decision!, condition } })} />)}
     {data.parallel && <section className="editor-property-section"><h4>Parallel branches</h4>
       <p className="muted">Run 2–8 independent Plan branches concurrently. Each branch must end at this node’s Join input. Next runs after every branch succeeds. Other task types and nested control nodes are not supported inside branches.</p>
       <label><span>Branch count</span><select aria-label="Branch count" disabled={disabled} value={data.parallel.branchStepIds.length} onChange={event => resizeBranches(Number(event.target.value))}>{Array.from({ length: 7 }, (_, index) => <option key={index + 2} value={index + 2}>{index + 2} branches</option>)}</select></label>
@@ -74,7 +76,7 @@ export function Inspector({ webhookUrl, workflowStart, environments, defaultEnvi
     {data.event && <EventSettings uses={data.uses} value={data.event} disabled={disabled} webhookUrl={webhookUrl} onChange={event => update({ event })} />}
     {data.uses === endUses && <section className="editor-property-section"><p className="muted">The first incoming route reaching End completes this workflow. All other running tasks and waiting events are stopped.</p></section>}
     {data.uses !== endUses && <section className="editor-property-section"><h4>Flow connections</h4>
-    {data.decision ? <>{connection("true", "True route")}{connection("false", "False route")}</> : data.parallel ? <>{data.parallel.branchStepIds.map((_, index) => <div key={index}>{connection(`branch:${index}`, `Branch ${index + 1}`)}</div>)}{connection("next", "Next step")}</> : data.loop ? <>{connection("body", "Loop body")}{connection("exit", "Loop exit")}<p className="muted">Connect the last body task to Return. Exit runs after all repetitions.</p></> : connection("next", "Next step")}
+    {data.decision ? <>{decisionPorts(data.decision).map(item => connection(item.port, `${item.label} route`))}</> : data.parallel ? <>{data.parallel.branchStepIds.map((_, index) => <div key={index}>{connection(`branch:${index}`, `Branch ${index + 1}`)}</div>)}{connection("next", "Next step")}</> : data.loop ? <>{connection("body", "Loop body")}{connection("exit", "Loop exit")}<p className="muted">Connect the last body task to Return. Exit runs after all repetitions.</p></> : connection("next", "Next step")}
     {!data.decision && !data.parallel && !data.loop && !data.event && <>
       <p className="muted">Connect multiple next steps to run them in parallel. Each step waits for all incoming tasks to succeed.</p>
       {edges.filter(edge => edge.source === node.id && edge.sourceHandle === "next").map(edge => <div key={edge.id}>

@@ -25,7 +25,7 @@ function ordinaryTasks(nodes: WorkflowStepNode[], edges: Edge[]) {
   return nodes.filter(node => (supportedUses as readonly string[]).includes(node.data.uses) && !bodies.has(node.id));
 }
 
-export function DecisionSettings({ condition, nodes, edges, disabled, update }: {
+export function LegacyDecisionSettings({ condition, nodes, edges, disabled, update }: {
   condition: DecisionCondition; nodes: WorkflowStepNode[]; edges: Edge[]; disabled: boolean; update: (value: DecisionCondition) => void;
 }) {
   const scalar = (key: "value" | "compareTo", label: string) => <label><span>{label}</span>{condition.valueType === "boolean"

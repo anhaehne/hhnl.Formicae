@@ -48,7 +48,7 @@ public static class WorkflowStartDefinitions
             foreach (var node in nodes.Values)
                 if (WorkflowGraphDefinitions.Successors(node).Contains(start.Id)
                     || node.Loop?.BodyStepId == start.Id || node.Parallel?.BranchStepIds.Contains(start.Id) == true
-                    || node.Decision?.TrueStepId == start.Id || node.Decision?.FalseStepId == start.Id)
+                    || node.Decision is { } decision && WorkflowDecisionDefinitions.Routes(decision).Any(route => route.Target == start.Id))
                     Error("Start nodes cannot have incoming control connections.", start.Id);
         }
         if (errors.Count > 0) return new(errors);

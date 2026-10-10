@@ -9,6 +9,10 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.32.0 typed decisions and node display
+
+Deploy matching **0.32.0** API and worker images with the **0.32.0** Helm chart. New decisions infer boolean/string/number from a connected typed output or variable. Boolean uses True/False exits; string uses exact values plus Default; number uses ordered comparisons plus Default, with the first matching comparison selected. Saving an enabled version requires valid inputs and connected exits. Existing saved comparison decisions remain compatible. Custom tasks appear by their own names in Add Step; Workflow Management displays pinned visual groups and colors. No database migration is added. After rollout, verify each input type, an unmatched Default route, named custom-task insertion and a grouped execution graph. See [typed decisions](workflow-task-graphs.md#typed-decisions-0320).
+
 ## 0.31.0 workflow End nodes
 
 Deploy matching **0.31.0** API and worker images with the **0.31.0** Helm chart. End completes a workflow on the first arriving route, cancels running/queued siblings and event waits, and preserves successful completion while failed worker cleanup retries. It is available in the palette with an input and no outgoing ports. Explicit Parallel branches may terminate at End instead of Join. No database migration is added. After rollout, connect a short route to End alongside a long worker and event wait; verify successful workflow completion, canceled siblings/waits and retained history. See [End node semantics](workflow-task-graphs.md#end-nodes-0310).

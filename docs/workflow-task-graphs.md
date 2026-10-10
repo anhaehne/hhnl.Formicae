@@ -33,3 +33,15 @@ Add **End** from the workflow editor palette and connect a control route to it. 
 Other running and queued tasks and armed event waits are canceled. No subsequent task, cycle visit or event continuation starts. Completed tasks keep their evidence, End records a successful run, and stopped parallel/loop executions retain canceled outcomes. Worker stop or log-capture failures remain durable cleanup work and retry after restart without changing the workflow's successful completion. An interrupted End arrival also recovers before scheduling more work.
 
 Existing definitions without End keep their behavior. No database migration or new worker job protocol is required.
+
+## Typed decisions (0.32.0)
+
+Add Decision and connect its **value** data input to a typed producer output or variable that is available before the decision. It initially accepts any scalar type and adapts to the connection:
+
+- **Boolean:** connect True and False control exits. The incoming boolean selects its exit directly.
+- **String:** add distinct exact values, connect each value's exit, and connect the mandatory Default exit. Matching is case-sensitive; unmatched values take Default.
+- **Number:** add comparisons (`=`, `!=`, `>`, `>=`, `<`, `<=`) with numeric operands. Connect each comparison's exit and Default. The first matching comparison in the displayed order wins; use Move up to change priority.
+
+Changing the input type clears incompatible cases and exits; undo restores them. Missing or wrongly typed values fail execution. The recorded input, producer provenance and selected route remain durable across restart and retry. Legacy decisions retain their original comparison settings and behavior. Decisions remain unsupported inside explicit loop or parallel bodies, and ordinary fan-out graphs retain their existing control-node restriction.
+
+Custom tasks appear by catalog name alongside other nodes in Add Step. Adding one selects its reusable task identity and displays its input/output ports; saving pins the current revision. Workflow Management's read-only execution graph uses the pinned version's group names, preset colors, membership and saved positions.

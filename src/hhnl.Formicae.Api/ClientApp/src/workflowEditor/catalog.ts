@@ -12,7 +12,7 @@ export const taskCatalog = [
   { uses: "builtins.implement", title: "Implement", icon: "⌘", description: "Implement the planned changes." },
   { uses: "builtins.create-pull-request", title: "Create pull request", icon: "↗", description: "Open a pull request for the changes." },
   { uses: "builtins.address-comments", title: "Address comments", icon: "☰", description: "Respond to pull request feedback." },
-  { uses: decisionUses, title: "Decision", icon: "◇", description: "Choose the True or False route using a typed condition." },
+  { uses: decisionUses, title: "Decision", icon: "◇", description: "Route a connected boolean, string or number input." },
   { uses: parallelUses, title: "Parallel", icon: "⑂", description: "Run independent Plan branches together, then join." },
   { uses: loopUses, title: "Loop", icon: "↻", description: "Repeat a connected task sequence a fixed number of times." }
 ];

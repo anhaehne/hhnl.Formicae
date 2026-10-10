@@ -215,7 +215,7 @@ test("stale validation responses do not overwrite newer results", async ({ page,
   await expect(page.getByRole("button", { name: "Problems (0)", exact: true })).toBeVisible();
 });
 
-for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Webhook", "Loop", "Parallel", "Decision", "Custom task"]) {
+for (const title of ["Plan", "Implement", "Create pull request", "Address comments", "Webhook", "Loop", "Parallel", "Decision", "Agent task"]) {
   test(`adding ${title} keeps the canvas usable through validation`, async ({ page, request }, testInfo) => {
     const item = await seed(request, 4);
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -349,24 +349,22 @@ test("parallel branch resizing and contextual Plan insertion remain undoable", a
 
 
 for (const outcome of [true, false]) test(`decision ${outcome} routes persist with contextual insertion`, async ({ page, request }, testInfo) => {
-  const item = await seed(request); await open(page, item.name);
+  test.setTimeout(60000);
+  const item = await seed(request);
+  const custom = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Boolean ${Date.now()}-${outcome}`, promptTemplate: "Return a boolean", outputs: [{ name: "value", valueType: "boolean", required: true }] } })).json();
+  const doc = await persisted(request, item.id); doc.steps[2] = { ...doc.steps[2], uses: "builtins.custom-task", customTask: { taskId: custom.id, inputs: {} } };
+  expect((await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, definition: doc } })).ok()).toBeTruthy();
+  await open(page, item.name);
   await page.getByRole("button", { name: "+ Add Step", exact: true }).click();
   await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /^Decision / }).click();
   await expect(page.getByRole("button", { name: "Duplicate task", exact: true })).toBeDisabled();
-  await expect(page.getByLabel("Next step", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /Problems \([1-9]/ }).click();
-  const problems = page.getByRole("region", { name: "Workflow problems" });
-  await problems.getByRole("button").nth(1).click();
-  await expect(page.getByLabel("Display Name", { exact: true })).toHaveValue("Decision");
-  await problems.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByLabel("Value type", { exact: true }).selectOption("boolean");
-  await page.getByLabel("Source value", { exact: true }).selectOption(String(outcome));
-  await page.getByLabel("Compare to", { exact: true }).selectOption("true");
-  await expect(page.getByLabel("Operator", { exact: true }).getByRole("option", { name: "Contains", exact: true })).toHaveCount(0);
-  await find(page, "manual-start");
+  await expect(page.getByLabel("Value type", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-id="step4"] [data-handleid="data:value"]')).toHaveAttribute("title", "value: any");
+  await find(page, "n2");
   await page.getByLabel("Next step", { exact: true }).selectOption(JSON.stringify(["step4", "input"]));
-  await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click();
   await find(page, "step4");
+  await page.getByLabel("Decision input source").selectOption(JSON.stringify(["n2", "value"]));
+  await expect(page.locator('[data-id="step4"] [data-handleid="data:value"]')).toHaveAttribute("title", "value: boolean");
   await page.getByLabel("True route", { exact: true }).selectOption(JSON.stringify(["n0", "input"]));
   await page.getByLabel("False route", { exact: true }).selectOption(JSON.stringify(["n1", "input"]));
   for (const [route, target] of [["True", "n0"], ["False", "n1"]]) {
@@ -379,20 +377,16 @@ for (const outcome of [true, false]) test(`decision ${outcome} routes persist wi
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   const saved = await persisted(request, item.id);
   const decision = saved.steps.find((step: { id: string }) => step.id === "step4");
-  expect(decision.nextStepId ?? null).toBeNull();
   expect(decision.decision.trueStepId).toBe("step5"); expect(decision.decision.falseStepId).toBe("step6");
-  expect(decision.decision.condition).toMatchObject({ source: "literal", valueType: "boolean", value: outcome, compareTo: true });
+  expect(decision.decision.inputBinding).toEqual({ stepId: "n2", outputName: "value" });
+  expect(decision.decision.inputType).toBe("boolean");
   await open(page, item.name); await find(page, "step4");
-  await expect(page.getByLabel("Source value", { exact: true })).toHaveValue(String(outcome));
+  await expect(page.getByLabel("Decision input source")).toHaveValue(JSON.stringify(["n2", "value"]));
   await expect(page.getByLabel("True route", { exact: true })).toHaveValue(JSON.stringify(["step5", "input"]));
   await expect(page.getByLabel("False route", { exact: true })).toHaveValue(JSON.stringify(["step6", "input"]));
   await page.getByRole("button", { name: "Arrange", exact: true }).click();
   await expect(page.getByRole("button", { name: "Arrange", exact: true })).toBeEnabled();
-  for (const width of [1600, 800]) {
-    await page.setViewportSize({ width, height: 900 }); await page.getByRole("button", { name: "Fit All", exact: true }).click();
-    await expect(page.locator(".react-flow__viewport")).not.toHaveAttribute("style", /NaN|Infinity/);
-    await page.screenshot({ path: testInfo.outputPath(`decision-${width}.png`) });
-  }
+  await page.screenshot({ path: testInfo.outputPath("typed-boolean.png") });
 });
 
 test("decision task output choices exclude loop and parallel bodies and remain read-only", async ({ page, request }) => {

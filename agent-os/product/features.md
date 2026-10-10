@@ -1,6 +1,6 @@
 # Application feature baseline
 
-Scope: application behavior at version **0.31.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
+Scope: application behavior at version **0.32.0**. **Status: existing-feature inventory with documented revisions below.** Features below are implemented unless explicitly marked **Planned**; planned entries remain future scope until requested.
 
 This document is the development baseline and takes precedence over conflicting roadmap or spec scope. Detailed contracts remain in the linked documentation.
 
@@ -11,6 +11,8 @@ Before implementing any feature or change, including fixes, refactoring, configu
 3. Implement only the requested scope, keep supporting specs/docs aligned, and verify against the documented requirements. Document scope changes before implementing them.
 
 Baseline process revision dated **2026-10-09**: remove the separate explicit approval gate while retaining required baseline updates before implementation. User request reference: **“Remove the explicit approval. Just make sure it is added to the document. Approved”**. Historical approval records below remain intact.
+
+Revision **typed-decision-and-node-display**, dated **2026-10-10**: **Implemented and locally verified for 0.32.0**. User request references: **“Custom tasks should not be templates but should be displayed as all other nodes when adding a new node”**, **“Also groups are not displayed in the Workflow Management details”**, and **“Modify to decision node to take any input by default and change by connected type”**. Decision starts with an untyped data input and infers boolean, string or number from its connected typed output (including variables). Boolean exposes True/False exits. String exposes editable exact, case-sensitive values, one exit per value and a mandatory Default exit. Number exposes ordered comparisons (`=`, `!=`, `>`, `>=`, `<`, `<=`), one exit per comparison and a required Default for unmatched values; the first matching comparison wins. Require a valid typed binding and connected exits before enabling; reject duplicate string cases, invalid numeric operands, stale types and unavailable producers. Preserve existing saved comparison decisions and durable routing/retry/cycle guarantees. Show each available custom task by its catalog name in Add Step, create a node referencing that revisioned task rather than copying a template, and retain immutable task snapshots. Display pinned group names, preset colors, membership and layout in Workflow Management execution details without editing them. Interacts with Definitions and visual editor, Typed task data, Reusable custom tasks, Durable orchestration and runtimes, Decisions, Variables, and Execution investigation and history.
 
 Revision **workflow-end-node**, dated **2026-10-09**: **Approved; implemented and locally verified for 0.31.0**. User request reference: **“Create an end node. When the workflow reaches an end node the workflow is completed. If there are any parallel executions or waiting triggers, they are stopped. I explicitly approve of any changes.”** Add an End node (`builtins.end`) to the editor and immutable definitions. It accepts incoming control connections, has no outgoing control/data connections or worker settings, and launches no worker. The first incoming route reaching End completes the entire execution successfully, including task graphs and cycles; other active/queued tasks and event waits are canceled, and no new work or wait continuations may start. Preserve completion across restarts, retry failed runtime cleanup, and retain task/end-node evidence. Existing workflows without End retain their behavior. This interacts with Definitions and visual editor, Durable orchestration and runtimes, callable event waits, and Execution investigation and history. Parallel/loop evidence is finalized when stopped. Explicit Parallel branches may terminate at End instead of Join; their worker tasks remain Plan-only.
 
@@ -189,7 +191,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
   - **Decisions**
     - **Requirements:**
 
-      - Choose exactly one True/False route using allowlisted typed sources/operators and explicit missing-value behavior.
+      - **Revision typed-decision-and-node-display:** New decisions accept a connected input of any scalar type and infer their exits from its type: boolean True/False, exact string cases plus mandatory Default, or ordered numeric comparisons plus mandatory Default. Preserve legacy typed-source/operator decisions in saved versions.
       - Support nested decisions and convergence in the outer graph.
       - Reject decisions inside loop/parallel regions.
       - Persist selected routes atomically and preserve them during retry.
@@ -198,7 +200,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
 
       - Decisions read persisted workflow and task evidence from **Durable orchestration and runtimes** to select exactly one execution route.
       - **Typed task data** rejects bindings from producers that are not guaranteed to execute on the selected control paths.
-      - **Execution investigation and history** displays the recorded condition and route, while **Pause, resume, cancel and retry** preserves successful routing decisions.
+      - **Execution investigation and history** displays saved visual groups and the recorded decision input and selected route, while **Pause, resume, cancel and retry** preserves successful routing decisions.
 
 - **2. Tasks and AI behavior**
   - **Add issue comment — Implemented in 0.25.0; approved revision github-issue-comment-task**
@@ -232,7 +234,7 @@ Revision **managed-agent-images integration**, dated **2026-10-08**: documents i
   - **Reusable custom tasks**
     - **Requirements:**
 
-      - Create, edit, enable/disable and delete revisioned prompt templates with typed inputs, defaults, timeout and optional persona.
+      - Create, edit, enable/disable and delete revisioned custom tasks with typed inputs, defaults, timeout and optional persona. **Revision typed-decision-and-node-display:** List each available task by name alongside other nodes in Add Step; selection creates a reusable task reference with its input/output schema.
       - Run in a scratch workspace.
       - Validate and freeze resolved inputs, rendered prompt and catalog snapshot before launch.
       - Protect edits/deletion with expected revisions.

@@ -1,0 +1,3 @@
+# Typed decisions and node display
+
+Scope follows the 2026-10-10 user requests recorded in the baseline. Boolean routing uses two exits; strings use exact case-sensitive cases and Default; numbers use ordered finite decimal comparisons and Default, first match wins. Connection types are inferred from existing typed schemas. Disconnected new decisions show an any input and cannot be enabled. Existing comparison decisions remain compatible. Custom tasks remain reusable revisioned references. Execution groups use pinned metadata and the existing React Flow group renderer. No supplied visuals; existing editor patterns provide references. Product direction and runtime choices remain unchanged.

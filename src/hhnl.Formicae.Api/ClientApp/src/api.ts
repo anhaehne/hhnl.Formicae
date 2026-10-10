@@ -73,7 +73,8 @@ export type DecisionCondition = {
   reference?: string | null; value?: string | number | boolean | null; compareTo?: string | number | boolean | null;
   missingValue: "error" | "false";
 };
-export type WorkflowDecisionNodeSettings = { condition: DecisionCondition; trueStepId: string; falseStepId: string };
+export type WorkflowDecisionCase = { id: string; operator: "equals" | "notEquals" | "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual"; value: string | number; stepId: string };
+export type WorkflowDecisionNodeSettings = { condition: DecisionCondition; trueStepId: string; falseStepId: string; inputType?: "any" | "boolean" | "string" | "number" | null; inputBinding?: CustomTaskInputBinding | null; cases?: WorkflowDecisionCase[] | null; defaultStepId?: string | null };
 export type WorkflowDecisionExecution = { visitIteration?: number | null; id: string; workflowId: string; nodeId: string; booleanResult: boolean; configuredTargetId: string; selectedTargetId: string; evaluatedAt: string; inputJson: string; sourceTaskRunId?: string | null };
 export type WorkflowParallelNodeSettings = { branchStepIds: string[] };
 

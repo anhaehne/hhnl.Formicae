@@ -123,6 +123,36 @@ public static class WorkflowDecisionEvaluator
         return new(result, input, sourceTaskRunId);
     }
 
+    public static (string Target, string InputJson, bool BooleanResult) EvaluateInput(
+        WorkflowDecisionNodeSettings settings, CustomTaskInputProvenance source)
+    {
+        var validation = WorkflowDecisionDefinitions.ValidateInput(settings);
+        if (!validation.IsValid) throw new InvalidOperationException(string.Join(" ", validation.Errors.Select(error => error.Message)));
+        if (source.Value is not { } value || !Matches(value, settings.InputType!))
+            throw new InvalidOperationException($"Decision requires a valid {settings.InputType} input.");
+        string target; string port; bool booleanResult;
+        if (settings.InputType == "boolean")
+        {
+            booleanResult = value.GetBoolean(); port = booleanResult ? "true" : "false";
+            target = booleanResult ? settings.TrueStepId : settings.FalseStepId;
+        }
+        else
+        {
+            bool Match(WorkflowDecisionCase item)
+            {
+                if (settings.InputType == "string") return value.GetString() == item.Value.GetString();
+                var order = value.GetDecimal().CompareTo(item.Value.GetDecimal());
+                return item.Operator switch { "equals" => order == 0, "notEquals" => order != 0,
+                    "greaterThan" => order > 0, "greaterThanOrEqual" => order >= 0,
+                    "lessThan" => order < 0, "lessThanOrEqual" => order <= 0, _ => false };
+            }
+            var selected = settings.Cases!.FirstOrDefault(Match);
+            target = selected?.StepId ?? settings.DefaultStepId!; port = selected is null ? "default" : $"case:{selected.Id}";
+            booleanResult = selected is not null;
+        }
+        return (target, JsonSerializer.Serialize(new { valueType = settings.InputType, value, selectedPort = port, provenance = source }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), booleanResult);
+    }
+
     private static bool Matches(JsonElement value, string type) => type switch
     {
         "string" => value.ValueKind == JsonValueKind.String,

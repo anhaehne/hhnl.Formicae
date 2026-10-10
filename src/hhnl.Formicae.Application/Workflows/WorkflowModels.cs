@@ -183,7 +183,11 @@ public sealed record WorkflowParallelNodeSettings(IReadOnlyList<string> BranchSt
 public sealed record WorkflowDecisionNodeSettings(
     WorkflowDecisionCondition Condition, string TrueStepId, string FalseStepId,
     [property: JsonIgnore] string? ConfiguredTrueStepId = null,
-    [property: JsonIgnore] string? ConfiguredFalseStepId = null);
+    [property: JsonIgnore] string? ConfiguredFalseStepId = null,
+    string? InputType = null, CustomTaskInputBinding? InputBinding = null,
+    IReadOnlyList<WorkflowDecisionCase>? Cases = null, string? DefaultStepId = null);
+
+public sealed record WorkflowDecisionCase(string Id, string Operator, JsonElement Value, string StepId);
 
 public sealed record WorkflowDecisionCondition(
     string Source, string ValueType, string Operator, string? Reference = null,

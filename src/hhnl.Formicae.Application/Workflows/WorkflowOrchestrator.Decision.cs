@@ -13,26 +13,47 @@ public sealed partial class WorkflowOrchestrator
         }
         else
         {
-            var condition = node.Decision!.Condition;
-            TaskRun? source = condition.Source == "taskOutput" && condition.Reference is not null
-                ? await store.GetTaskRunExecutionAsync(workflow.Id, condition.Reference, workflow.CycleExecutionJson is null ? null : WorkflowCycleDefinitions.State(workflow).Active[node.Id].Sources.GetValueOrDefault(condition.Reference), token) : null;
-            DecisionEvaluation evaluation;
-            try { evaluation = WorkflowDecisionEvaluator.Evaluate(condition, workflow, source); }
+            var settings = node.Decision!;
+            try
+            {
+                string selectedTarget; string configuredTarget; string inputJson; bool booleanResult; Guid? sourceRunId;
+                if (settings.InputType is not null)
+                {
+                    var sources = await ResolveInputProvenanceAsync(workflow, new TaskRun(), node, document, token);
+                    var source = sources["value"];
+                    var evaluation = WorkflowDecisionEvaluator.EvaluateInput(settings, source);
+                    selectedTarget = evaluation.Target; inputJson = evaluation.InputJson; booleanResult = evaluation.BooleanResult;
+                    sourceRunId = source.RunId == Guid.Empty ? null : source.RunId;
+                    // Read configured targets from the immutable version; normalization may compile a Loop entry.
+                    var version = workflow.WorkflowDefinitionVersionId is { } versionId ? await store.GetWorkflowDefinitionVersionAsync(versionId, token) : null;
+                    var original = version is null ? settings : WorkflowDefinitionJson.Deserialize(version.DefinitionJson)?.Steps.FirstOrDefault(step => step.Id == node.Id)?.Decision ?? settings;
+                    using var evidence = System.Text.Json.JsonDocument.Parse(inputJson);
+                    var port = evidence.RootElement.GetProperty("selectedPort").GetString();
+                    configuredTarget = WorkflowDecisionDefinitions.Routes(original).First(route => route.Port == port).Target;
+                }
+                else
+                {
+                    var condition = settings.Condition;
+                    TaskRun? source = condition.Source == "taskOutput" && condition.Reference is not null
+                        ? await store.GetTaskRunExecutionAsync(workflow.Id, condition.Reference, workflow.CycleExecutionJson is null ? null : WorkflowCycleDefinitions.State(workflow).Active[node.Id].Sources.GetValueOrDefault(condition.Reference), token) : null;
+                    var evaluation = WorkflowDecisionEvaluator.Evaluate(condition, workflow, source);
+                    booleanResult = evaluation.Result; inputJson = evaluation.InputJson; sourceRunId = evaluation.SourceTaskRunId;
+                    selectedTarget = booleanResult ? settings.TrueStepId : settings.FalseStepId;
+                    configuredTarget = booleanResult ? settings.ConfiguredTrueStepId ?? settings.TrueStepId : settings.ConfiguredFalseStepId ?? settings.FalseStepId;
+                }
+                proposed = new WorkflowDecisionExecution
+                {
+                    WorkflowId = workflow.Id, NodeId = node.Id, VisitIteration = WorkflowCycleDefinitions.Visit(workflow, node.Id), BooleanResult = booleanResult,
+                    ConfiguredTargetId = configuredTarget, SelectedTargetId = selectedTarget,
+                    InputJson = inputJson, SourceTaskRunId = sourceRunId, EvaluatedAt = clock.UtcNow
+                };
+            }
             catch (InvalidOperationException exception)
             {
                 var message = $"Decision '{node.Id}' could not be evaluated: {exception.Message}";
                 await FailWorkflowAsync(workflow, message, new { nodeId = node.Id, code = "decision.evaluation.failed" }, token);
                 return true;
             }
-            var settings = node.Decision;
-            proposed = new WorkflowDecisionExecution
-            {
-                WorkflowId = workflow.Id, NodeId = node.Id, VisitIteration = WorkflowCycleDefinitions.Visit(workflow, node.Id), BooleanResult = evaluation.Result,
-                ConfiguredTargetId = evaluation.Result ? settings.ConfiguredTrueStepId ?? settings.TrueStepId
-                    : settings.ConfiguredFalseStepId ?? settings.FalseStepId,
-                SelectedTargetId = evaluation.Result ? settings.TrueStepId : settings.FalseStepId,
-                InputJson = evaluation.InputJson, SourceTaskRunId = evaluation.SourceTaskRunId, EvaluatedAt = clock.UtcNow
-            };
         }
         if (workflow.CycleExecutionJson is not null)
         {
@@ -65,7 +86,7 @@ public sealed partial class WorkflowOrchestrator
             try
             {
                 await AddEventAsync(workflow.Id, null, "DecisionEvaluated", "Information",
-                    $"Decision '{node.Id}' selected {(committed.Execution.BooleanResult ? "True" : "False")} → '{committed.Execution.ConfiguredTargetId}'.",
+                    $"Decision '{node.Id}' selected route → '{committed.Execution.ConfiguredTargetId}'.",
                     new { nodeId = node.Id, committed.Execution.BooleanResult, committed.Execution.ConfiguredTargetId,
                         committed.Execution.SelectedTargetId, committed.Execution.SourceTaskRunId }, token);
             }

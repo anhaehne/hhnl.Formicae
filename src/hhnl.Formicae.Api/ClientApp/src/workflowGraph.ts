@@ -29,6 +29,13 @@ export type WorkflowStepNodeData = {
 };
 export type WorkflowStepNode = Node<WorkflowStepNodeData, "workflowStep">;
 
+export function decisionPorts(settings: WorkflowDecisionNodeSettings) {
+  if (!settings.inputType || settings.inputType === "boolean") return [{ port: "true", label: "True", target: settings.trueStepId }, { port: "false", label: "False", target: settings.falseStepId }];
+  if (settings.inputType === "any") return [];
+  const symbols = { equals: "=", notEquals: "!=", greaterThan: ">", greaterThanOrEqual: ">=", lessThan: "<", lessThanOrEqual: "<=" };
+  return [...(settings.cases ?? []).map(item => ({ port: `case:${item.id}`, label: settings.inputType === "string" ? JSON.stringify(item.value) : `${symbols[item.operator]} ${item.value}`, target: item.stepId })), { port: "default", label: "Default", target: settings.defaultStepId ?? "" }];
+}
+
 export function createDefaultDefinitionDocument(): WorkflowDefinitionDocument {
   return { schema: workflowSchema, startStepId: "manual-start", steps: [
     { id: "manual-start", uses: startUses, displayName: "Manual start", nextStepId: "plan", event: { enabled: true } },
@@ -62,7 +69,7 @@ function toLegacyNodeDefinition(document: WorkflowDefinitionDocument): WorkflowD
     steps.push({ id: allocate(`trigger-${id}`), uses: triggerUses, displayName: id,
       trigger: settings, nextStepId: entry(document.startStepId), nextStepPort: null });
   }
-  return { schema: workflowSchema, variables: document.variables, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
+  return { schema: workflowSchema, editor: document.editor, variables: document.variables, defaultEnvironmentId: document.defaultEnvironmentId, defaultEnvironmentSnapshot: document.defaultEnvironmentSnapshot, defaultPersonaId: document.defaultPersonaId, startStepId: entry(document.startStepId)!, steps };
 }
 
 export function toNodeDefinition(original: WorkflowDefinitionDocument): WorkflowDefinitionDocument {
@@ -91,14 +98,15 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
   const edges: Edge[] = [];
   for (const variable of document.variables ?? []) for (const source of variable.sources ?? []) edges.push(dataEdge(source.stepId, source.outputName, variable.id, "value"));
   for (const step of document.steps) {
+    if (step.decision?.inputBinding) edges.push(dataEdge(step.decision.inputBinding.stepId, step.decision.inputBinding.outputName, step.id, "value"));
     if (step.wait?.issueNumberBinding) edges.push(dataEdge(step.wait.issueNumberBinding.stepId, step.wait.issueNumberBinding.outputName, step.id, "issueNumber"));
     for (const [name, binding] of Object.entries(step.issueComment?.bindings ?? step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
     for (const target of [step.nextStepId, ...(step.nextStepIds ?? [])].filter((id): id is string => !!id)) edges.push({ id: `${step.id}:next:${target}`, source: step.id, target,
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
       label: step.nextStepPort === "join" ? "Join" : step.nextStepPort === "return" ? "Return" : step.uses === loopUses ? "Exit" : undefined });
-    if (step.decision) for (const [port, target] of [["true", step.decision.trueStepId], ["false", step.decision.falseStepId]]) {
-      if (target) edges.push({ id: `${step.id}:${port}`, source: step.id, sourceHandle: port, target, targetHandle: "input", markerEnd: { type: MarkerType.ArrowClosed }, label: port === "true" ? "True" : "False" });
+    if (step.decision) for (const { port, target, label } of decisionPorts(step.decision)) {
+      if (target) edges.push({ id: `${step.id}:${port}`, source: step.id, sourceHandle: port, target, targetHandle: "input", markerEnd: { type: MarkerType.ArrowClosed }, label });
     }
     step.parallel?.branchStepIds.forEach((target, index) => {
       if (target) edges.push({ id: `${step.id}:branch:${index}`, source: step.id, sourceHandle: `branch:${index}`, target, targetHandle: "input", markerEnd: { type: MarkerType.ArrowClosed }, label: `Branch ${index + 1}` });
@@ -125,6 +133,9 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
       wait: node.data.uses === waitUses ? { ...node.data.wait, issueNumber: bindings.issueNumber ? undefined : node.data.wait?.issueNumber, issueNumberBinding: bindings.issueNumber } : undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,
       decision: node.data.uses === decisionUses && node.data.decision ? { ...node.data.decision,
+        inputBinding: node.data.decision.inputType ? bindings.value : undefined,
+        cases: node.data.decision.cases?.map(item => ({ ...item, stepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === `case:${item.id}`)?.target ?? "" })),
+        defaultStepId: node.data.decision.inputType === "string" || node.data.decision.inputType === "number" ? edges.find(edge => edge.source === node.id && edge.sourceHandle === "default")?.target ?? "" : undefined,
         trueStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "true")?.target ?? "",
         falseStepId: edges.find(edge => edge.source === node.id && edge.sourceHandle === "false")?.target ?? "" } : undefined,
       parallel: node.data.uses === parallelUses ? { branchStepIds: (node.data.parallel?.branchStepIds ?? ["", ""]).map((_, index) => edges.find(edge => edge.source === node.id && edge.sourceHandle === `branch:${index}`)?.target ?? "") } : undefined,
