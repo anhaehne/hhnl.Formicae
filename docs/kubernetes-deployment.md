@@ -9,11 +9,15 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
-## 0.34.1 task-based test selection
+## 0.34.2 task-based test selection
 
-Deploy matching **0.34.1** API/worker images and Helm chart. This patch adds development validation tooling and documentation; it introduces no application behavior, schema, runtime configuration or container-tool changes. `node scripts/test-selection.mjs --base origin/main --plan` explains conservative affected families; `--run` performs fast checks, native discovery and selected validation. `npm run test:smoke` now selects three basic health/navigation/error tests; `npm run test:browser` preserves the full browser suite, which CI continues running alongside full backend, Helm, worker-image and Kubernetes checks on the final merged SHA. See [task-based validation](testing.md).
+Deploy matching **0.34.2** API/worker images and Helm chart. This patch adds development validation tooling and documentation; it introduces no application behavior, schema, runtime configuration or container-tool changes. `node scripts/test-selection.mjs --base origin/main --plan` explains conservative affected families; `--run` performs fast checks, native discovery and selected validation. `npm run test:smoke` now selects three basic health/navigation/error tests; `npm run test:browser` preserves the full browser suite, which CI continues running alongside full backend, Helm, worker-image and Kubernetes checks on the final merged SHA. See [task-based validation](testing.md).
 
 Local verification: `node --test scripts/tests/test-selection.test.mjs` (22 passing); `node scripts/test-selection.mjs --family selector --run`; Release backend build; targeted `PersonaPromptComposerTests` (4 passing); frontend production build; native backend/browser family discovery; and `node scripts/test-selection.mjs --family smoke --list` with exact native test-list round-trip (3 smoke cases, no local servers). Final release requires successful exact-SHA CI, matching image/chart publication and automated deployment rollout/health checks. Tests added/removed/edited: **22 / 0 / 3** (three browser smoke tags; assertions unchanged). The first implementation keeps fixtures and concurrency unchanged; no speedup percentage is claimed.
+
+## 0.34.1 Kubernetes capability-bundle design
+
+Documentation-only release with matching **0.34.1** API/worker images and Helm chart. The [capability-bundle spec](../agent-os/specs/2026-10-10-1900-kubernetes-capability-bundles/plan.md) records native Kubernetes extension contracts, immutable snapshots, deterministic composition and durable attempt-owned resource cleanup, with DinD and operator-backed PostgreSQL design traces. Runtime capability bundles, new UI fields, operator installation and database migrations remain planned. Current execution and deployment behavior is unchanged. Release validation is recorded in the [spec verification](../agent-os/specs/2026-10-10-1900-kubernetes-capability-bundles/verification.md). Tests added/removed/edited: **0 / 0 / 0**.
 
 ## 0.34.0 GitHub issue title output
 
