@@ -23,6 +23,9 @@ public interface IDevOpsPlatform
 
     Task ReactToIssueCommentAsync(DevOpsRepositoryReference repository, string commentId, string reaction, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<string>> ListBranchesAsync(DevOpsRepositoryReference repository, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Branch discovery is unavailable for this provider.");
+
     Task<string> GetBranchHeadShaAsync(DevOpsRepositoryReference repository, string branchName, CancellationToken cancellationToken);
 
     Task<string> CreateBranchAsync(

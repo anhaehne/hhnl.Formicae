@@ -51,6 +51,12 @@ public sealed class GitHubDevOpsPlatform(IGitHubClientFactory clientFactory) : I
         await api.ReactToIssueCommentAsync(repository.Owner, repository.Name, ParseLong(commentId), reaction);
     }
 
+    public async Task<IReadOnlyList<string>> ListBranchesAsync(DevOpsRepositoryReference repository, CancellationToken cancellationToken)
+    {
+        var api = await CreateApiAsync(repository.RepositoryUrl, cancellationToken);
+        return (await api.ListBranchesAsync(repository.Owner, repository.Name)).Select(branch => branch.Name).Order(StringComparer.Ordinal).ToArray();
+    }
+
     public async Task<string> GetBranchHeadShaAsync(DevOpsRepositoryReference repository, string branchName, CancellationToken cancellationToken)
     {
         var api = await CreateApiAsync(repository.RepositoryUrl, cancellationToken);
