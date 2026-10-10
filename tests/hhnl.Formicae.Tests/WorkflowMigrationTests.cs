@@ -70,6 +70,9 @@ public sealed class WorkflowMigrationTests(MigrationPostgresFixture fixture) : I
         var workflow = await db.Workflows.SingleAsync();
         Assert.Equal(customDefinition ? "review" : "addressComments", workflow.CurrentDefinitionStepId);
         Assert.Null(workflow.CycleExecutionJson);
+        Assert.Null(workflow.EnqueuedAt);
+        Assert.False(workflow.HasExecutionSlot);
+        Assert.All(await db.WorkflowDefinitions.ToListAsync(), definition => Assert.Null(definition.MaxActiveInstances));
 
         // Startup runs MigrateAsync again against the upgraded database and queries through the API/store.
         await using var factory = new MigrationApiFactory(db.Database.GetConnectionString()!);
@@ -182,7 +185,7 @@ public sealed class WorkflowMigrationTests(MigrationPostgresFixture fixture) : I
         => db.Database.SqlQueryRaw<string>("""
             SELECT jsonb_build_object(
                 'runs', (SELECT jsonb_agg(to_jsonb(r) - 'DefinitionStepId' - 'LoopIteration' - 'ExecutionAttemptId' - 'CustomTaskExecutionJson' - 'StructuredOutputsJson' - 'RuntimeCleanupPending' - 'RuntimeLogsCaptured' - 'ExitCode' ORDER BY "Id") FROM task_runs r),
-                'workflows', (SELECT jsonb_agg(to_jsonb(w) - 'CurrentDefinitionStepId' - 'IsPaused' - 'CancelRequestedAt' - 'CancelCompletedAt' - 'CycleExecutionJson' ORDER BY "Id") FROM workflows w),
+                'workflows', (SELECT jsonb_agg(to_jsonb(w) - 'CurrentDefinitionStepId' - 'IsPaused' - 'CancelRequestedAt' - 'CancelCompletedAt' - 'CycleExecutionJson' - 'EnqueuedAt' - 'HasExecutionSlot' ORDER BY "Id") FROM workflows w),
                 'logs', (SELECT jsonb_agg(to_jsonb(l) - 'Sequence' - 'Source' - 'SourceSequence' - 'ExecutionAttemptId' - 'ExternalId' ORDER BY "Id") FROM workflow_logs l),
                 'events', (SELECT jsonb_agg(to_jsonb(e) ORDER BY "Id") FROM workflow_events e)
             )::text AS "Value"

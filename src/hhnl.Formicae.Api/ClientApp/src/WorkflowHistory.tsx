@@ -24,7 +24,7 @@ export default function WorkflowHistory({ selectedId, onSelect, definitions, ref
   <div className="workflow-run-list" aria-label="Workflow runs" aria-busy={loading}>
     {page?.items.map(workflow => { const status = enumName(workflow.status, workflowStates); return <article className={`workflow-run${workflow.workflowId === selectedId ? " selected" : ""}`} key={workflow.workflowId}>
       <button type="button" className="workflow-run-select" onClick={() => onSelect(workflow.workflowId)} aria-label={`Inspect workflow ${workflow.workflowId}`} aria-pressed={workflow.workflowId === selectedId}>
-        <span className="workflow-run-heading"><StateBadge value={status} /><span>{duration(workflow.createdAt, ["Completed", "Failed", "Canceled"].includes(status) ? workflow.updatedAt : undefined)}</span></span>
+        <span className="workflow-run-heading"><StateBadge value={status} />{workflow.enqueuedAt && !workflow.hasExecutionSlot && <span>Queued for capacity</span>}<span>{duration(workflow.createdAt, ["Completed", "Failed", "Canceled"].includes(status) ? workflow.updatedAt : undefined)}</span></span>
         <strong>{workflow.issueUrl.replace(/^https?:\/\//, "")}</strong>
         <span>{new Date(workflow.createdAt).toLocaleString()}{workflow.isPaused ? " · paused" : ""}{workflow.cancelRequestedAt && !workflow.cancelCompletedAt ? " · canceling" : ""}</span>
         {workflow.failureReason && <span className="workflow-run-failure">{workflow.failureReason}</span>}

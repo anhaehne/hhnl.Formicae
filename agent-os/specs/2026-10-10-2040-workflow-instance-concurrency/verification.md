@@ -1,0 +1,16 @@
+# Verification
+
+## Final source validation
+
+- `node scripts/test-selection.mjs --base origin/main --plan` selected backend, browser, deployment, docs, persistence, selector and workflow. The changed-file `--run` passed all 1,311 backend cases then encountered editor timeouts with six browser workers; that browser run was interrupted and rerun in full with one worker. Two later concurrency edge-case regressions increase the final backend count to 1,313.
+- `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-playwright npm run test:browser -- --workers 1`: **117 passed**, including both new concurrency cases and the previously timed-out editor cases.
+- `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-playwright node scripts/test-selection.mjs --family backend --family deployment --family smoke --run`: **1,313 backend cases passed**, **3 browser smoke cases passed**, Release backend build, frontend build and Helm lint passed; Kubernetes E2E passed all **32 cases** and cleaned up the temporary cluster and registry. The explicit families complete the affected-family plan above rather than serving as impact discovery on their own.
+- Selector regression: **22 passed** in the changed-file runner.
+- `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName~WorkflowConcurrency|FullyQualifiedName~WorkflowOrchestratorTests|FullyQualifiedName~WorkflowMigrationTests|FullyQualifiedName~WorkflowWaitTests'`: **89 passed**, including FIFO first-approval reactivation, provider outages, durable event matching, graph/cycle/parallel execution, pause/resume/cancel, limits shared across versions and PostgreSQL restart persistence.
+- After the final scheduler batch-read optimization, `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName~WorkflowConcurrency|FullyQualifiedName~WorkflowOrchestratorTests'`: **58 passed**, including configuration refresh across ticks. Exact final main CI covers the final source revision.
+- `PLAYWRIGHT_BROWSERS_PATH=/tmp/formicae-playwright npm run test:smoke -- --workers 1`: **3 passed**.
+- `git diff --check HEAD`: passed. Generated EF migration reviewed; migration tests confirm no pending model changes and preservation of legacy columns.
+
+Live inspection used `./scripts/formicae-dev.sh prepare`, `start`, `status` and `stop`, then the repository's Playwright MCP package against Settings: limit control visible, zero console errors, API requests successful, screenshot/console/network evidence captured in `test-results/concurrency-live`. Browser preparation used the writable `/tmp/formicae-playwright` cache after the default `/ms-playwright` cache rejected its directory lock. The new browser cases save global/per-definition limits, reload, clear to unlimited and reject invalid input without changing saved values.
+
+Tests added/removed/edited: **16 / 0 / 2** (case counts). The two edited legacy migration cases exclude additive scheduling metadata from original-column comparisons and explicitly assert default inactive/unlimited fields. Latest main merged before bumping from 0.35.1 to **0.36.0**. Release completion requires full CI and automated deployment on the exact pushed main SHA.

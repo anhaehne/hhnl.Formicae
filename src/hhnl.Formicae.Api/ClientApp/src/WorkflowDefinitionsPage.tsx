@@ -1,3 +1,4 @@
+import WorkflowConcurrencyControl from "./WorkflowConcurrencyControl";
 import { WorkflowGroupNode, cleanGroups, groupedNodes, moveGroupedNodes, groupNodeId, groupColors } from "./workflowEditor/groups";
 import { variableUses, inputsFor, outputsFor, issueCommentUses, templateUses } from "./workflowData";
 import { waitUses } from "./workflowGraph";
@@ -320,6 +321,7 @@ function Editor({ definitions, loading, error, canAdminister, canTrigger, defaul
       </aside> : settings ? <aside className="editor-inspector" aria-label="Workflow settings" onFocusCapture={event => { if (event.target.matches("input,select")) state.begin(); }} onBlurCapture={state.commit}>
         <div className="editor-panel-heading"><h3>Workflow settings</h3><button type="button" aria-label="Close workflow settings" onClick={() => setSettings(false)}>×</button></div>
         <label><span>Definition Name</span><input disabled={!editable || !!definitionId} value={draft.name} onChange={event => update(current => ({ ...current, name: event.target.value }))} required /></label>
+        {definition && <WorkflowConcurrencyControl key={definition.id} definitionId={definition.id} initialLimit={definition.maxActiveInstances ?? null} canAdminister={canAdminister} />}
         <EnvironmentPicker value={draft.defaultEnvironmentId} environments={environments} savedSnapshot={state.savedDraft.defaultEnvironmentSnapshot} disabled={!editable} onChange={defaultEnvironmentId => update(current => ({ ...current, defaultEnvironmentId }))} />
         <PersonaPicker label="Workflow persona" value={draft.defaultPersonaId} savedSnapshot={state.savedDraft.nodes.find(node => !node.data.personaId && node.data.personaSnapshot?.id === (draft.defaultPersonaId || "default"))?.data.personaSnapshot} personas={personas} disabled={!editable} onChange={defaultPersonaId => update(current => ({ ...current, defaultPersonaId }))} />
         <p>Manual entrypoint: {manualStartId ? draft.nodes.find(node => node.id === manualStartId)?.data.displayName : "None (workflow with external events only)"}</p>

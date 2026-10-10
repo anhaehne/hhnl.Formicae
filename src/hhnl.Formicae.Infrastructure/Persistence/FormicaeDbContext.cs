@@ -11,6 +11,7 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
 {
     public DbSet<WorkflowNodeWait> WorkflowNodeWaits => Set<WorkflowNodeWait>();
     public DbSet<WorkflowWaitEvent> WorkflowWaitEvents => Set<WorkflowWaitEvent>();
+    public DbSet<WorkflowConcurrencySettings> WorkflowConcurrencySettings => Set<WorkflowConcurrencySettings>();
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<TaskRun> TaskRuns => Set<TaskRun>();
     public DbSet<TaskRunAttempt> TaskRunAttempts => Set<TaskRunAttempt>();
@@ -64,6 +65,11 @@ public sealed class FormicaeDbContext(DbContextOptions<FormicaeDbContext> option
             entity.HasIndex(evt => new { evt.Provider, evt.DeliveryId }).IsUnique();
             entity.HasIndex(evt => new { evt.Provider, evt.EventKey }).IsUnique();
             entity.HasIndex(evt => new { evt.Uses, evt.RepositoryUrl, evt.IssueUrl, evt.CreatedAt });
+        });
+        modelBuilder.Entity<WorkflowConcurrencySettings>(entity =>
+        {
+            entity.ToTable("workflow_concurrency_settings");
+            entity.HasKey(settings => settings.Id);
         });
         modelBuilder.Entity<Workflow>(entity =>
         {

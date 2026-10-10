@@ -4,6 +4,14 @@ namespace hhnl.Formicae.Infrastructure.Fakes;
 
 public sealed partial class InMemoryWorkflowStore : IWorkflowStore
 {
+    private WorkflowConcurrencySettings concurrencySettings = new();
+    public Task<WorkflowConcurrencySettings> GetConcurrencySettingsAsync(CancellationToken token)
+    { lock (gate) return Task.FromResult(new WorkflowConcurrencySettings { MaxActiveInstances = concurrencySettings.MaxActiveInstances }); }
+    public Task SetConcurrencySettingsAsync(WorkflowConcurrencySettings settings, CancellationToken token)
+    { lock (gate) concurrencySettings = new() { MaxActiveInstances = settings.MaxActiveInstances }; return Task.CompletedTask; }
+    public Task SetDefinitionConcurrencyAsync(Guid definitionId, int? limit, CancellationToken token)
+    { lock (gate) definitions[definitionId].MaxActiveInstances = limit; return Task.CompletedTask; }
+
     private readonly object gate = new();
     private readonly Dictionary<Guid, Workflow> workflows = [];
     private readonly Dictionary<Guid, TaskRun> runs = [];
@@ -20,6 +28,8 @@ public sealed partial class InMemoryWorkflowStore : IWorkflowStore
     {
         lock (gate)
         {
+            if (workflow.Status is not (WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled))
+                workflow.EnqueuedAt ??= workflow.CreatedAt;
             workflows.Add(workflow.Id, workflow);
         }
 
@@ -66,7 +76,7 @@ public sealed partial class InMemoryWorkflowStore : IWorkflowStore
         lock (gate)
         {
             return Task.FromResult<IReadOnlyList<Workflow>>(workflows.Values
-                .Where(workflow => workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing or WorkflowStatus.Running
+                .Where(workflow => workflow.HasExecutionSlot || workflow.Status is WorkflowStatus.Queued or WorkflowStatus.Planning or WorkflowStatus.Implementing or WorkflowStatus.CreatingPullRequest or WorkflowStatus.Reviewing or WorkflowStatus.Running
                     || (workflow.CancelRequestedAt is not null && workflow.CancelCompletedAt is null)
                     || runs.Values.Any(run => run.WorkflowId == workflow.Id && (run.RuntimeCleanupPending
                         || (run.Status == TaskRunStatus.Running && (run.ExternalId != null || run.ExecutionAttemptId != null))))

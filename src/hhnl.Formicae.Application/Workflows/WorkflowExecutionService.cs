@@ -65,6 +65,12 @@ public sealed class WorkflowExecutionService(IWorkflowStore store, IClock clock)
             var paused = action == "pause";
             if (workflow.IsPaused == paused) return workflow.ToSummary();
             workflow.IsPaused = paused;
+            var workers = (await store.ListTaskRunsAsync(id, token)).Any(run => run.Status == TaskRunStatus.Running || run.RuntimeCleanupPending);
+            if (!workers)
+            {
+                workflow.HasExecutionSlot = false;
+                workflow.EnqueuedAt = paused ? null : now;
+            }
         }
         workflow.UpdatedAt = now;
         await store.UpdateWorkflowAsync(workflow, token);

@@ -796,8 +796,14 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.Property<string>("DslSchemaVersion")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("EnqueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("FailureReason")
                         .HasColumnType("text");
+
+                    b.Property<bool>("HasExecutionSlot")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
@@ -842,6 +848,22 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
                     b.HasIndex("WorkflowDefinitionVersionId");
 
                     b.ToTable("workflows", (string)null);
+                });
+
+            modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowConcurrencySettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("MaxActiveInstances")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("workflow_concurrency_settings", (string)null);
                 });
 
             modelBuilder.Entity("hhnl.Formicae.Application.Workflows.WorkflowDecisionExecution", b =>
@@ -899,6 +921,9 @@ namespace hhnl.Formicae.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("MaxActiveInstances")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()

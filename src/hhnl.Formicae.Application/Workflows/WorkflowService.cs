@@ -65,6 +65,7 @@ public sealed class WorkflowService
         }
         var workflow = new Workflow
         {
+            EnqueuedAt = clock.UtcNow,
             IssueUrl = request.IssueUrl,
             RepositoryUrl = request.RepositoryUrl,
             BaseBranch = string.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : request.BaseBranch,
@@ -197,6 +198,8 @@ public sealed class WorkflowService
             await store.UpsertParallelExecutionAsync(parallel.Value.Execution, cancellationToken);
         }
 
+        workflow.HasExecutionSlot = false;
+        workflow.EnqueuedAt = now;
         workflow.Status = retryState.Status;
         workflow.CurrentStep = retryState.Step;
         workflow.FailureReason = null;
@@ -314,6 +317,8 @@ public sealed class WorkflowService
 
         var retryState = GetRetryWorkflowState(workflow.CurrentStep);
         var now = clock.UtcNow;
+        workflow.HasExecutionSlot = false;
+        workflow.EnqueuedAt = now;
         workflow.Status = retryState.Status;
         workflow.CurrentStep = retryState.Step;
         workflow.FailureReason = null;

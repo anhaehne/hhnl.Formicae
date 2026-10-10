@@ -18,6 +18,8 @@ export type WorkflowSummary = {
   pullRequestUrl?: string | null;
   failureReason?: string | null;
   currentDefinitionStepId?: string | null;
+  hasExecutionSlot?: boolean;
+  enqueuedAt?: string | null;
   isPaused?: boolean;
   cancelRequestedAt?: string | null;
   cancelCompletedAt?: string | null;
@@ -135,6 +137,7 @@ export type WorkflowDefinitionValidationError = {
 };
 
 export type WorkflowDefinitionResponse = {
+  maxActiveInstances?: number | null;
   id: string;
   name: string;
   createdAt: string;
@@ -775,3 +778,12 @@ export const queueImageBuild = (id: string, expectedRevision: number) => send<Im
 export const cancelImageBuild = (id: string, buildId: string) => send<ImageBuild>(`/api/images/${encodeURIComponent(id)}/builds/${encodeURIComponent(buildId)}/cancel`, { method: "POST" });
 
 export type WorkflowEditorGroup = { id: string; name: string; color: string; nodeIds: string[] };
+
+export async function getWorkflowConcurrency(): Promise<{ maxActiveInstances: number | null }> {
+  return send("/api/workflow-concurrency");
+}
+export async function setWorkflowConcurrency(maxActiveInstances: number | null, definitionId?: string): Promise<{ maxActiveInstances: number | null }> {
+  return send(definitionId ? `/api/workflow-definitions/${encodeURIComponent(definitionId)}/concurrency` : "/api/workflow-concurrency", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxActiveInstances })
+  });
+}

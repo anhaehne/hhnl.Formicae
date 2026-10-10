@@ -1094,6 +1094,7 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.MapWorkflowExecutionEndpoints();
+app.MapWorkflowConcurrencyEndpoints();
 
 app.Run();
 

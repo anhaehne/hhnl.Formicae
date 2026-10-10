@@ -15,7 +15,7 @@ public sealed partial class WorkflowOrchestrator
         {
             var entry = workflow.CurrentDefinitionStepId ?? document.StartStepId;
             if (document.Steps.Single(step => step.Id == entry).Uses == "builtins.plan"
-                && !(await workItems.GetIssueAsync(workflow.IssueUrl, token)).HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) return false;
+                && !(await GetSchedulingIssueAsync(workflow.IssueUrl, token)).HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) return false;
             activation = await store.UpsertParallelExecutionAsync(new WorkflowParallelExecution
             {
                 WorkflowId = workflow.Id, NodeId = entry, EntryPlanArtifact = workflow.PlanArtifact, StartedAt = clock.UtcNow

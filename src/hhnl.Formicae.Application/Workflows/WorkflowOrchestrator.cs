@@ -18,21 +18,21 @@ public sealed partial class WorkflowOrchestrator(
 
     public async Task<int> AdvanceRunnableWorkflowsAsync(CancellationToken cancellationToken)
     {
-        var workflows = await store.ListRunnableWorkflowsAsync(cancellationToken);
-        var advanced = 0;
-
-        foreach (var workflow in workflows)
+        ResetSchedulingReads();
+        advancingBatch = true;
+        try
         {
-            if (await AdvanceAsync(workflow, cancellationToken))
-            {
-                advanced++;
-            }
+            await ReconcileAdmissionAsync(cancellationToken);
+            var workflows = batchWorkflows!;
+            var advanced = 0;
+            foreach (var workflow in workflows.OrderByDescending(item => item.HasExecutionSlot))
+                if (await AdvanceAsync(workflow, cancellationToken)) advanced++;
+            return advanced;
         }
-
-        return advanced;
+        finally { advancingBatch = false; }
     }
 
-    public async Task<bool> AdvanceAsync(Workflow workflow, CancellationToken cancellationToken)
+    private async Task<bool> AdvanceCoreAsync(Workflow workflow, CancellationToken cancellationToken)
     {
         await ReconcileRuntimeCleanupAsync(workflow, cancellationToken);
         var hasEndArrival = (await store.ListTaskRunsAsync(workflow.Id, cancellationToken))
@@ -160,7 +160,7 @@ public sealed partial class WorkflowOrchestrator(
 
     private async Task<bool> StartPlanningIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        var issue = await GetSchedulingIssueAsync(workflow.IssueUrl, cancellationToken);
         if (!issue.HasLabel(WorkItemWorkflowLabels.ReadyToPlan))
         {
             return false;
@@ -228,7 +228,7 @@ public sealed partial class WorkflowOrchestrator(
 
         await TransitionWorkflowAsync(workflow, WorkflowStatus.Planning, WorkflowStep.Plan, "Planning started.", cancellationToken);
 
-        var issue = workItem ?? await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        var issue = workItem ?? await GetSchedulingIssueAsync(workflow.IssueUrl, cancellationToken);
         var run = existing ?? await CreateCurrentTaskRunAsync(workflow, TaskRunKind.Plan, cancellationToken);
         var previousOutput = forceRefresh ? run.Output : null;
         var shouldPersistPreviousPlan = string.IsNullOrWhiteSpace(workflow.PlanArtifact)
@@ -315,7 +315,7 @@ public sealed partial class WorkflowOrchestrator(
     }
     private async Task<bool> RunImplementationIfReadyAsync(Workflow workflow, CancellationToken cancellationToken)
     {
-        var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+        var issue = await GetSchedulingIssueAsync(workflow.IssueUrl, cancellationToken);
         var feedbackComments = await GetNewIssueFeedbackForPlanAsync(workflow, issue, cancellationToken);
         if (feedbackComments.Count > 0)
         {
@@ -504,7 +504,7 @@ public sealed partial class WorkflowOrchestrator(
         }
 
         var previousAddressedAt = existing?.Status == TaskRunStatus.Succeeded ? existing.UpdatedAt : (DateTimeOffset?)null;
-        var pullRequestStatus = await sourceControl.GetPullRequestStatusAsync(workflow, cancellationToken);
+        var pullRequestStatus = await GetSchedulingPullRequestStatusAsync(workflow, cancellationToken);
         if (pullRequestStatus.IsMerged)
         {
             await AdvanceDefinitionCursorAsync(workflow, "Workflow completed because the pull request was merged.", cancellationToken);
@@ -519,7 +519,7 @@ public sealed partial class WorkflowOrchestrator(
             return true;
         }
 
-        var comments = await sourceControl.ListPullRequestCommentsAsync(workflow, cancellationToken);
+        var comments = await GetSchedulingPullRequestCommentsAsync(workflow, cancellationToken);
         if (comments.Count == 0)
         {
             return false;

@@ -15,7 +15,7 @@ public static class WorkflowMapping
             workflow.UpdatedAt,
             workflow.PullRequestUrl,
             workflow.FailureReason,
-            workflow.CurrentDefinitionStepId, workflow.IsPaused, workflow.CancelRequestedAt, workflow.CancelCompletedAt);
+            workflow.CurrentDefinitionStepId, workflow.IsPaused, workflow.CancelRequestedAt, workflow.CancelCompletedAt, workflow.HasExecutionSlot, workflow.EnqueuedAt);
 
     public static TaskRunResponse ToResponse(this TaskRun run)
         => new(
@@ -77,7 +77,7 @@ public static class WorkflowMapping
             definition.Name,
             definition.CreatedAt,
             definition.UpdatedAt,
-            versions.OrderByDescending(version => version.Version).Select(version => version.ToResponse()).ToArray());
+            versions.OrderByDescending(version => version.Version).Select(version => version.ToResponse()).ToArray(), definition.MaxActiveInstances);
 
     public static WorkflowDefinitionVersionResponse ToResponse(this WorkflowDefinitionVersion version)
         => new(

@@ -1,3 +1,4 @@
+import WorkflowConcurrencyControl from "./WorkflowConcurrencyControl";
 import ImagesPage from "./ImagesPage";
 import WorkflowExecutionPage from "./WorkflowExecutionPage";
 import WorkflowHistory from "./WorkflowHistory";
@@ -1136,6 +1137,8 @@ export default function App() {
           onUpdateUserRoles={handleUpdateUserRoles}
         />
       ) : (
+        <>
+        <WorkflowConcurrencyControl canAdminister={canAdminister} />
         <SettingsPage
           aiSettingsList={aiSettingsList}
           selectedAiSettings={selectedAiSettings}
@@ -1154,6 +1157,7 @@ export default function App() {
           onSubmit={handleAiSettingsSubmit}
           canAdminister={canAdminister}
         />
+        </>
     );
   }
 

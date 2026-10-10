@@ -9,7 +9,7 @@ public sealed partial class WorkflowOrchestrator
         var activation = await store.GetParallelExecutionAsync(workflow.Id, group.Id, cancellationToken, visit);
         if (activation is null)
         {
-            var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+            var issue = await GetSchedulingIssueAsync(workflow.IssueUrl, cancellationToken);
             if (workflow.Status == WorkflowStatus.Queued && !issue.HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) return false;
             activation = await store.UpsertParallelExecutionAsync(new WorkflowParallelExecution
             {
@@ -106,7 +106,7 @@ public sealed partial class WorkflowOrchestrator
         var launchAccepted = false;
         try
         {
-            var issue = await workItems.GetIssueAsync(workflow.IssueUrl, cancellationToken);
+            var issue = await GetSchedulingIssueAsync(workflow.IssueUrl, cancellationToken);
             // Never mutate the tracked workflow while rendering branch-local context.
             var branchWorkflow = new Workflow
             {

@@ -9,6 +9,14 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.36.0 Workflow instance concurrency
+
+Deploy matching **0.36.0** API and worker images with the **0.36.0** Helm chart. Startup applies `AddWorkflowInstanceConcurrency`, adding nullable per-definition limits, a global settings row, and durable queue/reservation columns. Existing limits default to unlimited; existing running workers retain capacity during scheduler recovery. No external queue or additional Kubernetes resources are required.
+
+Administrators configure the global limit in Settings and a definition limit in Workflow settings. Both limits apply before work starts; event-only waiting releases capacity, and matching events retain their evidence while reactivation queues. Parallel tasks count as one instance. Lower limits drain existing work. Verify both settings persist and confirm a queued instance advances when another instance finishes or enters a wait. See [execution operations](workflow-execution-operations.md#workflow-instance-limits).
+
+Local validation: **1,313 backend cases**, **117 browser cases**, **3 smoke cases** and **22 selector cases** passed; Release backend/frontend builds and Helm lint passed. The full browser suite was rerun with one worker after editor interaction timeouts under six-worker host load. Kubernetes E2E passed all **32 cases** and cleaned up the temporary cluster and registry. Tests added/removed/edited: **16 / 0 / 2** (case counts). See the [verification record](../agent-os/specs/2026-10-10-2040-workflow-instance-concurrency/verification.md) for exact commands and outcomes. Release verification requires full CI and automated deployment on the exact pushed main SHA.
+
 ## 0.35.1 Group canvas navigation
 
 Deploy matching **0.35.1** API and worker images with the **0.35.1** Helm chart. Empty visual group backgrounds pass canvas drag, wheel zoom and trackpad pinch gestures through to React Flow. Group headers retain selection and shared dragging; member nodes and connections retain their existing interactions. This applies to the definition editor and the pinned execution graph. No database migration is required. After rollout, drag and zoom over empty group space, then drag the group header and confirm its members move together.

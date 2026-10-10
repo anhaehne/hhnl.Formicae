@@ -70,6 +70,8 @@ public enum WorkflowTriggerType
 
 public sealed class Workflow
 {
+    public bool HasExecutionSlot { get; set; }
+    public DateTimeOffset? EnqueuedAt { get; set; }
     public string? CycleExecutionJson { get; set; }
     public bool IsPaused { get; set; }
     public DateTimeOffset? CancelRequestedAt { get; set; }
@@ -95,6 +97,7 @@ public sealed class Workflow
 
 public sealed class WorkflowDefinition
 {
+    public int? MaxActiveInstances { get; set; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string Name { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
@@ -385,7 +388,7 @@ public sealed record WorkflowDefinitionResponse(
     string Name,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<WorkflowDefinitionVersionResponse> Versions);
+    IReadOnlyList<WorkflowDefinitionVersionResponse> Versions, int? MaxActiveInstances = null);
 
 public sealed record WorkflowDefinitionVersionResponse(
     Guid Id,
@@ -469,7 +472,7 @@ public sealed record WorkflowSummaryResponse(
     string? PullRequestUrl,
     string? FailureReason,
     string? CurrentDefinitionStepId = null,
-    bool IsPaused = false, DateTimeOffset? CancelRequestedAt = null, DateTimeOffset? CancelCompletedAt = null);
+    bool IsPaused = false, DateTimeOffset? CancelRequestedAt = null, DateTimeOffset? CancelCompletedAt = null, bool HasExecutionSlot = false, DateTimeOffset? EnqueuedAt = null);
 
 public sealed record WorkflowEventResponse(
     Guid Id,

@@ -22,6 +22,7 @@ This skill is project-local to this repository. When this workflow requires user
 ## Phase 2: Post-Launch
 
 - Add a management UI.
+- Add global and per-definition active-instance limits with durable admission queues; waiting triggers release capacity (revision `workflow-instance-concurrency`).
 - Add workflow observability.
   - Workflow Management uses a compact execution sidebar; definitions host Manual Start for their saved versions, and graph ports remain separate from execution status/timing (available in 0.27.0).
   - Visual investigation of running and historical executions, live and retained worker logs, immutable retry attempts, and evidence exports (available in 0.19.0).

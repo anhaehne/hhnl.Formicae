@@ -18,6 +18,14 @@ Cancel first persists cancellation intent under the scheduler lock. The schedule
 
 Retry preserves the replaced attempt before starting another. A task cannot retry while its previous runtime cleanup is pending. Prior attempt logs and task evidence remain available after retry.
 
+## Workflow instance limits
+
+Administrators set the global maximum active instances in Settings and a definition's maximum active instances in Workflow settings. Leave a limit empty for unlimited; otherwise enter a positive whole number. Definition limits apply to every version, including existing executions. Changes take effect for subsequent admission. Reducing a limit lets existing work drain rather than stopping workers.
+
+New starts and reactivated instances enter a durable FIFO queue. Both limits must permit admission. A full definition limit does not block another definition from using global capacity. All parallel tasks within an instance count as one instance. An instance waiting only for events, approval labels or provider feedback releases its slot. A matching event is retained while its continuation waits for capacity. Pausing prevents new tasks; already running workers continue counting until they finish. Resumes and retries join the queue again. Cancellation and terminal cleanup keep counting until workers are reconciled. Queue timestamps and reservations survive API restarts, and the existing distributed scheduler lock coordinates replicas.
+
+Execution details display Active instance, Queued for capacity or Waiting separately from the workflow's task phase; history marks capacity queues. `hasExecutionSlot` and `enqueuedAt` are included in execution summaries. Administrators configure limits using `PUT /api/workflow-concurrency` or `PUT /api/workflow-definitions/{definitionId}/concurrency`, with `{ "maxActiveInstances": 3 }` or `null` for unlimited. `GET /api/workflow-concurrency` requires workflow-view access. Writes require management-admin access and return conflict when the scheduler is busy; retry the save in that case.
+
 ## Persistence and operation
 
 Workers deliver bounded, retryable log callbacks with stable message identities. Runtime logs provide a fallback when callbacks cannot reach the API. Duplicate records are suppressed; overflow and truncation are marked. Callbacks from a stale attempt cannot replace task output or append to the current attempt.

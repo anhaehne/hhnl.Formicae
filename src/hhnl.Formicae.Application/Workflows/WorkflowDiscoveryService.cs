@@ -48,6 +48,7 @@ public sealed class WorkflowDiscoveryService(
 
                     var workflow = new Workflow
                     {
+                        EnqueuedAt = DateTimeOffset.UtcNow,
                         IssueUrl = issue.Url,
                         RepositoryUrl = repository.RepositoryUrl,
                         BaseBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "main" : repository.DefaultBranch,

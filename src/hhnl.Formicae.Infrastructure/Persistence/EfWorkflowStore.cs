@@ -5,8 +5,28 @@ namespace hhnl.Formicae.Infrastructure.Persistence;
 
 public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWorkflowStore
 {
+    public async Task<WorkflowConcurrencySettings> GetConcurrencySettingsAsync(CancellationToken token)
+        => await dbContext.WorkflowConcurrencySettings.AsNoTracking().SingleOrDefaultAsync(token) ?? new();
+
+    public async Task SetConcurrencySettingsAsync(WorkflowConcurrencySettings settings, CancellationToken token)
+    {
+        var existing = await dbContext.WorkflowConcurrencySettings.SingleOrDefaultAsync(token);
+        if (existing is null) dbContext.WorkflowConcurrencySettings.Add(settings);
+        else existing.MaxActiveInstances = settings.MaxActiveInstances;
+        await dbContext.SaveChangesAsync(token);
+    }
+
+    public async Task SetDefinitionConcurrencyAsync(Guid definitionId, int? limit, CancellationToken token)
+    {
+        var definition = await dbContext.WorkflowDefinitions.SingleAsync(item => item.Id == definitionId, token);
+        definition.MaxActiveInstances = limit;
+        await dbContext.SaveChangesAsync(token);
+    }
+
     public async Task<Workflow> CreateWorkflowAsync(Workflow workflow, CancellationToken cancellationToken)
     {
+        if (workflow.Status is not (WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Canceled))
+            workflow.EnqueuedAt ??= workflow.CreatedAt;
         dbContext.Workflows.Add(workflow);
         await dbContext.SaveChangesAsync(cancellationToken);
         return workflow;
@@ -30,7 +50,7 @@ public sealed partial class EfWorkflowStore(FormicaeDbContext dbContext) : IWork
 
     public async Task<IReadOnlyList<Workflow>> ListRunnableWorkflowsAsync(CancellationToken cancellationToken)
         => await dbContext.Workflows
-            .Where(workflow => workflow.Status == WorkflowStatus.Queued
+            .Where(workflow => workflow.HasExecutionSlot || workflow.Status == WorkflowStatus.Queued
                 || workflow.Status == WorkflowStatus.Planning
                 || workflow.Status == WorkflowStatus.Implementing
                 || workflow.Status == WorkflowStatus.CreatingPullRequest

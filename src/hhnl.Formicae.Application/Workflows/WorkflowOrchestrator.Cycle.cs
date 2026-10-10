@@ -39,25 +39,9 @@ public sealed partial class WorkflowOrchestrator
                 NextStepId = WorkflowGraphDefinitions.Successors(step).FirstOrDefault(next => !feedback.Contains(CycleEdge(step.Id, next))),
                 NextStepIds = WorkflowGraphDefinitions.Successors(step).Where(next => !feedback.Contains(CycleEdge(step.Id, next))).Skip(1).ToArray()
             }).ToArray() };
-            var components = WorkflowCycleDefinitions.Components(document);
-            var reachable = WorkflowGraphDefinitions.Reachable(document, state.Entry ?? entry);
-            foreach (var step in document.Steps.Where(step => step.Trigger is null && reachable.Contains(step.Id) && !state.Active.ContainsKey(step.Id)))
+            foreach (var step in PendingCycleNodes(document, state))
             {
-                var incoming = document.Steps.Where(parent => parent.Trigger is null && reachable.Contains(parent.Id) && WorkflowGraphDefinitions.Successors(parent).Contains(step.Id)).ToArray();
-                bool Fresh(WorkflowDefinitionStep parent) => state.Delivered.GetValueOrDefault(CycleEdge(parent.Id, step.Id))
-                    > state.Consumed.GetValueOrDefault(CycleEdge(parent.Id, step.Id));
-                if (!incoming.Any(Fresh)) continue;
-                var repeated = state.Completed.GetValueOrDefault(step.Id) > 0;
-                bool Ready(WorkflowDefinitionStep parent)
-                {
-                    var edge = CycleEdge(parent.Id, step.Id);
-                    if (feedback.Contains(edge)) return !repeated || Fresh(parent);
-                    // Inputs entering a cyclic region remain available across its repeated passes.
-                    if (components[parent.Id] != components[step.Id] && (components.Count(item => item.Value == components[step.Id]) > 1 || WorkflowGraphDefinitions.Successors(step).Contains(step.Id)))
-                        return state.Delivered.GetValueOrDefault(edge) > 0;
-                    return Fresh(parent);
-                }
-                if (step.Uses != WorkflowEndDefinitions.Uses && !incoming.All(Ready)) continue;
+                var incoming = document.Steps.Where(parent => parent.Trigger is null && WorkflowGraphDefinitions.Successors(parent).Contains(step.Id)).ToArray();
                 foreach (var parent in incoming) state.Consumed[CycleEdge(parent.Id, step.Id)] = state.Delivered.GetValueOrDefault(CycleEdge(parent.Id, step.Id));
                 ActivateCycleNode(state, step.Id);
             }
@@ -98,7 +82,7 @@ public sealed partial class WorkflowOrchestrator
             WorkflowDefinitionValidator.TryMapUsesToTaskKind(step.Uses, out var kind);
             workflow.CurrentStep = StepFor(kind);
             if (kind == TaskRunKind.Plan && workflow.Status == WorkflowStatus.Queued
-                && !(await workItems.GetIssueAsync(workflow.IssueUrl, token)).HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) continue;
+                && !(await GetSchedulingIssueAsync(workflow.IssueUrl, token)).HasLabel(WorkItemWorkflowLabels.ReadyToPlan)) continue;
             changed |= kind switch
             {
                 TaskRunKind.Plan => forwardGraph is null ? await RunPlanningAsync(workflow, null, token)
@@ -130,6 +114,45 @@ public sealed partial class WorkflowOrchestrator
             return true;
         }
         return changed;
+    }
+
+    private static IEnumerable<WorkflowDefinitionStep> PendingCycleNodes(WorkflowDefinitionDocument document, WorkflowCycleState state)
+    {
+        var nodes = document.Steps.ToDictionary(step => step.Id);
+        var entry = document.StartStepId;
+        var feedback = new HashSet<string>(); var visited = new HashSet<string>(); var visiting = new HashSet<string>();
+        void Visit(string id)
+        {
+            if (!nodes.ContainsKey(id) || !visited.Add(id)) return;
+            visiting.Add(id);
+            foreach (var next in WorkflowGraphDefinitions.Successors(nodes[id]))
+                if (visiting.Contains(next)) feedback.Add(CycleEdge(id, next)); else Visit(next);
+            visiting.Remove(id);
+        }
+        // Selected-entry traversal defines initial versus feedback dependencies.
+        Visit(state.Entry ?? entry);
+        foreach (var id in nodes.Keys) Visit(id);
+        var components = WorkflowCycleDefinitions.Components(document);
+        var reachable = WorkflowGraphDefinitions.Reachable(document, state.Entry ?? entry);
+        foreach (var step in document.Steps.Where(step => step.Trigger is null && reachable.Contains(step.Id) && !state.Active.ContainsKey(step.Id)))
+        {
+            var incoming = document.Steps.Where(parent => parent.Trigger is null && reachable.Contains(parent.Id) && WorkflowGraphDefinitions.Successors(parent).Contains(step.Id)).ToArray();
+            bool Fresh(WorkflowDefinitionStep parent) => state.Delivered.GetValueOrDefault(CycleEdge(parent.Id, step.Id))
+                > state.Consumed.GetValueOrDefault(CycleEdge(parent.Id, step.Id));
+            if (!incoming.Any(Fresh)) continue;
+            var repeated = state.Completed.GetValueOrDefault(step.Id) > 0;
+            bool Ready(WorkflowDefinitionStep parent)
+            {
+                var edge = CycleEdge(parent.Id, step.Id);
+                if (feedback.Contains(edge)) return !repeated || Fresh(parent);
+                // Inputs entering a cyclic region remain available across its repeated passes.
+                if (components[parent.Id] != components[step.Id] && (components.Count(item => item.Value == components[step.Id]) > 1 || WorkflowGraphDefinitions.Successors(step).Contains(step.Id)))
+                    return state.Delivered.GetValueOrDefault(edge) > 0;
+                return Fresh(parent);
+            }
+            if (step.Uses != WorkflowEndDefinitions.Uses && !incoming.All(Ready)) continue;
+            yield return step;
+        }
     }
 
     private async Task RecordCycleLoopsAsync(Workflow workflow, WorkflowDefinitionDocument document, WorkflowCycleState state, CancellationToken token)

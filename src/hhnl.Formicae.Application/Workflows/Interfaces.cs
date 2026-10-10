@@ -89,6 +89,9 @@ public interface IAgentRunner
 
 public interface IWorkflowStore
 {
+    Task<WorkflowConcurrencySettings> GetConcurrencySettingsAsync(CancellationToken token);
+    Task SetConcurrencySettingsAsync(WorkflowConcurrencySettings settings, CancellationToken token);
+    Task SetDefinitionConcurrencyAsync(Guid definitionId, int? limit, CancellationToken token);
     Task<WorkflowNodeWait> ArmWaitAsync(WorkflowNodeWait wait, CancellationToken token);
     Task<WorkflowNodeWait?> GetWaitAsync(Guid attemptId, CancellationToken token);
     Task<bool> AcceptWaitEventAsync(WorkflowWaitEvent evt, CancellationToken token);
