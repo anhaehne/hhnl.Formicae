@@ -11,6 +11,8 @@ Implementation scope: `builtins.template`, Scriban textarea, unlimited-count nam
 
 The first .NET runner invocation required reviewed local socket access; restore required reviewed network access. Preparation's concurrent solution build failed, so locked frontend installation and individual builds were used. Browser tests initially exhausted a 30-second scenario budget under concurrent shared builds; placing Add input above the input list and a 90-second scenario budget produced passing checks. A concurrent merged .NET/Vite build failed as Vite replaced files; sequential validation fixes the build order.
 
-Release sequencing: 0.33.0 Create branch, 0.34.0 issue title, 0.34.1 test selection, then 0.35.0 templating. Hold each push until predecessor deployment success is explicitly confirmed. Group navigation 0.35.1 follows templating deployment.
+Release sequencing: 0.33.0 Create branch, 0.34.0 issue title, 0.34.1 capability design, 0.34.2 test selection, then 0.35.0 templating. Hold each push until predecessor deployment success is explicitly confirmed. Group navigation 0.35.1 follows templating deployment.
 
 Tests added/removed/edited: 26 / 0 / 0 cases (23 backend cases, 3 browser scenarios); final selector integration counts recorded after its merge.
+
+Full browser command `npm run test:smoke -- --config=/tmp/formicae-template-smoke.config.ts`: 113 passed, one decision-page load failed with module `ERR_NETWORK_CHANGED` in its Playwright trace (10.1 minutes). Rerun `npm run test:smoke -- --config=/tmp/formicae-template-smoke.config.ts editor.spec.ts --grep 'decision true routes'`: 1 passed (7.3 seconds). All 114 cases have passing results, including all three template scenarios.
