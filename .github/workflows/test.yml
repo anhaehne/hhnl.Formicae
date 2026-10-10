@@ -64,6 +64,9 @@ jobs:
           cache: npm
           cache-dependency-path: src/hhnl.Formicae.Api/ClientApp/package-lock.json
 
+      - name: Test validation selector
+        run: node --test scripts/tests/test-selection.test.mjs
+
       - name: Restore and test .NET
         run: |
           dotnet restore hhnl.Formicae.slnx
@@ -107,9 +110,9 @@ jobs:
           kill "$blocker_pid"
           blocker_pid=""
 
-      - name: Run browser smoke tests
+      - name: Run full browser regression
         working-directory: src/hhnl.Formicae.Api/ClientApp
-        run: npm run test:smoke
+        run: npm run test:browser
 
       - name: Upload browser diagnostics
         if: failure()

@@ -92,12 +92,14 @@ Linux agent workers can prepare and run both development servers with one reposi
 
 The harness binds the API to `127.0.0.1:5000` and Vite to `127.0.0.1:5173`, uses fake adapters and in-memory persistence, and writes disposable diagnostics below `test-results/`. Implementation workers also include headless Chromium and a loopback-restricted Playwright MCP server so Codex can inspect the running UI, browser console, network requests, screenshots, and traces without exposing a public preview.
 
-Run the deterministic browser smoke suite with:
+Run the three basic health/navigation/error browser smoke checks with:
 
 ```bash
 cd src/hhnl.Formicae.Api/ClientApp
 npm run test:smoke
 ```
+
+Run `npm run test:browser` for the full browser regression suite. For task-based validation, use `node scripts/test-selection.mjs --base origin/main --plan` from the repository root, then `--run`. See [task-based validation](docs/testing.md) for families, fast verification and full CI requirements.
 
 Start a workflow manually:
 

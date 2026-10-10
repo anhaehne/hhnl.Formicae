@@ -112,7 +112,7 @@ test("step model picker discovers through CLI jobs and preserves saved selection
   expect(errors).toEqual([]);
 });
 
-test("API health and version endpoints respond", async ({ request }) => {
+test("API health and version endpoints respond", { tag: "@smoke" }, async ({ request }) => {
   const healthResponse = await request.get(`${apiUrl}/healthz`);
   expect(healthResponse.ok()).toBe(true);
   expect(await healthResponse.text()).toBe("Healthy");
@@ -124,7 +124,7 @@ test("API health and version endpoints respond", async ({ request }) => {
   });
 });
 
-test("UI loads and navigates between primary pages", async ({ page }, testInfo) => {
+test("UI loads and navigates between primary pages", { tag: "@smoke" }, async ({ page }, testInfo) => {
   await page.goto("/workflows");
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Management" })).toBeVisible();
 
@@ -140,7 +140,7 @@ test("UI loads and navigates between primary pages", async ({ page }, testInfo) 
   await expect(page.getByRole("heading", { level: 1, name: "Workflow Definitions" })).toBeVisible();
 });
 
-test("UI loads without page or console errors", async ({ page }) => {
+test("UI loads without page or console errors", { tag: "@smoke" }, async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(`pageerror: ${error.message}`));
   page.on("console", message => {

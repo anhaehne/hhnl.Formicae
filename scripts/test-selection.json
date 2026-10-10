@@ -1,0 +1,417 @@
+{
+  "families": {
+    "backend": {
+      "dotnet": [
+        "*"
+      ]
+    },
+    "workflow": {
+      "dotnet": [
+        "Workflow",
+        "TaskDataPassing",
+        "TaskOutputCorrection",
+        "TypedDecision",
+        "IssueComment",
+        "StepModelSelection",
+        "AgentTaskDefinition"
+      ],
+      "browser": [
+        "editor",
+        "execution",
+        "cycles",
+        "end",
+        "waits",
+        "starts",
+        "variables",
+        "typedDecisions",
+        "issue-comments",
+        "customTasks",
+        "personas",
+        "stepEnvironments",
+        "images",
+        "extensions",
+        "smoke"
+      ]
+    },
+    "persistence": {
+      "dotnet": [
+        "PersistenceTests",
+        "WorkflowMigrationTests"
+      ]
+    },
+    "personas": {
+      "dotnet": [
+        "Persona",
+        "WorkflowDefinition",
+        "WorkflowEditor",
+        "WorkflowOrchestrator",
+        "StepEnvironment"
+      ],
+      "browser": [
+        "personas",
+        "editor",
+        "execution"
+      ]
+    },
+    "environments": {
+      "dotnet": [
+        "Environment",
+        "WorkflowDefinition",
+        "WorkflowEditor",
+        "WorkflowOrchestrator",
+        "CustomTask",
+        "ManagedImage"
+      ],
+      "browser": [
+        "environments",
+        "stepEnvironments",
+        "extensions",
+        "customTasks",
+        "images",
+        "editor",
+        "execution"
+      ]
+    },
+    "custom-tasks": {
+      "dotnet": [
+        "CustomTask",
+        "TaskDataPassing",
+        "TaskOutputCorrection",
+        "WorkflowDefinition",
+        "WorkflowEditor",
+        "WorkflowOrchestrator",
+        "Environment",
+        "Persona"
+      ],
+      "browser": [
+        "customTasks",
+        "extensions",
+        "images",
+        "editor",
+        "execution",
+        "variables"
+      ]
+    },
+    "images": {
+      "dotnet": [
+        "ManagedImage",
+        "Environment",
+        "CustomTask",
+        "AgentTask",
+        "WorkflowOrchestrator"
+      ],
+      "browser": [
+        "images",
+        "environments",
+        "extensions",
+        "customTasks",
+        "editor"
+      ]
+    },
+    "integrations": {
+      "dotnet": [
+        "GitHub",
+        "Gitea",
+        "DevOps",
+        "IssueComment",
+        "WorkflowStart",
+        "WorkflowEvent",
+        "WorkflowTrigger",
+        "WorkflowWait",
+        "WorkflowWebhook",
+        "WorkflowOrchestrator",
+        "TaskDataPassing"
+      ],
+      "browser": [
+        "starts",
+        "waits",
+        "issue-comments",
+        "variables",
+        "editor"
+      ]
+    },
+    "worker": {
+      "dotnet": [
+        "Worker",
+        "Codex",
+        "ContainerExecutionIdentity",
+        "AgentExecutionIdentity",
+        "TaskOutputCorrection",
+        "CustomTaskWorker",
+        "Runtime",
+        "EnvironmentAdapter"
+      ],
+      "browser": [
+        "aiSetup",
+        "extensions",
+        "execution"
+      ]
+    },
+    "browser": {
+      "browser": [
+        "*"
+      ]
+    },
+    "smoke": {
+      "browser": [
+        "@smoke"
+      ]
+    },
+    "deployment": {
+      "checks": [
+        "helm",
+        "kubernetes"
+      ]
+    },
+    "selector": {
+      "checks": [
+        "selector"
+      ]
+    },
+    "docs": {
+      "checks": [
+        "docs"
+      ]
+    }
+  },
+  "full": [
+    "backend",
+    "browser",
+    "deployment",
+    "selector"
+  ],
+  "rules": [
+    {
+      "paths": [
+        "AGENTS.md",
+        "scripts/test-selection*",
+        "scripts/tests/test-selection*",
+        "docs/testing.md"
+      ],
+      "families": [
+        "selector",
+        "docs"
+      ],
+      "reason": "Validation policy or selector infrastructure"
+    },
+    {
+      "paths": [
+        "Directory.Build.*",
+        "*.sln*",
+        "global.json",
+        "NuGet.Config",
+        "**/*.csproj",
+        "**/package*.json",
+        ".github/**",
+        "**/Dockerfile*",
+        ".dockerignore",
+        "deploy/**",
+        "scripts/run-k8s*",
+        "scripts/formicae-dev*"
+      ],
+      "families": [
+        "backend",
+        "browser",
+        "deployment",
+        "selector"
+      ],
+      "reason": "Shared build, dependencies, development harness or deployment"
+    },
+    {
+      "paths": [
+        "tests/hhnl.Formicae.Tests/**"
+      ],
+      "families": [
+        "backend"
+      ],
+      "reason": "Backend test changes may affect fixtures or shared helpers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Application/Workflows/AiSettings*",
+        "src/hhnl.Formicae.Application/Workflows/WorkerAgentAuth*",
+        "src/hhnl.Formicae.Api/Program.cs",
+        "src/hhnl.Formicae.Api/*Startup*",
+        "src/hhnl.Formicae.Api/appsettings*"
+      ],
+      "families": [
+        "backend",
+        "browser",
+        "deployment"
+      ],
+      "reason": "AI/auth configuration or startup affects worker credentials and deployment"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Infrastructure/Persistence/**",
+        "tests/Fixtures/*.sql"
+      ],
+      "families": [
+        "backend",
+        "persistence",
+        "deployment"
+      ],
+      "reason": "Database model, stores, migrations or migration fixture"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Worker/**",
+        "src/hhnl.Formicae.Infrastructure/Agents/**",
+        "tests/Fixtures/*.sh",
+        "src/hhnl.Formicae.Api/prompts/**"
+      ],
+      "families": [
+        "worker",
+        "workflow",
+        "deployment"
+      ],
+      "reason": "Worker runtime, executable fixture or consumed prompt"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Infrastructure/*Runtime*",
+        "src/hhnl.Formicae.Infrastructure/**/Kubernetes*",
+        "src/hhnl.Formicae.Infrastructure/**/Container*",
+        "tests/hhnl.Formicae.KubernetesE2ETests/**"
+      ],
+      "families": [
+        "backend",
+        "deployment"
+      ],
+      "reason": "Container/Kubernetes runtime contract"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/src/workflowEditor/**",
+        "src/hhnl.Formicae.Api/ClientApp/src/workflow*.ts*",
+        "src/hhnl.Formicae.Api/ClientApp/src/Workflow*.tsx"
+      ],
+      "families": [
+        "workflow",
+        "browser"
+      ],
+      "reason": "Shared editor, graph or execution UI has cross-feature consumers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/src/*Persona*",
+        "src/hhnl.Formicae.Application/Workflows/Persona*"
+      ],
+      "families": [
+        "personas"
+      ],
+      "reason": "Persona contracts and consuming editor/execution views"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/src/*Environment*",
+        "src/hhnl.Formicae.Application/Workflows/*Environment*"
+      ],
+      "families": [
+        "environments"
+      ],
+      "reason": "Environment profiles and consumers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/src/CustomTasks*",
+        "src/hhnl.Formicae.Application/Workflows/CustomTask*"
+      ],
+      "families": [
+        "custom-tasks"
+      ],
+      "reason": "Custom task definitions, preparation and consumers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/src/Images*",
+        "src/hhnl.Formicae.Application/Images/**"
+      ],
+      "families": [
+        "images"
+      ],
+      "reason": "Managed image catalog and consumers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Application/Integrations/**",
+        "src/hhnl.Formicae.Infrastructure/DevOps/**"
+      ],
+      "families": [
+        "integrations",
+        "workflow"
+      ],
+      "reason": "DevOps integration and workflow event consumers"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Application/Workflows/**"
+      ],
+      "families": [
+        "workflow",
+        "persistence"
+      ],
+      "reason": "Workflow domain and durable contracts",
+      "fallback": true
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/ClientApp/**"
+      ],
+      "families": [
+        "browser"
+      ],
+      "reason": "Shared frontend or browser configuration",
+      "fallback": true
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Api/**",
+        "src/hhnl.Formicae.Application/Management/**"
+      ],
+      "families": [
+        "backend",
+        "browser"
+      ],
+      "reason": "Shared API, startup or authorization contract",
+      "fallback": true
+    },
+    {
+      "paths": [
+        "docs/kubernetes*",
+        "docs/job-runtimes*",
+        "docs/managed-agent-images*"
+      ],
+      "families": [
+        "backend",
+        "deployment",
+        "docs"
+      ],
+      "reason": "Operational instructions select deployment validation"
+    },
+    {
+      "paths": [
+        "README.md"
+      ],
+      "families": [
+        "backend",
+        "browser",
+        "deployment",
+        "docs"
+      ],
+      "reason": "README contains executable setup and deployment instructions"
+    },
+    {
+      "paths": [
+        "docs/*.md",
+        "agent-os/**/*.md",
+        "agent-os/**/*.yml",
+        ".agents/**/*.md"
+      ],
+      "families": [
+        "docs"
+      ],
+      "reason": "Prose documentation; executable or operational changes require explicit additional families"
+    }
+  ]
+}
