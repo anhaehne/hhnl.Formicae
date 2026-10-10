@@ -155,14 +155,18 @@ export function main(args) {
   console.log(`Selected families: ${selection.families.join(', ')}`);
   for (const reason of selection.reasons) console.log(`${reason.file}: ${reason.families.join(', ')} — ${reason.reason}`);
   const filter = dotnetFilter(plan.dotnet);
-  if (plan.dotnet.length) console.log(`Backend: dotnet test ${backend} --no-build --no-restore --configuration Release ${filter.join(' ')}`);
+  if (plan.dotnet.length) console.log(`Backend: dotnet test ${backend} --no-build --no-restore --configuration Release ${filter.map(arg => JSON.stringify(arg)).join(' ')}`);
   if (plan.browser.length) console.log(`Browser: ${plan.browser.join(', ')} (plus tagged smoke tests)`);
   console.log(`Checks: ${plan.checks.join(', ')}`);
   console.log(`Fast verification: ${plan.dotnet.length ? 'Release backend build; ' : ''}${plan.browser.length ? 'frontend build; ' : ''}git diff --check`);
   if (options.mode === 'plan') return;
   const started = Date.now();
   const timed = (label, fn) => { const begin = Date.now(); const result = fn(); console.log(`${label}: ${((Date.now() - begin) / 1000).toFixed(1)}s`); return result; };
-  timed('Whitespace check', () => command('git', ['diff', '--check', 'HEAD']));
+  timed('Whitespace check', () => {
+    command('git', ['diff', '--check', 'HEAD']);
+    command('git', ['diff', '--cached', '--check']);
+    if (options.base || (!options.files.length && !options.families.length)) command('git', ['diff', '--check', `${options.base ?? 'origin/main'}...HEAD`]);
+  });
   if (plan.checks.includes('selector')) timed('Selector tests', () => command('node', ['--test', 'scripts/tests/test-selection.test.mjs']));
   if (plan.dotnet.length) {
     timed('Backend build', () => command('dotnet', ['build', backend, '--configuration', 'Release']));
