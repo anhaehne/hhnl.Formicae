@@ -3,6 +3,7 @@
 ## Communication
 
 - Always respond in English.
+- For implementation work, read applicable standards directly into context. Do not ask the user how to format or inject standards.
 - Keep changes scoped to the user's current request.
 - Do not revert user changes unless explicitly asked.
 - Always include how many tests were added/removed/edited in pull request summaries.

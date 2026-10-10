@@ -58,10 +58,13 @@ public sealed class WorkflowEventService(
                 {
                     if (!issue.TryGetProperty("number", out var number) || !number.TryGetInt32(out var issueId) || issueId <= 0)
                         throw new InvalidOperationException("GitHub Issue created requires a positive issue number.");
+                    if (!issue.TryGetProperty("title", out var title) || title.ValueKind != JsonValueKind.String)
+                        throw new InvalidOperationException("GitHub Issue created requires a string title.");
                     outputs = new Dictionary<string, JsonElement>
                     {
                         ["issue"] = JsonSerializer.SerializeToElement(issue.GetRawText()),
-                        ["issueId"] = number.Clone()
+                        ["issueId"] = number.Clone(),
+                        ["title"] = title.Clone()
                     };
                 }
                 var workflow = await workflows.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(
