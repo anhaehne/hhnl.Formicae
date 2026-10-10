@@ -53,6 +53,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support reusable custom agent tasks with typed inputs and persisted outputs (available in 0.15.0).
 - Support per-step environment selection, inheritance and immutable profile history (available in 0.17.0).
 - Support per-step provisioning capabilities and selected secret-key references (available in 0.20.0).
+- Planned revision `kubernetes-capability-bundles`: reusable administrator-authored native Kubernetes fragments with pinned parameters, deterministic pod/resource composition, durable attempt-owned provisioning/readiness/cleanup and infrastructure selection for agent and script tasks. Validate the design with built-in DinD and an operator-backed companion before implementing the first release. See the [spec](../specs/2026-10-10-1900-kubernetes-capability-bundles/plan.md); runtime implementation remains planned.
 - Support reusable environment profiles with immutable workflow-default selection and a runtime timeout cap (available in 0.16.0).
   - Native Codex and OpenHands stdio/HTTP MCP integration with selected secret aliases (available in 0.20.0).
   - Custom compatible worker images, pull policies and operator image-pull secrets (available in 0.20.0).

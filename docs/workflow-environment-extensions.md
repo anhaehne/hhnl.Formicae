@@ -12,6 +12,12 @@ A Script node exposes one named string output, `output`, containing sanitized st
 
 ## Capabilities and secrets
 
+### Planned Kubernetes capability bundles
+
+The [capability-bundle spec](../agent-os/specs/2026-10-10-1900-kubernetes-capability-bundles/plan.md) proposes administrator-authored, revisioned native Kubernetes fragments for sidecars, init containers, volumes, claimed pod settings and namespaced companion/custom resources. A typed envelope governs parameters, worker bindings, readiness, policy and durable cleanup. Agent and script tasks would select pinned infrastructure bundles independently of the worker image. The design exercises the existing DinD sidecar and an operator-backed PostgreSQL companion through startup, replay/retry, cancellation and cleanup. **This is planned behavior; the current API still accepts only the capabilities documented below.** Operators/CRDs remain deployment prerequisites. See [contracts and lifecycle traces](../agent-os/specs/2026-10-10-1900-kubernetes-capability-bundles/contracts.md).
+
+### Current capabilities
+
 The execution inspector supports inherited capabilities or an explicit list. Available provisioning capabilities are `browser`, `nested-containers`, `mcp:<server-name>` and `tool:<tool-name>`. An explicit empty list enables none. Agent implementation/address-comments steps inherit browser and nested-container provisioning; agent steps inherit configured tools and MCP servers. Scripts inherit tools only and reject agent-only capabilities.
 
 Capabilities control Formicae provisioning; they do not sandbox arbitrary shell commands, filesystem access or networking. Kubernetes provisions the Docker sidecar only when nested containers are selected. Docker/Podman execution rejects nested-container requirements with a clear error; use Kubernetes for that capability. Named image-pull Secrets also require Kubernetes.
