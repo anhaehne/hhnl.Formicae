@@ -3,7 +3,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:smoke": "playwright test"
+    "test:smoke": "playwright test --grep @smoke",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.1",

@@ -14,6 +14,8 @@ Catalog content revisions are separate from envelope schema and renderer semanti
 
 A durable per-attempt ledger is mandatory even when Kubernetes owner references exist. Owner references assist garbage collection; they do not solve uncertain API responses, retained Jobs, finalizers or external operator side effects. Cleanup continues after workflow terminal state and has independent visible evidence.
 
+Post-save review identified two contract corrections: fixed absolute deadline binding in the suspended worker template with remaining-time/checkpoint calculation at worker startup, and durable cancellation fencing with worker termination confirmed before companion deletion. Resolve delayed create/unsuspend outcomes before declaring cleanup complete. These are design refinements, not runtime changes.
+
 Use deterministic initial bindings: stable resource names, service DNS, secret name/key references and shared mounts. Defer arbitrary status-derived worker values to avoid immutable Job-template changes and accidental credential capture. Readiness is explicit, bounded and dependency-aware; no generic custom-resource Ready convention.
 
 Security is a deployment policy as well as an authoring permission: declared secret consumers, constrained parameters, resource-kind/API discovery, namespace-scoped RBAC, privilege approval by operator configuration and admission controls. A privileged DinD built-in remains an explicit exception. Custom resources can cause cloud/storage side effects; approving their GVK requires a tested cleanup contract.
