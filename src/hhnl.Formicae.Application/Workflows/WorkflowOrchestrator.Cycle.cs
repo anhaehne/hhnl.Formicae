@@ -109,6 +109,7 @@ public sealed partial class WorkflowOrchestrator
                 TaskRunKind.Wait => await RunWaitNodeAsync(workflow, step, token),
                 TaskRunKind.Script => await RunScriptTaskAsync(workflow, step, token),
                 TaskRunKind.Custom => await RunCustomTaskAsync(workflow, step, token),
+                TaskRunKind.CreateBranch => await RunCreateBranchTaskAsync(workflow, step, token),
                 TaskRunKind.AddIssueComment => await RunIssueCommentTaskAsync(workflow, step, token),
                 _ => false
             };
