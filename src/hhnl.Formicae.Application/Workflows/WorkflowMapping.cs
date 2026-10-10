@@ -33,12 +33,14 @@ public static class WorkflowMapping
             AgentMessageParser.Parse(run.Output),
             run.DefinitionStepId,
             run.LoopIteration,
-            ReadCustomExecution(run.CustomTaskExecutionJson),
+            run.Kind == TaskRunKind.Custom ? ReadCustomExecution(run.CustomTaskExecutionJson) : null,
             run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson),
             run.ExecutionAttemptId, ExitCode: run.ExitCode, IssueCommentExecution: run.Kind == TaskRunKind.AddIssueComment && run.CustomTaskExecutionJson is not null
                 ? JsonSerializer.Deserialize<PreparedIssueCommentExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
             CreateBranchExecution: run.Kind == TaskRunKind.CreateBranch && run.CustomTaskExecutionJson is not null
-                ? JsonSerializer.Deserialize<PreparedCreateBranchExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null);
+                ? JsonSerializer.Deserialize<PreparedCreateBranchExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
+            TemplateExecution: run.Kind == TaskRunKind.Template && run.CustomTaskExecutionJson is not null
+                ? JsonSerializer.Deserialize<PreparedTemplateExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null);
 
     private static PreparedCustomTaskExecution? ReadCustomExecution(string? json)
     {

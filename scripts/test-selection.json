@@ -40,7 +40,8 @@
         "images",
         "extensions",
         "smoke",
-        "createBranch"
+        "createBranch",
+        "templates"
       ]
     },
     "persistence": {
@@ -99,7 +100,8 @@
         "images",
         "editor",
         "execution",
-        "variables"
+        "variables",
+        "templates"
       ]
     },
     "images": {
@@ -139,7 +141,8 @@
         "issue-comments",
         "variables",
         "editor",
-        "createBranch"
+        "createBranch",
+        "templates"
       ]
     },
     "worker": {

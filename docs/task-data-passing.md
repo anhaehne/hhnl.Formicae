@@ -57,3 +57,19 @@ Missing optional outputs are skipped. Empty strings, zero and false remain prese
 Connect contributing producers ahead of the consumer through control connections, or within the same control cycle for feedback from earlier visits (0.30.0). Validation follows variable chains to every underlying producer, including those ignored by First/Override, and retains selected-event, conditional-path and loop-iteration restrictions. Pure variable-expression cycles, duplicate source/output pairs and type mismatches are rejected. A feedback source that has not executed is absent; consumer defaults/required rules apply. Variables do not accumulate across iterations or act as mutable global state.
 
 Saved versions pin variable settings. Consumer preparation freezes the combined value, ordered source tree, operations and producer run/attempt identities. Restart and consumer retry reuse this evidence. New preparation reads current successful producer evidence. Select a variable in execution history to inspect its pinned settings and frozen consumer values; variables have no task execution status or attempts. Existing direct bindings and saved versions remain readable. Variable definitions and evidence extend existing JSON storage and require no database migration.
+
+## Template node (0.35.0)
+
+Add **Template** (`builtins.template`) to render plain text from connected workflow data without starting a worker. Edit its **Scriban template** textarea and add any number of named inputs. Each input has a string, number or boolean type and requires one matching producer connection. Multiple inputs may use the same producer. There is no input-count cap. Sources obey the existing upstream availability, variable, loop and cycle rules.
+
+Use `{{ inputs.name }}` or `{{ inputs["name"] }}` to insert a value. Scriban supports conditions, loops and functions, for example:
+
+```scriban
+# Issue {{ inputs.issueId }}
+{{ inputs.title | string.upcase }}
+{{ if inputs.ready }}Ready for implementation{{ else }}Waiting{{ end }}
+```
+
+The required **text** string output is the rendered result and can connect to another task, a variable or another template. Whitespace, Unicode and markup remain plain text; inserted input text is not parsed again as a template. Empty templates produce empty strings. No HTML escaping is applied implicitly.
+
+Inputs and output use the existing scalar contract: strings and the template are limited to 16,000 characters, and serialized outputs to 65,536 UTF-8 bytes. Scriban rendering uses invariant culture, strict missing-variable/member checks, a 1,000-iteration loop limit, a recursion limit of 32, bounded string/output growth and no filesystem template loader. Syntax errors prevent enabling; missing values and render errors fail the task with recorded evidence. Resolved inputs and their provenance are frozen in task history and preserved across retries; successful output is retained as both task text and structured `text` data. See the [Scriban language reference](https://scriban.github.io/docs/language/).

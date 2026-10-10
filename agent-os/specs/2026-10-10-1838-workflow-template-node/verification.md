@@ -1,0 +1,22 @@
+# Workflow template node verification
+
+Implementation scope: `builtins.template`, Scriban textarea, unlimited-count named scalar data input ports, plain string `text` output, inline durable execution and retained input provenance.
+
+- `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-restore --configuration Release -m:1 --filter FullyQualifiedName~WorkflowTemplateTests`: 23 cases passed, including 65 inputs, mixed scalar rendering, missing values, syntax, rendering limits, sequential/graph/cycle/loop execution, variables and retries.
+- `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-build --no-restore --configuration Release`: 1,261 pre-merge cases passed. After the Create branch merge, the same suite with `--no-restore --configuration Release -m:1` passed all 1,296 cases. After the 0.34.0 issue-title merge, all 1,299 cases passed.
+- `npm run build` (ClientApp): passed before and after resolving Create branch and issue-title integration conflicts. Run frontend and backend builds sequentially because Vite replaces tracked static assets.
+- `npm run test:smoke -- --config=/tmp/formicae-template-smoke.config.ts templates.spec.ts` (ClientApp): all three cases passed (27.4 seconds) after merging 0.34.0, including issue-title binding save/reload and actual inline template execution with output/provenance history. Temporary config uses installed Chromium 1243, one worker and the existing dev servers.
+- Installed local Playwright MCP: catalog insertion, textarea/input controls and node ports inspected; zero console errors; API requests returned 200; screenshot and network evidence retained under ignored `test-results/`.
+- `helm lint deploy/helm/formicae`: passed.
+
+The first .NET runner invocation required reviewed local socket access; restore required reviewed network access. Preparation's concurrent solution build failed, so locked frontend installation and individual builds were used. Browser tests initially exhausted a 30-second scenario budget under concurrent shared builds; placing Add input above the input list and a 90-second scenario budget produced passing checks. A concurrent merged .NET/Vite build failed as Vite replaced files; sequential validation fixes the build order.
+
+Release sequencing: 0.33.0 Create branch, 0.34.0 issue title, 0.34.1 capability design, 0.34.2 test selection, then 0.35.0 templating. Hold each push until predecessor deployment success is explicitly confirmed. Group navigation 0.35.1 follows templating deployment.
+
+Tests added/removed/edited: 26 / 0 / 1 cases (23 backend cases, 3 browser scenarios); one existing selector regression now asserts template consumers in workflow, custom-task and integration families.
+
+Full browser command `npm run test:smoke -- --config=/tmp/formicae-template-smoke.config.ts`: 113 passed, one decision-page load failed with module `ERR_NETWORK_CHANGED` in its Playwright trace (10.1 minutes). Rerun `npm run test:smoke -- --config=/tmp/formicae-template-smoke.config.ts editor.spec.ts --grep 'decision true routes'`: 1 passed (7.3 seconds). All 114 cases have passing results, including all three template scenarios.
+
+After tooling 0.34.2 merge: `node scripts/test-selection.mjs --base origin/main --plan` selected backend/browser/custom-tasks/deployment/docs/persistence/selector/workflow. `node scripts/test-selection.mjs --family selector --run` passed all 22 selector cases. Full applicable suites will be verified in CI on the final merged release SHA, in addition to the completed native local regressions.
+
+Final local 0.35.0 integration: `node scripts/test-selection.mjs --base origin/main --list` passed Release backend/frontend/Kubernetes builds and native discovery (125.1 seconds). `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-build --no-restore --configuration Release --filter FullyQualifiedName~WorkflowTemplateTests`: 23 passed. `npm run test:browser -- --config=/tmp/formicae-template-smoke.config.ts templates.spec.ts smoke.spec.ts --grep 'Template|@smoke'`: six selected checks passed (`test-results/playwright/.last-run.json` status passed, no failed tests; selection confirmed with `--list`). Dev harness start/status/stop passed; ports released. Whitespace and Helm lint passed. A redundant concurrent Release build was stopped; selector-owned build completed successfully. Generated production assets are included in the release commit.

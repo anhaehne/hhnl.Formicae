@@ -34,6 +34,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support customizable workflows.
 - Add terminal End nodes that complete the entire execution on first arrival and cancel other tasks, parallel branches and event waits (0.31.0; approved revision `workflow-end-node`).
 - Add a workflow editor.
+- Add inline Scriban Template nodes with any number of named scalar data connections, a textarea and rendered text output (0.35.0; revision `workflow-template-node`).
 - Add named visual groups with preset background colors, shared movement, editable membership and saved layout (available in 0.28.0; approved baseline revision `workflow-editor-groups`).
 - Support loops and triggers as configurable workflow nodes (available).
 - Represent workflow entrypoints as registered event nodes: built-in Start/Webhook, GitHub Issue created/Label added and Gitea Label added. Each integration owns its event settings and matching; the optional manual Start and selected-entry history remain available (0.22.0; approved revisions `workflow-start-nodes` and `integration-event-nodes`).

@@ -22,6 +22,8 @@ test('persona mapping selects its consumers without unrelated deployment', () =>
 });
 test('shared editor changes select all browser and workflow regression', () => {
   includes(select(['src/hhnl.Formicae.Api/ClientApp/src/workflowEditor/Inspector.tsx']), 'workflow', 'browser');
+  for (const family of ['workflow', 'custom-tasks', 'integrations'])
+    assert.ok(resolve(select([], [family])).browser.includes('templates'), `${family} retains template input/output consumers`);
 });
 test('database and runtime changes retain mandatory Kubernetes verification', () => {
   includes(select(['src/hhnl.Formicae.Infrastructure/Persistence/FormicaeDbContext.cs']), 'backend', 'persistence', 'deployment');

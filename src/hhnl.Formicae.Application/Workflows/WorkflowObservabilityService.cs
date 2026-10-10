@@ -32,7 +32,7 @@ public sealed class WorkflowObservabilityService(
                     now));
             }
 
-            if (run.Kind is not (TaskRunKind.AddIssueComment or TaskRunKind.CreateBranch) && string.IsNullOrWhiteSpace(run.ExternalId))
+            if (run.Kind is not (TaskRunKind.AddIssueComment or TaskRunKind.CreateBranch or TaskRunKind.Template) && string.IsNullOrWhiteSpace(run.ExternalId))
             {
                 signals.Add(new WorkflowSignalResponse(
                     "Error",
