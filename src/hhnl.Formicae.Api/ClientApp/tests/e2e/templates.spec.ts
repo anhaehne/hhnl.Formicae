@@ -77,3 +77,31 @@ test("Template catalog allows more than 32 inputs and type changes disconnect st
   await expect(page.getByLabel("Template input 33 name")).toHaveValue("input33");
   await expect(page.getByRole("button", { name: "Add template input", exact: true })).toBeEnabled();
 });
+
+test("Template runs inline and exposes rendered text and provenance in execution history", async ({ page, request }, testInfo) => {
+  const definition = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Template execution ${Date.now()}` } })).json();
+  const saved = await request.post(`${api}/api/workflow-definitions/${definition.id}/versions`, { data: { isEnabled: true, isDefault: false, definition: {
+    schema: "formicae.workflow/v1alpha3", startStepId: "source", steps: [
+      { id: "source", uses: "builtins.template", nextStepId: "render", template: { template: "World ✓", inputs: [] } },
+      { id: "render", uses: "builtins.template", displayName: "Rendered greeting", template: { template: "Hello {{ inputs.name }}!\nPlain <text>", inputs: [{ name: "name", valueType: "string", required: true }], bindings: { name: { stepId: "source", outputName: "text" } } } }
+    ] } } });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+  const version = await saved.json();
+  const started = await request.post(`${api}/api/workflows/github-issue`, { data: { issueUrl: `https://github.com/example/repo/issues/${Date.now()}`, repositoryUrl: "https://github.com/example/repo", workflowDefinitionVersionId: version.id } });
+  expect(started.ok(), await started.text()).toBeTruthy();
+  const id = (await started.json()).workflowId;
+  await expect.poll(async () => (await (await request.get(`${api}/api/workflows/${id}`)).json()).status, { timeout: 30_000 }).toBe(5);
+  const runs = await (await request.get(`${api}/api/workflows/${id}/runs`)).json();
+  const render = runs.find((run: { definitionStepId: string }) => run.definitionStepId === "render");
+  expect(render.structuredOutputs.text).toBe("Hello World ✓!\nPlain <text>");
+  expect(render.externalId).toBeNull();
+  expect(render.templateExecution.provenance.name.stepId).toBe("source");
+  await page.goto(`/workflows?workflowId=${id}&node=render`);
+  const evidence = page.getByRole("region", { name: "Template execution" });
+  await expect(evidence).toBeVisible();
+  await evidence.getByText("Prepared inputs", { exact: true }).click();
+  await expect(evidence).toContainText("World ✓");
+  await page.getByText("Task output", { exact: true }).click();
+  await expect(page.locator(".execution-inspector")).toContainText("Hello World ✓!\nPlain <text>");
+  await page.screenshot({ path: testInfo.outputPath("template-execution.png"), fullPage: true });
+});

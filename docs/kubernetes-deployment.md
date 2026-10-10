@@ -9,6 +9,12 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.35.0 workflow templates
+
+Deploy matching **0.35.0** API and worker images with the **0.35.0** Helm chart. Add **Template** to a workflow, edit the Scriban textarea and connect any number of named string, number or boolean inputs. Use `{{ inputs.name }}` to insert values; the **text** output contains the rendered plain text. Templates execute inline without workers and retain resolved inputs, provenance and outputs in execution/attempt history. No database migration is required. Preserve the preceding Create branch and issue title releases.
+
+After rollout, verify a saved template with multiple connections, then execute it and inspect its **text** output and captured inputs. See [Template node](task-data-passing.md#template-node-0350) and [verification evidence](../agent-os/specs/2026-10-10-1838-workflow-template-node/verification.md). Local verification passed 23 targeted backend cases, 1,296 merged backend cases, frontend build, two initial editor browser cases and live Playwright MCP console/network inspection. The final execution-history browser case and final-SHA CI/deployment outcomes are recorded in the verification evidence. Tests added/removed/edited: **26 / 0 / 0** executable cases (**10** backend declarations and **3** browser scenarios).
+
 ## 0.33.0 GitHub branch creation
 
 Deploy matching **0.33.0** API and worker images with the **0.33.0** Helm chart. The workflow palette and task selector include **GitHub: Create branch**. Choose a connected GitHub repository, select an existing source branch, and enter a new branch name. The task uses the repository's existing GitHub App installation credentials and Contents permission; branch discovery uses Octokit's paginated branch API. No database migration or agent worker is required. Source commit and repository are pinned before creation and retained in execution/attempt evidence. Existing destination refs are never updated. A retry may recognize a branch created at the pinned commit after an interrupted provider response; a destination at another commit fails.
