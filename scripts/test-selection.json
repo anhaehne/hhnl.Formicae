@@ -14,7 +14,15 @@
         "IssueComment",
         "StepModelSelection",
         "AgentTaskDefinition",
-        "CreateBranch"
+        "CreateBranch",
+        "CustomTask",
+        "Environment",
+        "Persona",
+        "ScriptTask",
+        "Runtime",
+        "AgentExecutionIdentity",
+        "ContainerExecutionIdentity",
+        "WorkerLogDelivery"
       ],
       "browser": [
         "editor",
@@ -244,6 +252,20 @@
         "deployment"
       ],
       "reason": "AI/auth configuration or startup affects worker credentials and deployment"
+    },
+    {
+      "paths": [
+        "src/hhnl.Formicae.Application/Workflows/Interfaces.cs",
+        "src/hhnl.Formicae.Application/Workflows/WorkflowModels.cs",
+        "src/hhnl.Formicae.Application/Workflows/WorkflowExecutionModels.cs",
+        "src/hhnl.Formicae.Api/ClientApp/src/api.ts"
+      ],
+      "families": [
+        "backend",
+        "browser",
+        "deployment"
+      ],
+      "reason": "Shared API/model/runtime interfaces have cross-layer consumers"
     },
     {
       "paths": [

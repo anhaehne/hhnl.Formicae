@@ -114,3 +114,10 @@ test('native test-list paths stay relative to Playwright rootDir, including subd
   const tests = parseBrowserDiscovery(JSON.stringify({suites:[{title:'nested/example.spec.ts',specs:[{file:'nested/example.spec.ts',title:'health',tags:['smoke']}]}]}));
   assert.equal(browserTestList(tests),'nested/example.spec.ts › health\n');
 });
+
+test('workflow selection retains dedicated orchestration consumers and shared models expand broadly', () => {
+  const selected = select(['src/hhnl.Formicae.Application/Workflows/WorkflowOrchestrator.cs']);
+  const tokens = resolve(selected).dotnet;
+  for (const consumer of ['CustomTaskOrchestratorTests','EnvironmentOrchestratorTests','PersonaOrchestratorTests','ScriptTaskOrchestratorTests','CustomTaskPreparationIntegrityTests']) assert.ok(tokens.some(t=>consumer.includes(t)), consumer);
+  for (const file of ['src/hhnl.Formicae.Application/Workflows/Interfaces.cs','src/hhnl.Formicae.Application/Workflows/WorkflowModels.cs','src/hhnl.Formicae.Api/ClientApp/src/api.ts']) includes(select([file]),'backend','browser','deployment');
+});
