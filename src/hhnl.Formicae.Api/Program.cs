@@ -773,6 +773,27 @@ app.MapGet("/api/integrations/{integrationId:guid}/repositories", async (
     return repositories is null ? Results.NotFound() : Results.Ok(repositories);
 }).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
 
+app.MapGet("/api/integrations/{integrationId:guid}/repositories/{repositoryId:guid}/branches", async (
+    Guid integrationId, Guid repositoryId, IDevOpsIntegrationStore store,
+    IDevOpsPlatformFactory platforms, CancellationToken cancellationToken) =>
+{
+    var integration = await store.GetAsync(integrationId, cancellationToken);
+    if (integration is null) return Results.NotFound();
+    if (integration.ProviderType != DevOpsProviderType.GitHub)
+        return Results.BadRequest(new { error = "Branch discovery requires a GitHub repository." });
+    var repository = (await store.ListRepositoriesAsync(integrationId, cancellationToken)).SingleOrDefault(item => item.Id == repositoryId);
+    if (repository is null) return Results.NotFound();
+    try
+    {
+        var context = await platforms.CreateForRepositoryAsync(repository.RepositoryUrl, cancellationToken);
+        return Results.Ok(await context.Platform.ListBranchesAsync(context.Repository, cancellationToken));
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or Octokit.ApiException or HttpRequestException)
+    {
+        return Results.Json(new { error = "Could not load branches from GitHub. Check repository access and try again." }, statusCode: 502);
+    }
+}).RequireAuthorization(ManagementAuthorization.ManagementAdmin);
+
 app.MapDelete("/api/integrations/{integrationId:guid}/repositories/{repositoryId:guid}", async (
     Guid integrationId,
     Guid repositoryId,

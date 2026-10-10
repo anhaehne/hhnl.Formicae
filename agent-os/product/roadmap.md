@@ -44,6 +44,7 @@ This skill is project-local to this repository. When this workflow requires user
 - Support deterministic workflow decisions with durable route history (available in 0.13.0).
 - Support deterministic sh/bash workflow scripts with live logs, scalar stdout bindings and retained exit codes (available in 0.20.0).
 - Support customizable personas with immutable per-version task context (available in 0.14.0).
+- Provide a GitHub Create branch task with connected repository selection, source branch discovery, immutable source commit preparation and retry evidence (0.33.0; revision `github-create-branch`).
 - Provide GitHub Issue created outputs (complete issue JSON string and numeric Issue id) and an Add issue comment task accepting typed issueId/text inputs (0.25.0; approved revisions `github-issue-created-output` and `github-issue-comment-task`).
 - Implemented revision `typed-data-variables` in 0.29.0: data-only typed variable nodes combine ordered outputs using string append, number sum, boolean Any/All, First or Override, with immutable consumer preparation and transitive producer provenance.
 - Support named scalar custom-task outputs and explicit input bindings with frozen producer provenance (available in 0.18.0).

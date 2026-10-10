@@ -227,13 +227,19 @@ public sealed class WorkflowDefinitionService(
             .SelectMany(trigger => trigger.RepositoryIds)
             .Distinct()
             .ToArray() ?? [];
-        if (repositoryIds.Length == 0 || integrationStore is null)
+        if ((repositoryIds.Length == 0 && !definition.Steps.Any(step => step.CreateBranch is not null)) || integrationStore is null)
         {
             return;
         }
 
         var repositories = await integrationStore.ListAllRepositoriesAsync(cancellationToken);
         var integrations = await integrationStore.ListAsync(cancellationToken);
+        foreach (var node in definition.Steps.Where(node => node.CreateBranch is not null))
+        {
+            var repository = repositories.FirstOrDefault(item => item.Id == node.CreateBranch!.RepositoryId);
+            if (repository is null || !integrations.Any(item => item.Id == repository.DevOpsIntegrationId && item.ProviderType == DevOpsProviderType.GitHub))
+                throw new WorkflowDefinitionValidationException([new("definition.createBranch.repository", "Create branch requires a connected GitHub repository.", "steps[].createBranch.repositoryId", node.Id)]);
+        }
         foreach (var node in definition.Steps.Where(node => node.Event is not null))
         {
             if (!WorkflowEventRegistry.Default.TryGet(node.Uses, out var eventDefinition) || eventDefinition.Descriptor.Provider is not { } provider) continue;

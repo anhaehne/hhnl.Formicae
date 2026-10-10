@@ -13,7 +13,8 @@
         "TypedDecision",
         "IssueComment",
         "StepModelSelection",
-        "AgentTaskDefinition"
+        "AgentTaskDefinition",
+        "CreateBranch"
       ],
       "browser": [
         "editor",
@@ -30,7 +31,8 @@
         "stepEnvironments",
         "images",
         "extensions",
-        "smoke"
+        "smoke",
+        "createBranch"
       ]
     },
     "persistence": {
@@ -120,14 +122,16 @@
         "WorkflowWait",
         "WorkflowWebhook",
         "WorkflowOrchestrator",
-        "TaskDataPassing"
+        "TaskDataPassing",
+        "CreateBranch"
       ],
       "browser": [
         "starts",
         "waits",
         "issue-comments",
         "variables",
-        "editor"
+        "editor",
+        "createBranch"
       ]
     },
     "worker": {
