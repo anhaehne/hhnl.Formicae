@@ -45,6 +45,29 @@ public sealed class IssueCommentTaskTests
     }
 
     [Fact]
+    public async Task Comment_consumes_the_frozen_title_from_legacy_event_evidence_after_restart()
+    {
+        var settings = new WorkflowIssueCommentSettings(null,
+            new Dictionary<string, CustomTaskInputBinding> { ["issueId"] = new("created", "issueId"), ["text"] = new("created", "title") });
+        var (store, workflow) = await Setup([Created(), Comment(settings: settings)], "", true);
+        var platform = DispatchProxy.Create<IDevOpsPlatform, CommentPlatform>();
+        await Orchestrator(store, new Factory(platform)).AdvanceAsync(workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, workflow.Status);
+        Assert.Equal("Frozen title ✓", Assert.Single(((CommentPlatform)(object)platform).Comments).Text);
+        var run = (await store.ListTaskRunsAsync(workflow.Id, default)).Single(run => run.Kind == TaskRunKind.AddIssueComment);
+        Assert.Equal("title", run.ToResponse().IssueCommentExecution!.Provenance["text"].OutputName);
+    }
+
+    [Theory]
+    [InlineData("42")]
+    [InlineData("null")]
+    public void Non_string_title_evidence_is_rejected(string title)
+    {
+        var json = "{\"issue\":\"{}\",\"issueId\":42,\"title\":" + title + "}";
+        Assert.Throws<InvalidOperationException>(() => CustomTaskDefinitions.ParseProducerOutputs(Created(), json));
+    }
+
+    [Fact]
     public async Task Comment_consumes_text_from_an_upstream_script()
     {
         var settings = new WorkflowIssueCommentSettings(new Dictionary<string, JsonElement> { ["issueId"] = JsonSerializer.SerializeToElement(42) },
@@ -63,8 +86,8 @@ public sealed class IssueCommentTaskTests
     [Fact]
     public async Task Failed_comment_retries_with_frozen_inputs_and_retains_event_snapshot()
     {
-        var settings = new WorkflowIssueCommentSettings(new Dictionary<string, JsonElement> { ["text"] = JsonSerializer.SerializeToElement("Frozen text") },
-            new Dictionary<string, CustomTaskInputBinding> { ["issueId"] = new("created", "issueId") });
+        var settings = new WorkflowIssueCommentSettings(null,
+            new Dictionary<string, CustomTaskInputBinding> { ["issueId"] = new("created", "issueId"), ["text"] = new("created", "title") });
         var (store, workflow) = await Setup([Created(), Comment(settings: settings)], "", true);
         var platform = DispatchProxy.Create<IDevOpsPlatform, CommentPlatform>(); var recorder = (CommentPlatform)(object)platform; recorder.Fail = true;
         await Orchestrator(store, new Factory(platform)).AdvanceAsync(workflow, default);
@@ -79,7 +102,7 @@ public sealed class IssueCommentTaskTests
         recorder.Fail = false;
         await Orchestrator(store, new Factory(platform)).AdvanceAsync(workflow, default);
         Assert.Equal(WorkflowStatus.Completed, workflow.Status);
-        Assert.Equal("Frozen text", Assert.Single(recorder.Comments).Text);
+        Assert.Equal("Frozen title ✓", Assert.Single(recorder.Comments).Text);
         Assert.Equal(prepared, Assert.Single(await store.ListTaskRunAttemptsAsync(workflow.Id, default)).CustomTaskExecutionJson);
     }
 
@@ -152,7 +175,7 @@ public sealed class IssueCommentTaskTests
         var definition = await store.CreateWorkflowDefinitionAsync(new() { Name = "Comments" }, default);
         var version = await store.CreateWorkflowDefinitionVersionAsync(new() { WorkflowDefinitionId = definition.Id, Version = 1, DslSchemaVersion = document.Schema, DefinitionJson = WorkflowDefinitionJson.Serialize(document), IsEnabled = true }, default);
         IReadOnlyDictionary<string, JsonElement>? outputs = bound ? new Dictionary<string, JsonElement> { ["issueId"] = JsonSerializer.SerializeToElement(42),
-            ["issue"] = JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new { number = 42, body = new string('x', 70000), nested = new { unknown = true } })) } : null;
+            ["issue"] = JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new { number = 42, title = "Frozen title ✓", body = new string('x', 70000), nested = new { unknown = true } })) } : null;
         var summary = await new WorkflowService(store, workflowDefinitions: new WorkflowDefinitionService(store, new())).StartGitHubIssueWorkflowAsync(new(Repository + "/issues/42", Repository, "main", null, definition.Id, version.Id), default, bound ? "created" : null, outputs);
         return (store, (await store.GetWorkflowAsync(summary.WorkflowId, default))!);
     }
