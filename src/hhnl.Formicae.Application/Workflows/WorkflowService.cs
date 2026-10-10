@@ -166,7 +166,7 @@ public sealed class WorkflowService
         }
         var definition = await GetPinnedDefinitionAsync(workflow, cancellationToken);
         if (parallel is null && definition is not null && !WorkflowGraphDefinitions.IsGraph(definition)
-            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses)
+            && definition.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses or CreateBranchDefinitions.Uses)
             && (run.DefinitionStepId != workflow.CurrentDefinitionStepId
                 || runs.Any(other => other.DefinitionStepId == run.DefinitionStepId && (other.LoopIteration ?? 0) > (run.LoopIteration ?? 0))))
         {
@@ -304,7 +304,7 @@ public sealed class WorkflowService
             }, cancellationToken);
             return workflow.ToSummary();
         }
-        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses) == true;
+        var requiresCurrentTask = definition?.Steps.Any(step => step.Decision is not null || step.Uses is CustomTaskDefinitions.Uses or CustomTaskDefinitions.AgentUses or WorkflowExecutionExtensions.ScriptUses or IssueCommentDefinitions.Uses or CreateBranchDefinitions.Uses) == true;
         var failedRun = runs.Reverse().FirstOrDefault(run => run.Status == TaskRunStatus.Failed
             && (!requiresCurrentTask || run.DefinitionStepId == workflow.CurrentDefinitionStepId));
         if (failedRun is not null)
@@ -427,6 +427,7 @@ public sealed class WorkflowService
             TaskRunKind.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             TaskRunKind.Script => (WorkflowStatus.Running, WorkflowStep.Script),
             TaskRunKind.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            TaskRunKind.CreateBranch => (WorkflowStatus.Running, WorkflowStep.CreateBranch),
             TaskRunKind.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };
@@ -442,6 +443,7 @@ public sealed class WorkflowService
             WorkflowStep.Custom => (WorkflowStatus.Running, WorkflowStep.Custom),
             WorkflowStep.Script => (WorkflowStatus.Running, WorkflowStep.Script),
             WorkflowStep.AddIssueComment => (WorkflowStatus.Running, WorkflowStep.AddIssueComment),
+            WorkflowStep.CreateBranch => (WorkflowStatus.Running, WorkflowStep.CreateBranch),
             WorkflowStep.Wait => (WorkflowStatus.Running, WorkflowStep.Wait),
             _ => throw new InvalidOperationException("Completed workflow steps cannot be retried.")
         };

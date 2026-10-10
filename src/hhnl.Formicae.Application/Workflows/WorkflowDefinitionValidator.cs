@@ -12,7 +12,8 @@ public sealed class WorkflowDefinitionValidator
         [CustomTaskDefinitions.Uses] = TaskRunKind.Custom,
         [CustomTaskDefinitions.AgentUses] = TaskRunKind.Custom,
         [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script,
-        [IssueCommentDefinitions.Uses] = TaskRunKind.AddIssueComment
+        [IssueCommentDefinitions.Uses] = TaskRunKind.AddIssueComment,
+        [CreateBranchDefinitions.Uses] = TaskRunKind.CreateBranch
     };
 
     public WorkflowDefinitionValidationResult ValidateDefinitionName(string? name)
@@ -54,6 +55,7 @@ public sealed class WorkflowDefinitionValidator
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
             errors.AddRange(IssueCommentDefinitions.ValidateStep(step));
+            errors.AddRange(CreateBranchDefinitions.ValidateStep(step));
             errors.AddRange(WorkflowEndDefinitions.ValidateStep(step));
             if (WorkflowWaitRegistry.Default.TryGet(step.Uses, out var waitDefinition))
             {
@@ -310,6 +312,7 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.Custom => CustomTaskDefinitions.Uses,
             TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses,
             TaskRunKind.AddIssueComment => IssueCommentDefinitions.Uses,
+            TaskRunKind.CreateBranch => CreateBranchDefinitions.Uses,
             TaskRunKind.Wait => hhnl.Formicae.Application.Integrations.GitHubIssueCommentWaitDefinition.Uses,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported task run kind.")
         };

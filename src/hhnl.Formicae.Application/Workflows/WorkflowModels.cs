@@ -28,7 +28,8 @@ public enum WorkflowStep
     Custom,
     Script,
     Wait,
-    AddIssueComment
+    AddIssueComment,
+    CreateBranch
 }
 
 public enum TaskRunKind
@@ -42,7 +43,8 @@ public enum TaskRunKind
     Wait,
     AddIssueComment,
     Event,
-    End
+    End,
+    CreateBranch
 }
 
 public enum TaskRunStatus
@@ -169,7 +171,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("imageSnapshot")] PreparedImageSnapshot? ImageSnapshot = null,
     [property: JsonPropertyName("event")] JsonElement? Event = null,
     [property: JsonPropertyName("issueComment")] WorkflowIssueCommentSettings? IssueComment = null,
-    [property: JsonPropertyName("wait")] WorkflowWaitSettings? Wait = null);
+    [property: JsonPropertyName("wait")] WorkflowWaitSettings? Wait = null,
+    [property: JsonPropertyName("createBranch")] WorkflowCreateBranchSettings? CreateBranch = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -497,7 +500,7 @@ public sealed record TaskRunResponse(
     string DefinitionStepId,
     int? LoopIteration,
     PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null,
-    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null, PreparedIssueCommentExecution? IssueCommentExecution = null);
+    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null, PreparedIssueCommentExecution? IssueCommentExecution = null, PreparedCreateBranchExecution? CreateBranchExecution = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,

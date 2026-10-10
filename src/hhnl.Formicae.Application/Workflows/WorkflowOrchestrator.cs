@@ -104,6 +104,8 @@ public sealed partial class WorkflowOrchestrator(
                     return await CreatePullRequestAsync(workflow, cancellationToken);
                 case TaskRunKind.AddressComments:
                     return await AddressPullRequestCommentsAsync(workflow, cancellationToken);
+                case TaskRunKind.CreateBranch:
+                    return await RunCreateBranchTaskAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.AddIssueComment:
                     return await RunIssueCommentTaskAsync(workflow, context.Step, cancellationToken);
                 case TaskRunKind.Script:
@@ -903,7 +905,7 @@ public sealed partial class WorkflowOrchestrator(
         var document = await ResolveDefinitionAsync(workflow, cancellationToken);
         if (workflow.CurrentDefinitionStepId is null)
         {
-            if (workflow.CurrentStep is WorkflowStep.Custom or WorkflowStep.Script or WorkflowStep.AddIssueComment)
+            if (workflow.CurrentStep is WorkflowStep.Custom or WorkflowStep.Script or WorkflowStep.AddIssueComment or WorkflowStep.CreateBranch)
                 throw new InvalidOperationException("Custom task execution requires an exact definition step cursor.");
             var legacyKind = workflow.CurrentStep switch
             {
@@ -1002,7 +1004,7 @@ public sealed partial class WorkflowOrchestrator(
         if (context is null) return null;
         var execution = await store.GetTaskRunExecutionAsync(workflow.Id, context.Step.Id, context.Iteration, cancellationToken);
         if (execution is not null) return execution;
-        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script or TaskRunKind.AddIssueComment or TaskRunKind.Wait) return null;
+        if (context.Kind is TaskRunKind.Custom or TaskRunKind.Script or TaskRunKind.AddIssueComment or TaskRunKind.CreateBranch or TaskRunKind.Wait) return null;
         var legacy = await store.GetTaskRunAsync(workflow.Id, context.Kind, cancellationToken);
         return legacy is { DefinitionStepId.Length: 0 } ? legacy : null;
     }
@@ -1073,6 +1075,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Custom => WorkflowStatus.Running,
         TaskRunKind.Script => WorkflowStatus.Running,
         TaskRunKind.AddIssueComment => WorkflowStatus.Running,
+        TaskRunKind.CreateBranch => WorkflowStatus.Running,
         TaskRunKind.Wait => WorkflowStatus.Running,
         TaskRunKind.End => WorkflowStatus.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
@@ -1087,6 +1090,7 @@ public sealed partial class WorkflowOrchestrator(
         TaskRunKind.Custom => WorkflowStep.Custom,
         TaskRunKind.Script => WorkflowStep.Script,
         TaskRunKind.AddIssueComment => WorkflowStep.AddIssueComment,
+        TaskRunKind.CreateBranch => WorkflowStep.CreateBranch,
         TaskRunKind.Wait => WorkflowStep.Wait,
         TaskRunKind.End => WorkflowStep.Done,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
