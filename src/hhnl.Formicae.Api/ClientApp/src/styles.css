@@ -1525,7 +1525,7 @@ pre.collapsed-content::after {
 .editor-inspector .form-row { grid-template-columns: 1fr 1fr; }
 .editor-inspector fieldset { border: 1px solid #d7dbd2; margin-bottom: 12px; }
 .editor-inspector .toggle-label { display: flex; align-items: center; }
-.editor-node { position: relative; width: 240px; min-height: 120px; padding: 14px; border: 1px solid #bdc6bd; border-left: 4px solid #12625d; border-radius: 10px; background: white; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 2px 6px #18201b14; }
+.editor-node { position: relative; width: 240px; min-height: 120px; padding: 14px; border: 1px solid #bdc6bd; border-left: 4px solid #12625d; border-radius: 10px; background: rgb(255 255 255 / 86%); display: flex; flex-direction: column; gap: 7px; box-shadow: 0 2px 6px #18201b14; }
 .editor-node.loop { min-height: 160px; border-left-color: #a57422; }
 .editor-node.event { border-left-color: #5f61a6; }
 .editor-node.selected { outline: 3px solid #218b8150; border-color: #12625d; }
@@ -1820,7 +1820,7 @@ pre.collapsed-content::after {
   .workflow-run-list { max-height: 260px; }
 }
 
-.editor-node.variable { width: 180px; min-height: 88px; border-radius: 44px; padding: 16px 22px; border-color: #168b85; background: #eefaf8; }
+.editor-node.variable { width: 180px; min-height: 88px; border-radius: 44px; padding: 16px 22px; border-color: #168b85; background: rgb(238 250 248 / 86%); }
 .editor-node.variable .editor-node-kind { color: #13746f; font-size: 10px; }
 .editor-node.variable .react-flow__handle { background: #168b85; }
 .variable-sources { padding-left: 20px; }
