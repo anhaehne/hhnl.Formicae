@@ -574,3 +574,50 @@ test("group containers remain visible throughout repeated drags", async ({ page,
   });
   expect(hidden, "group must never hide between drag updates and measurement").toBe(0);
 });
+
+
+test("empty group backgrounds allow canvas panning and zooming without moving members", async ({ page, request }, testInfo) => {
+  const item = await seed(request);
+  const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, isDefault: false,
+    definition: { ...item.version.definition, editor: { positions: { n0: { x: 0, y: 80 }, n1: { x: 450, y: 80 }, n2: { x: 900, y: 80 } },
+      groups: [{ id: "planning", name: "Planning", color: "blue", nodeIds: ["n0", "n1"] }] } } } });
+  expect(response.ok()).toBeTruthy();
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await open(page, item.name);
+  const viewport = page.locator(".react-flow__viewport");
+  const transform = () => viewport.evaluate(element => {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+    return { x: matrix.m41, y: matrix.m42, zoom: matrix.a };
+  });
+  const positions = () => page.locator(".react-flow__node").evaluateAll(nodes => nodes.map(node => ({ id: node.getAttribute("data-id"), transform: (node as HTMLElement).style.transform })));
+  const group = page.locator('.react-flow__node[data-id="group:planning"]');
+  const backgroundPoint = async () => {
+    const box = (await group.boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height - 8 };
+  };
+  for (const viewOnly of [false, true]) {
+    if (viewOnly) {
+      await page.route("**/api/auth/current-user", async route => { const response = await route.fetch(); await route.fulfill({ json: { ...await response.json(), canAdminister: false, canViewWorkflows: true } }); });
+      await page.reload(); await open(page, item.name);
+    }
+    await expect(group).toBeVisible();
+    const before = await transform(), originalPositions = await positions();
+    const point = await backgroundPoint();
+    await page.mouse.move(point.x, point.y); await page.mouse.down();
+    await page.mouse.move(point.x + 60, point.y + 30, { steps: 8 }); await page.mouse.up();
+    await expect.poll(async () => (await transform()).x - before.x).toBeCloseTo(60, 0);
+    expect((await transform()).y - before.y).toBeCloseTo(30, 0);
+    const zoomPoint = await backgroundPoint();
+    await page.mouse.move(zoomPoint.x, zoomPoint.y); await page.mouse.wheel(0, -120);
+    await expect.poll(async () => (await transform()).zoom).toBeGreaterThan(before.zoom);
+    // Trackpad pinch arrives as a wheel event with Ctrl pressed.
+    const zoomed = await transform();
+    await page.keyboard.down("Control"); await page.mouse.wheel(0, 120); await page.keyboard.up("Control");
+    await expect.poll(async () => (await transform()).zoom).toBeLessThan(zoomed.zoom);
+    expect(await positions()).toEqual(originalPositions);
+    await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+    await page.screenshot({ path: testInfo.outputPath(`group-navigation-${viewOnly ? "readonly" : "editable"}.png`) });
+  }
+  expect(errors).toEqual([]);
+});

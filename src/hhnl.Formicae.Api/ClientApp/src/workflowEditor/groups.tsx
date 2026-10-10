@@ -42,7 +42,8 @@ export function groupedNodes(nodes: WorkflowStepNode[], groups: WorkflowEditorGr
       // Preserve React Flow's measured dimensions across controlled updates so
       // dragging does not hide the container while it is measured again.
       measured: measurements[groupNodeId(group.id)],
-      style: { width: bounds.width, height: bounds.height }, data: { name: group.name, color: group.color },
+      // Empty group space belongs to the canvas; the title restores pointer events.
+      style: { width: bounds.width, height: bounds.height, pointerEvents: "none" }, data: { name: group.name, color: group.color },
       selected: selected.has(groupNodeId(group.id)), connectable: false, dragHandle: ".editor-group-title", zIndex: -1 };
   });
   return [...containers, ...nodes.map(node => {

@@ -133,7 +133,7 @@ test("unsaved graph positions finish slow initial layout while execution snapsho
  await expect(nodes).toHaveCount(4); expect(await page.locator(".execution-graph .react-flow__viewport").getAttribute("style")).toBe(viewport);
 });
 
-test("management details display pinned groups with colors and selectable members", async ({ page }, testInfo) => {
+test("management details display pinned groups with colors, navigation and selectable members", async ({ page }, testInfo) => {
  const snapshot = execution();
  const grouped = { ...snapshot, definition: { ...definition, editor: { ...definition.editor, groups: [{ id: "saved", name: "Saved delivery group", color: "purple", nodeIds: ["summary", "route"] }] } } };
  await fixture(page, { snapshot: () => grouped }); await page.goto(`/workflows?workflowId=${id}`);
@@ -144,6 +144,19 @@ test("management details display pinned groups with colors and selectable member
  await page.locator('.execution-graph .react-flow__node[data-id="summary"]').click();
  await expect(page.getByLabel("Task / node", { exact: true })).toHaveValue("summary");
  await expect(page.getByLabel("Group name", { exact: true })).toHaveCount(0);
+ const viewport = page.locator(".execution-graph .react-flow__viewport");
+ const transform = () => viewport.evaluate(element => {
+   const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+   return { x: matrix.m41, y: matrix.m42, zoom: matrix.a };
+ });
+ const before = await transform(), box = (await group.boundingBox())!;
+ await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8); await page.mouse.down();
+ await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height + 12, { steps: 8 }); await page.mouse.up();
+ await expect.poll(async () => (await transform()).x - before.x).toBeCloseTo(40, 0);
+ expect((await transform()).y - before.y).toBeCloseTo(20, 0);
+ const moved = (await group.boundingBox())!;
+ await page.mouse.move(moved.x + moved.width / 2, moved.y + moved.height - 8); await page.mouse.wheel(0, -120);
+ await expect.poll(async () => (await transform()).zoom).toBeGreaterThan(before.zoom);
  await page.screenshot({ path: testInfo.outputPath("management-groups.png") });
  await page.waitForTimeout(3200); await expect(group.getByText("Saved delivery group", { exact: true })).toBeVisible();
 });

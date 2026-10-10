@@ -9,6 +9,12 @@ The MVP includes a kustomize base under `deploy/kubernetes/base` that deploys:
 
 The base labels its dedicated `formicae` namespace to enforce the privileged Pod Security level required by DinD while retaining baseline audit and warning signals. Do not deploy unrelated or untrusted workloads into that namespace.
 
+## 0.35.1 Group canvas navigation
+
+Deploy matching **0.35.1** API and worker images with the **0.35.1** Helm chart. Empty visual group backgrounds pass canvas drag, wheel zoom and trackpad pinch gestures through to React Flow. Group headers retain selection and shared dragging; member nodes and connections retain their existing interactions. This applies to the definition editor and the pinned execution graph. No database migration is required. After rollout, drag and zoom over empty group space, then drag the group header and confirm its members move together.
+
+Local validation: `dotnet test tests/hhnl.Formicae.Tests/hhnl.Formicae.Tests.csproj --no-build --no-restore` passed **1,273** tests; the `FullyQualifiedName~WorkflowEditorTests` filter passed **6** tests; `npm run build` passed. The full browser suite passed **112** tests using `npm run test:smoke -- --config /tmp/formicae-group-navigation.config.ts --workers 1`; the initial six-worker attempt hit timeouts under shared host load. The four targeted group browser tests passed using `npm run test:smoke -- --config /tmp/formicae-group-navigation.config.ts --grep 'groups move together|group members|group containers|empty group backgrounds' --trace on`. The temporary config uses UI port 5183, the unchanged shared API on 5000 and installed Chromium, avoiding disruption of another agent's runtime. Tests added: **1**; removed: **0**; edited: **1**.
+
 ## 0.33.0 GitHub branch creation
 
 Deploy matching **0.33.0** API and worker images with the **0.33.0** Helm chart. The workflow palette and task selector include **GitHub: Create branch**. Choose a connected GitHub repository, select an existing source branch, and enter a new branch name. The task uses the repository's existing GitHub App installation credentials and Contents permission; branch discovery uses Octokit's paginated branch API. No database migration or agent worker is required. Source commit and repository are pinned before creation and retained in execution/attempt evidence. Existing destination refs are never updated. A retry may recognize a branch created at the pinned commit after an interrupted provider response; a destination at another commit fails.
