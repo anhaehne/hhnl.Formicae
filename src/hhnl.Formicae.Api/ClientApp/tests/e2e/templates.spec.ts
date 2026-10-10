@@ -18,24 +18,24 @@ test("Template textarea, named typed bindings and text output survive save and r
   const saved = await request.post(`${api}/api/workflow-definitions/${definition.id}/versions`, { data: { isEnabled: true, isDefault: false, definition: {
     schema: "formicae.workflow/v1alpha3", startStepId: "", steps: [
       { id: "created", uses: "github.issue-created", nextStepId: "template", event: { enabled: false, repositoryIds: [] } },
-      { id: "template", uses: "builtins.template", displayName: "Template", nextStepId: "comment", template: { template: "Issue {{ inputs.id }}\n{{ inputs.issue }}", inputs: [{ name: "id", valueType: "number", required: true }, { name: "issue", valueType: "string", required: true }], bindings: { id: { stepId: "created", outputName: "issueId" }, issue: { stepId: "created", outputName: "issue" } } } },
+      { id: "template", uses: "builtins.template", displayName: "Template", nextStepId: "comment", template: { template: "Issue {{ inputs.id }}\n{{ inputs.issue }}", inputs: [{ name: "id", valueType: "number", required: true }, { name: "issue", valueType: "string", required: true }], bindings: { id: { stepId: "created", outputName: "issueId" }, issue: { stepId: "created", outputName: "title" } } } },
       { id: "comment", uses: "github.add-issue-comment", issueComment: { inputs: {}, bindings: { issueId: { stepId: "created", outputName: "issueId" }, text: { stepId: "template", outputName: "text" } } } }
     ] } } });
   expect(saved.ok(), await saved.text()).toBeTruthy();
   await open(page, name); await inspect(page, "template");
   await expect(page.getByLabel("Scriban template")).toHaveJSProperty("tagName", "TEXTAREA");
   await expect(page.getByLabel("Source for id")).toHaveValue(JSON.stringify(["created", "issueId"]));
-  await expect(page.getByLabel("Source for issue")).toHaveValue(JSON.stringify(["created", "issue"]));
+  await expect(page.getByLabel("Source for issue")).toHaveValue(JSON.stringify(["created", "title"]));
   await expect(page.locator('.react-flow__node[data-id="template"] [data-handleid="output:text"]')).toHaveCount(1);
   await expect(page.getByLabel("Step environment", { exact: true })).toHaveCount(0);
   const text = "# Issue {{ inputs.id }}\n{{ inputs.details | string.upcase }}";
   await page.getByLabel("Template input 2 name").fill("details");
-  await expect(page.getByLabel("Source for details")).toHaveValue(JSON.stringify(["created", "issue"]));
+  await expect(page.getByLabel("Source for details")).toHaveValue(JSON.stringify(["created", "title"]));
   await page.getByLabel("Scriban template").fill(text);
   await page.getByRole("button", { name: "Save Version", exact: true }).click();
   await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
   const latest = (await (await request.get(`${api}/api/workflow-definitions/${definition.id}`)).json()).versions[0].definition;
-  expect(latest.steps.find((step: { id: string }) => step.id === "template").template).toMatchObject({ template: text, bindings: { id: { stepId: "created", outputName: "issueId" }, details: { stepId: "created", outputName: "issue" } } });
+  expect(latest.steps.find((step: { id: string }) => step.id === "template").template).toMatchObject({ template: text, bindings: { id: { stepId: "created", outputName: "issueId" }, details: { stepId: "created", outputName: "title" } } });
   await page.reload(); await open(page, name); await inspect(page, "template");
   await expect(page.getByLabel("Scriban template")).toHaveValue(text);
   await page.screenshot({ path: testInfo.outputPath("template-settings.png"), fullPage: true });
