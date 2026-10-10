@@ -49,6 +49,7 @@ export type WorkflowDefinitionLoop = {
 
 export type WorkflowWaitSettings = { repositoryId?: string | null; issueNumber?: number | null; issueNumberBinding?: { stepId: string; outputName: string } | null };
 export type WorkflowEventSettings = { enabled: boolean; repositoryIds?: string[]; label?: string | null; baseBranch?: string | null; model?: string | null; webhookSecretName?: string | null; [key: string]: unknown };
+export type WorkflowTemplateSettings = { template: string; inputs: CustomTaskInputDefinition[]; bindings?: Record<string, CustomTaskInputBinding> };
 export type WorkflowIssueCommentSettings = { inputs?: Record<string, string | number | boolean>; bindings?: Record<string, CustomTaskInputBinding> };
 export type WorkflowEventDescriptor = { outputs?: CustomTaskOutputDefinition[] | null; uses: string; title: string; description: string; provider?: string | null; manual: boolean; webhook: boolean; legacy: boolean; callable?: boolean; fields: { name: string; label: string; kind: string; required: boolean }[] };
 export const listWorkflowEventDefinitions = () => send<WorkflowEventDescriptor[]>("/api/workflow-events");
@@ -95,7 +96,7 @@ export type WorkflowDefinitionStep = {
   environmentId?: string | null;
   environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
-  script?: WorkflowScriptSettings | null; issueComment?: WorkflowIssueCommentSettings | null;
+  template?: WorkflowTemplateSettings | null; script?: WorkflowScriptSettings | null; issueComment?: WorkflowIssueCommentSettings | null;
   capabilities?: string[] | null;
   secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null;
@@ -176,6 +177,7 @@ export class ApiError extends Error {
 export type PreparedIssueCommentExecution = { inputs: Record<string, string | number | boolean>; provenance: Record<string, CustomTaskInputProvenance> };
 export type TaskRun = {
   issueCommentExecution?: PreparedIssueCommentExecution | null;
+  templateExecution?: PreparedIssueCommentExecution | null;
   id: string;
   workflowId: string;
   kind: string | number;
