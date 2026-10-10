@@ -202,7 +202,7 @@ public static class CustomTaskDefinitions
 
     public static IReadOnlyList<CustomTaskOutputDefinition> OutputSchemaFor(WorkflowDefinitionStep step) =>
         step.Uses == "github.issue-created" || step.Trigger?.Type == WorkflowTriggerType.DevOpsIssueCreated
-            ? [new("issue", "string", true), new("issueId", "number", true)]
+            ? [new("issue", "string", true), new("issueId", "number", true), new("title", "string", true)]
             : WorkflowWaitRegistry.Default.TryGet(step.Uses, out var wait) ? wait.Outputs : step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
 
     public static IReadOnlyList<CustomTaskInputDefinition> InputSchemaFor(WorkflowDefinitionStep step) =>
@@ -219,9 +219,21 @@ public static class CustomTaskDefinitions
         // Preserve full event evidence. Consumer input limits are applied when preparing the consumer.
         var values = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, Json)
             ?? throw new InvalidOperationException("Event outputs are missing.");
-        if (values.Count != 2 || !values.TryGetValue("issue", out var issue) || issue.ValueKind != JsonValueKind.String
+        if (values.Count is not (2 or 3) || values.Count == 3 && !values.ContainsKey("title")
+            || !values.TryGetValue("issue", out var issue) || issue.ValueKind != JsonValueKind.String
             || !values.TryGetValue("issueId", out var id) || !IssueCommentDefinitions.ValidValue("issueId", id))
             throw new InvalidOperationException("Event outputs are invalid.");
+        if (values.TryGetValue("title", out var title))
+        {
+            if (title.ValueKind != JsonValueKind.String) throw new InvalidOperationException("Event outputs are invalid.");
+        }
+        else
+        {
+            // Older runs retain their event-time title inside the complete issue snapshot.
+            using var snapshot = JsonDocument.Parse(issue.GetString()!);
+            values["title"] = snapshot.RootElement.TryGetProperty("title", out title) && title.ValueKind == JsonValueKind.String
+                ? title.Clone() : JsonSerializer.SerializeToElement("");
+        }
         return values;
     }
 

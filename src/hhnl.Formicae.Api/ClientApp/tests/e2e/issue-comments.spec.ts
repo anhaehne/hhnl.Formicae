@@ -13,6 +13,7 @@ async function inspect(page: Page, id: string) {
 }
 
 test("issue event ports and comment input bindings survive editing and saving", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
   const name = `Issue comment bindings ${Date.now()}`;
   const definition = await (await request.post(`${api}/api/workflow-definitions`, { data: { name } })).json();
   const saved = await request.post(`${api}/api/workflow-definitions/${definition.id}/versions`, { data: {
@@ -26,6 +27,7 @@ test("issue event ports and comment input bindings survive editing and saving", 
   await open(page, name);
   await expect(page.locator('.react-flow__node[data-id="created"] [data-handleid="output:issue"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__node[data-id="created"] [data-handleid="output:issueId"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node[data-id="created"] [data-handleid="output:title"]')).toHaveCount(1);
   await inspect(page, "comment");
   await expect(page.getByRole("heading", { name: "Add issue comment", exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Source for issueId")).toHaveValue(JSON.stringify(["created", "issueId"]));
@@ -33,6 +35,11 @@ test("issue event ports and comment input bindings survive editing and saving", 
   await expect(page.getByLabel("Step persona", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Step environment", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "Step model", exact: true })).toHaveCount(0);
+  await page.getByLabel("Source for text").selectOption(JSON.stringify(["created", "title"]));
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.getByText("Workflow definition version saved.")).toBeVisible();
+  await page.reload(); await open(page, name); await inspect(page, "comment");
+  await expect(page.getByLabel("Source for text")).toHaveValue(JSON.stringify(["created", "title"]));
   await page.getByLabel("Source for text").selectOption("");
   await page.getByLabel("Provide text").check();
   await page.getByLabel("Value for text").fill("A multiline comment\nwith **Markdown** and ✓");
