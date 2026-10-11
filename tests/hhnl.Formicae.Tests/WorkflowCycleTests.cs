@@ -144,6 +144,39 @@ public sealed class WorkflowCycleTests
         Assert.Equal(2, second.LoopIteration);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cycle_exit_variable_uses_initial_text_and_only_completed_feedback(bool commentVisited)
+    {
+        var consumer = new WorkflowDefinitionStep("consumer", CustomTaskDefinitions.AgentUses, CustomTask: new("agent:consumer",
+            Bindings: new Dictionary<string, CustomTaskInputBinding> { ["text"] = new("feedback", "value") },
+            Definition: new("Use {{input.text}}", [new("text", "string", true)], new())));
+        var decision = new WorkflowDefinitionStep("choose", WorkflowDecisionDefinitions.Uses, Decision: new(
+            new("literal", "boolean", "exists", Value: JsonSerializer.SerializeToElement(true)), "", "",
+            InputType: "string", InputBinding: new("check", "output"), Cases: [new("done", "equals", JsonSerializer.SerializeToElement("done"), "consumer")], DefaultStepId: "comment"));
+        var (store, workflow, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "initial", [
+            Script("initial", "check"), Script("check", "choose"), decision, Script("comment", "check"), consumer],
+            Variables: [new("feedback", "Issue Text", "string", Sources: [new("initial", "output"), new("comment", "output")], Separator: " | ")]));
+        for (var tick = 0; tick < 20 && !agent.Tasks.Any(task => task.Prompt.StartsWith("Use ")); tick++)
+        {
+            await Restart(store, agent).AdvanceAsync(workflow, default);
+            foreach (var run in (await store.ListTaskRunsAsync(workflow.Id, default)).Where(run => run.Status == TaskRunStatus.Running && run.DefinitionStepId != "consumer"))
+                agent.Complete(run, run.DefinitionStepId == "initial" ? "issue" : run.DefinitionStepId == "comment" ? "feedback" : commentVisited && run.LoopIteration == 1 ? "retry" : "done");
+        }
+        Assert.True(workflow.Status != WorkflowStatus.Failed, string.Join("; ", (await store.ListTaskRunsAsync(workflow.Id, default)).Select(run => run.DefinitionStepId + ": " + run.FailureReason)));
+        Assert.Equal(commentVisited ? "Use issue | feedback" : "Use issue", agent.Tasks[^1].Prompt);
+        var runConsumer = (await store.GetTaskRunExecutionAsync(workflow.Id, "consumer", 1, default))!;
+        var prepared = JsonSerializer.Deserialize<PreparedCustomTaskExecution>(runConsumer.CustomTaskExecutionJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(!commentVisited, prepared.Provenance!["text"].Variable!.Sources[1].Unavailable);
+        agent.Complete(runConsumer, "", false); await Restart(store, agent).AdvanceAsync(workflow, default);
+        await new WorkflowService(store).RetryWorkflowAsync(workflow.Id, default);
+        var initial = (await store.GetTaskRunExecutionAsync(workflow.Id, "initial", 1, default))!;
+        initial.StructuredOutputsJson = "{\"output\":\"changed\"}"; await store.UpsertTaskRunAsync(initial, default);
+        await Restart(store, agent).AdvanceAsync(workflow, default);
+        Assert.Equal(commentVisited ? "Use issue | feedback" : "Use issue", agent.Tasks[^1].Prompt);
+    }
+
     [Fact]
     public async Task Bounded_loop_restarts_its_count_when_an_outer_cycle_reenters()
     {

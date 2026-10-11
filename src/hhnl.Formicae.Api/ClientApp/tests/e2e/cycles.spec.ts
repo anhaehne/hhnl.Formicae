@@ -65,6 +65,31 @@ test("feedback variable accepts later comment outputs when it feeds an earlier t
   await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
 });
 
+test("issue text variable connects to an Agent task after leaving the comment cycle", async ({ page, request }, testInfo) => {
+  const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Cycle exit issue text ${Date.now()}` } })).json();
+  const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, isDefault: false, definition: {
+    schema: "formicae.workflow/v1alpha3", startStepId: "initial", steps: [
+      { id: "initial", uses: "builtins.script", displayName: "Original issue", nextStepId: "check", script: { script: "printf issue", shell: "sh", timeoutSeconds: 30, workingDirectory: "workspace" } },
+      { id: "check", uses: "builtins.script", nextStepId: "choose", script: { script: "printf ready", shell: "sh", timeoutSeconds: 30, workingDirectory: "workspace" } },
+      { id: "choose", uses: "builtins.decision", decision: { condition: { source: "literal", valueType: "boolean", operator: "equals", value: true, compareTo: true }, trueStepId: "consumer", falseStepId: "comment" } },
+      { id: "comment", uses: "github.issue-commented", displayName: "Comment feedback", wait: { issueNumber: 7 }, nextStepId: "check" },
+      { id: "consumer", uses: "builtins.agent-task", displayName: "Final Agent task", customTask: { taskId: "agent:consumer", definition: { promptTemplate: "Use {{input.IssueText}}", inputs: [{ name: "IssueText", valueType: "string", required: true }], runner: { kind: "agent", timeoutSeconds: 900 } }, inputs: { IssueText: "initial" } } }
+    ], variables: [{ id: "issueText", name: "Issue Text", valueType: "string", mode: "aggregate", sources: [{ stepId: "initial", outputName: "output" }, { stepId: "comment", outputName: "body" }] }],
+    editor: { groups: [{ id: "extract", name: "Extract requirements", nodeIds: ["check", "choose", "comment", "issueText"] }], positions: { initial: { x: 0, y: 0 }, check: { x: 350, y: 0 }, choose: { x: 700, y: 0 }, comment: { x: 350, y: 350 }, issueText: { x: 700, y: 350 }, consumer: { x: 1050, y: 0 } } }
+  } } }); expect(response.ok(), await response.text()).toBeTruthy(); await open(page, item.name);
+  await drag(page, "issueText", "output:value", "consumer", "data:IssueText");
+  await expect(page.locator('.react-flow__edge[data-id="data:issueText:value:consumer:IssueText"]')).toHaveCount(1);
+  await page.getByLabel("Find a node").fill("consumer");
+  await page.locator(".editor-search-results").getByRole("button", { name: /\(consumer\)$/ }).click();
+  await expect(page.getByLabel("Source for IssueText")).toContainText("Issue Text");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click(); await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  const saved = (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition;
+  expect(saved.steps.find((step: { id: string }) => step.id === "consumer").customTask.bindings.IssueText).toEqual({ stepId: "issueText", outputName: "value" });
+  await page.reload(); await open(page, item.name);
+  await expect(page.locator('.react-flow__edge[data-id="data:issueText:value:consumer:IssueText"]')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("issue-text-cycle-exit.png"), fullPage: true });
+});
+
 test("unbounded self cycle creates fresh visits and can pause resume and cancel", async ({ page, request }) => {
   test.setTimeout(60_000);
   const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Unbounded visits ${Date.now()}` } })).json();

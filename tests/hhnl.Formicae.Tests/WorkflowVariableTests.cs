@@ -119,6 +119,22 @@ public sealed class WorkflowVariableTests
         Assert.False(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
     }
 
+    [Theory]
+    [InlineData("aggregate")]
+    [InlineData("first")]
+    [InlineData("override")]
+    public void Upstream_cycle_feedback_is_available_through_nested_variables_after_exit(string mode)
+    {
+        var decision = new WorkflowDefinitionStep("decision", "builtins.decision", Decision: new(new("literal", "boolean", "exists", Value: V(true)), "consumer", "b"));
+        var document = Document() with { Steps = [Producer("a", "decision"), decision, Producer("b", "a"), Consumer(source: "outer")],
+            Variables = [new("combined", "Issue text", "string", mode, [B("a"), B("b")]), new("outer", "Outer", "string", Sources: [new("combined", "value")])] };
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
+        // An acyclic conditional source still cannot feed the exit.
+        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { Steps = document.Steps.Select(step => step.Id == "b" ? step with { NextStepId = "consumer" } : step).ToArray() }).IsValid);
+        // A separate entry that cannot visit the feedback producer remains invalid.
+        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { Steps = [.. document.Steps, new("manual", "builtins.start", "consumer", Event: V(new { enabled = true }))] }).IsValid);
+    }
+
     [Fact]
     public void Loop_exit_and_conditional_producers_remain_invalid_through_variables()
     {

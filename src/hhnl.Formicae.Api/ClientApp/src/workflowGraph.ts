@@ -171,14 +171,14 @@ export const isDataEdge = (edge: Edge) => !!edge.sourceHandle?.startsWith("outpu
 export const dataEdge = (source: string, output: string, target: string, input: string): Edge => ({ id: `data:${source}:${output}:${target}:${input}`, source, target, sourceHandle: `output:${output}`, targetHandle: `data:${input}`, label: `${output} → ${input}`, style: { stroke: "#168b85", strokeDasharray: "4 3" }, markerEnd: { type: MarkerType.ArrowClosed } });
 
 // Data connections never participate in control traversal or layout.
-export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start: string, producer: string, consumer: string) {
+export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start: string, producer: string, consumer: string, variableLeaf = false) {
   const producerNode = nodes.find(node => node.id === producer);
   if (producerNode?.data.variable) {
     const seen = new Set<string>();
     const check = (id: string): boolean => {
       if (seen.has(id)) return false;
       const variable = nodes.find(node => node.id === id)?.data.variable;
-      if (!variable) return eligibleProducer(nodes, edges, start, id, consumer);
+      if (!variable) return eligibleProducer(nodes, edges, start, id, consumer, true);
       seen.add(id);
       const valid = edges.filter(edge => isDataEdge(edge) && edge.target === id).every(edge => check(edge.source));
       seen.delete(id); return valid;
@@ -210,6 +210,10 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
   };
   const entries = [start, ...nodes.filter(node => isStartUses(node.data.uses)).map(node => node.id)].filter(Boolean);
   if (nodes.find(node => node.id === producer)?.data.uses === "github.issue-created") return reach(producer) && !entries.some(entry => entry !== producer && reach(entry));
+  // Optional feedback remains available after leaving its upstream control cycle.
+  if (variableLeaf && path(producer, producer) && reach(producer) &&
+      (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) &&
+      !entries.some(entry => reach(entry) && !reach(entry, undefined, producer))) return true;
   const graph = nodes.some(node => node.data.uses !== parallelUses && control.filter(edge => edge.source === node.id && edge.sourceHandle === "next").length > 1);
   return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph ? !entries.some(entry => reach(entry) && !reach(entry, undefined, producer)) : !entries.some(entry => reach(entry, producer)));
 }
