@@ -72,3 +72,63 @@ for (const mode of ["selection", "failure", "empty"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test("New Create branch accepts upstream inputs and retains them through edits and reload", async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  const name = `Branch connections ${Date.now()}`;
+  const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name } })).json();
+  const seeded = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: false, isDefault: false, definition: {
+    schema: "formicae.workflow/v1alpha3", startStepId: "repo", steps: [
+      { id: "repo", uses: "builtins.template", displayName: "Repository", nextStepId: "source", template: { template: "https://github.com/acme/repo", inputs: [] } },
+      { id: "source", uses: "builtins.template", displayName: "Source", nextStepId: "target", template: { template: "main", inputs: [] } },
+      { id: "target", uses: "builtins.template", displayName: "Target", template: { template: "feature/input", inputs: [] } }
+    ]
+  } } });
+  expect(seeded.ok(), await seeded.text()).toBeTruthy();
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  async function open() {
+    await page.goto("/workflow-definitions");
+    await page.locator(".editor-workflow-name").click();
+    await page.getByRole("complementary", { name: "Choose workflow" }).getByRole("button", { name, exact: true }).click();
+  }
+  async function inspect(id: string) {
+    await page.getByLabel("Find a node").fill(id);
+    await page.locator(".editor-search-results").getByRole("button", { name: new RegExp(`\\(${id}\\)$`) }).click();
+  }
+  await open(); await inspect("target");
+  await page.getByRole("button", { name: "Add after Target Next", exact: true }).click();
+  await page.getByRole("complementary", { name: "Add step menu" }).getByRole("button", { name: /GitHub: Create branch/ }).click();
+  const branchId = await page.locator('.react-flow__node.selected').getAttribute("data-id");
+  expect(branchId).toBeTruthy();
+  const bindings = { repository: { stepId: "repo", outputName: "text" }, sourceBranch: { stepId: "source", outputName: "text" }, targetBranch: { stepId: "target", outputName: "text" } };
+  for (const [input, binding] of Object.entries(bindings)) {
+    await page.getByLabel(`${input} input value`).fill(input === "repository" ? "https://github.com/old/repo" : "old-branch");
+    if (input === "targetBranch") {
+      await page.getByRole("button", { name: "Fit All", exact: true }).click();
+      const source = await page.locator('.react-flow__node[data-id="target"] [data-handleid="output:text"]').boundingBox();
+      const target = await page.locator(`.react-flow__node[data-id="${branchId}"] [data-handleid="data:targetBranch"]`).boundingBox();
+      expect(source).toBeTruthy(); expect(target).toBeTruthy();
+      await page.mouse.move(source!.x + source!.width / 2, source!.y + source!.height / 2); await page.mouse.down();
+      await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, { steps: 20 }); await page.mouse.up();
+      await expect(page.getByLabel(`Source for ${input}`)).toHaveValue(JSON.stringify([binding.stepId, binding.outputName]));
+    } else await page.getByLabel(`Source for ${input}`).selectOption(JSON.stringify([binding.stepId, binding.outputName]));
+    await expect(page.locator(`.react-flow__edge[data-id="data:${binding.stepId}:text:${branchId}:${input}"]`)).toHaveCount(1);
+  }
+  // Editing an ordinary property must keep all graph-derived bindings.
+  await page.getByLabel("Display Name", { exact: true }).fill("Connected branch");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  const saved = (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition;
+  expect(saved.steps.find((step: { id: string }) => step.id === branchId).createBranch).toMatchObject({ bindings, inputs: {} });
+  await page.reload(); await open(); await inspect(branchId!);
+  for (const [input, binding] of Object.entries(bindings)) await expect(page.getByLabel(`Source for ${input}`)).toHaveValue(JSON.stringify([binding.stepId, binding.outputName]));
+  await page.getByLabel("Source for targetBranch").selectOption("");
+  await page.getByLabel("targetBranch input value").fill("feature/literal");
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  const changed = (await (await request.get(`${api}/api/workflow-definitions/${item.id}`)).json()).versions[0].definition;
+  expect(changed.steps.find((step: { id: string }) => step.id === branchId).createBranch).toMatchObject({ bindings: { repository: bindings.repository, sourceBranch: bindings.sourceBranch }, inputs: { targetBranch: "feature/literal" } });
+  expect(changed.steps.find((step: { id: string }) => step.id === branchId).createBranch.bindings.targetBranch).toBeUndefined();
+  await page.screenshot({ path: testInfo.outputPath("branch-connected-inputs.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});

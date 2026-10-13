@@ -1,8 +1,14 @@
+import type { Edge } from "@xyflow/react";
+import { outputsFor } from "../workflowData";
+import { eligibleProducer, type WorkflowStepNode } from "../workflowGraph";
+import type { CustomTaskDefinition } from "../api";
 import { useEffect, useState } from "react";
 import { getIntegration, listIntegrations, listRepositoryBranches, type IntegrationDetail, type WorkflowCreateBranchSettings } from "../api";
 
-export function CreateBranchSettings({ value, disabled, onChange, boundInputs = [] }: { boundInputs?: string[]; value?: WorkflowCreateBranchSettings | null; disabled: boolean; onChange: (value: WorkflowCreateBranchSettings) => void }) {
+export function CreateBranchSettings({ value, disabled, onChange, nodes, edges, stepId, start, tasks }: { nodes: WorkflowStepNode[]; edges: Edge[]; stepId: string; start: string; tasks: CustomTaskDefinition[]; value?: WorkflowCreateBranchSettings | null; disabled: boolean; onChange: (value: WorkflowCreateBranchSettings) => void }) {
   const settings = value ?? { repositoryId: "", sourceBranch: "", branchName: "" };
+  const boundInputs = Object.keys(settings.bindings ?? {});
+  const producers = nodes.filter(node => eligibleProducer(nodes, edges, start, node.id, stepId)).flatMap(node => outputsFor(node, tasks).filter(output => output.valueType === "string").map(output => ({ value: JSON.stringify([node.id, output.name]), label: `${node.data.displayName} · ${output.name}` })));
   const [integrations, setIntegrations] = useState<IntegrationDetail[]>([]);
   const [repositoriesLoading, setRepositoriesLoading] = useState(true);
   const [repositoryError, setRepositoryError] = useState("");
@@ -46,7 +52,18 @@ export function CreateBranchSettings({ value, disabled, onChange, boundInputs = 
     {!loading && !error && repository && branches.length === 0 && <p className="muted">This repository has no source branches.</p>}
     {(error || repositoryError) && <button type="button" disabled={disabled} onClick={() => setReload(count => count + 1)}>Retry loading branches</button>}
     <label><span>New branch name</span><input aria-label="New branch name" disabled={disabled || boundInputs.includes("targetBranch")} value={settings.branchName} onChange={event => onChange({ ...settings, branchName: event.target.value })} placeholder="feature/my-change" /></label>
-    {["repository", "sourceBranch", "targetBranch"].map(name => <label key={name}><span>{name} input</span><input aria-label={`${name} input value`} disabled={disabled || boundInputs.includes(name)} value={String(settings.inputs?.[name] ?? "")} placeholder={name === "repository" ? "https://github.com/owner/repository" : name === "sourceBranch" ? "main" : "feature/my-change"} onChange={event => { const inputs = { ...settings.inputs }; if (event.target.value) inputs[name] = event.target.value; else delete inputs[name]; onChange({ ...settings, inputs }); }} /></label>)}
+    {["repository", "sourceBranch", "targetBranch"].map(name => {
+      const binding = settings.bindings?.[name];
+      const selected = binding ? JSON.stringify([binding.stepId, binding.outputName]) : "";
+      return <fieldset key={name}><legend>{name} · string</legend>
+        <label><span>Input source</span><select aria-label={`Source for ${name}`} disabled={disabled} value={selected} onChange={event => {
+          const bindings = { ...settings.bindings }, inputs = { ...settings.inputs }; delete bindings[name];
+          if (event.target.value) { const [stepId, outputName] = JSON.parse(event.target.value); bindings[name] = { stepId, outputName }; delete inputs[name]; }
+          onChange({ ...settings, bindings, inputs });
+        }}><option value="">Literal / selection</option>{binding && !producers.some(producer => producer.value === selected) && <option value={selected}>Unavailable: {binding.stepId} · {binding.outputName}</option>}{producers.map(producer => <option key={producer.value} value={producer.value}>{producer.label}</option>)}</select></label>
+        {!binding && <label><span>{name} input</span><input aria-label={`${name} input value`} disabled={disabled} value={String(settings.inputs?.[name] ?? "")} placeholder={name === "repository" ? "https://github.com/owner/repository" : name === "sourceBranch" ? "main" : "feature/my-change"} onChange={event => { const inputs = { ...settings.inputs }; if (event.target.value) inputs[name] = event.target.value; else delete inputs[name]; onChange({ ...settings, inputs }); }} /></label>}
+      </fieldset>;
+    })}
     <p className="muted">Input values override the selections above. Leave blank to use the selections, or connect a port.</p>
     {boundInputs.length > 0 && <p className="muted">Connected inputs: {boundInputs.join(", ")}. Values resolve when this task runs.</p>}
     <p className="muted">Connect repository, sourceBranch and targetBranch ports to use upstream values.</p>
