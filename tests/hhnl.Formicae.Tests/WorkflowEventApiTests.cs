@@ -63,6 +63,7 @@ public sealed class WorkflowEventApiTests
             using var outputs = JsonDocument.Parse(evidence.StructuredOutputsJson!);
             Assert.Equal(1, outputs.RootElement.GetProperty("issueId").GetInt32());
             Assert.Equal("A full issue ✓", outputs.RootElement.GetProperty("title").GetString());
+            Assert.Equal(repo.RepositoryUrl, outputs.RootElement.GetProperty("repository").GetString());
             Assert.Equal(JsonValueKind.String, outputs.RootElement.GetProperty("issue").ValueKind);
             using var captured = JsonDocument.Parse(outputs.RootElement.GetProperty("issue").GetString()!);
             using var original = JsonDocument.Parse(body);
@@ -75,6 +76,7 @@ public sealed class WorkflowEventApiTests
         var catalog = (await client.GetFromJsonAsync<WorkflowEventDescriptor[]>("/api/workflow-events"))!;
         Assert.Contains(catalog, item => item.Uses == "github.issue-created" && item.Fields.All(field => field.Name != "label"));
         Assert.Contains(catalog.Single(item => item.Uses == "github.issue-created").Outputs!, output => output.Name == "title" && output.ValueType == "string" && output.Required);
+        Assert.Contains(catalog.Single(item => item.Uses == "github.issue-created").Outputs!, output => output.Name == "repository" && output.ValueType == "string" && output.Required);
         Assert.Contains(catalog, item => item.Uses == "github.label-added" && item.Fields.Any(field => field.Name == "label"));
     }
 }

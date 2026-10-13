@@ -64,7 +64,8 @@ public sealed class WorkflowEventService(
                     {
                         ["issue"] = JsonSerializer.SerializeToElement(issue.GetRawText()),
                         ["issueId"] = number.Clone(),
-                        ["title"] = title.Clone()
+                        ["title"] = title.Clone(),
+                        ["repository"] = JsonSerializer.SerializeToElement(repository.RepositoryUrl)
                     };
                 }
                 var workflow = await workflows.StartGitHubIssueWorkflowAsync(new StartGitHubIssueWorkflowRequest(

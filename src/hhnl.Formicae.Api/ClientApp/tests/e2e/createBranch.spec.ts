@@ -38,6 +38,7 @@ for (const mode of ["selection", "failure", "empty"] as const) {
     await page.getByRole("complementary", { name: "Choose workflow" }).getByRole("button", { name, exact: true }).click();
     await page.getByLabel("Find a node").fill("branch");
     await page.locator(".editor-search-results").getByRole("button", { name: /\(branch\)$/ }).click();
+    for (const name of ["repository", "sourceBranch", "targetBranch"]) await expect(page.locator(`[aria-label="${name} input: string"]`)).toBeVisible();
     await expect(page.getByLabel("Step model", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel("New branch name")).toHaveValue("feature/new");
     if (mode === "failure") {

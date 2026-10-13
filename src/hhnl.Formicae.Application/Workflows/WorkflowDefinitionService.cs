@@ -236,7 +236,10 @@ public sealed class WorkflowDefinitionService(
         var integrations = await integrationStore.ListAsync(cancellationToken);
         foreach (var node in definition.Steps.Where(node => node.CreateBranch is not null))
         {
-            var repository = repositories.FirstOrDefault(item => item.Id == node.CreateBranch!.RepositoryId);
+            if (node.CreateBranch!.Bindings?.ContainsKey("repository") == true) continue;
+            var repository = node.CreateBranch.Inputs?.TryGetValue("repository", out var repositoryInput) == true
+                ? repositories.FirstOrDefault(item => item.RepositoryUrl == repositoryInput.GetString())
+                : repositories.FirstOrDefault(item => item.Id == node.CreateBranch.RepositoryId);
             if (repository is null || !integrations.Any(item => item.Id == repository.DevOpsIntegrationId && item.ProviderType == DevOpsProviderType.GitHub))
                 throw new WorkflowDefinitionValidationException([new("definition.createBranch.repository", "Create branch requires a connected GitHub repository.", "steps[].createBranch.repositoryId", node.Id)]);
         }

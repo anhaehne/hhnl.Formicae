@@ -22,15 +22,25 @@ public sealed partial class WorkflowOrchestrator
                 var settings = step.CreateBranch ?? throw new InvalidOperationException("Create branch settings are missing.");
                 var errors = CreateBranchDefinitions.ValidateStep(step);
                 if (errors.Count > 0) throw new InvalidOperationException(string.Join(" ", errors.Select(error => error.Message)));
+                var document = await ResolveDefinitionAsync(workflow, token);
+                var provenance = await ResolveInputProvenanceAsync(workflow, run, step, document, token);
+                var values = (settings.Inputs ?? new Dictionary<string, JsonElement>()).ToDictionary(pair => pair.Key, pair => pair.Value.Clone());
+                foreach (var (name, source) in provenance)
+                    values[name] = source.Value?.Clone() ?? throw new InvalidOperationException($"Bound input '{name}' is missing.");
+                foreach (var (name, value) in values)
+                    if (!CreateBranchDefinitions.ValidValue(name, value)) throw new InvalidOperationException($"Invalid branch input '{name}'.");
+                var sourceBranch = values.TryGetValue("sourceBranch", out var sourceValue) ? sourceValue.GetString()! : settings.SourceBranch;
+                var targetBranch = values.TryGetValue("targetBranch", out var targetValue) ? targetValue.GetString()! : settings.BranchName;
+                if (sourceBranch == targetBranch) throw new InvalidOperationException("The new branch must differ from the source branch.");
                 var repositories = await (integrations ?? throw new InvalidOperationException("Integration store is unavailable.")).ListAllRepositoriesAsync(token);
-                var repository = repositories.SingleOrDefault(item => item.Id == settings.RepositoryId)
+                var repository = repositories.SingleOrDefault(item => values.TryGetValue("repository", out var repositoryValue) ? item.RepositoryUrl == repositoryValue.GetString() : item.Id == settings.RepositoryId)
                     ?? throw new InvalidOperationException("The selected repository is no longer connected.");
                 context = await factory.CreateForRepositoryAsync(repository.RepositoryUrl, token);
                 RequireGitHub(context);
-                if ((await context.Platform.ListBranchesAsync(context.Repository, token)).Contains(settings.BranchName, StringComparer.Ordinal))
-                    throw new InvalidOperationException($"Destination branch '{settings.BranchName}' already exists.");
-                var sha = await context.Platform.GetBranchHeadShaAsync(context.Repository, settings.SourceBranch, token);
-                prepared = new(repository.RepositoryUrl, settings.SourceBranch, settings.BranchName, sha);
+                if ((await context.Platform.ListBranchesAsync(context.Repository, token)).Contains(targetBranch, StringComparer.Ordinal))
+                    throw new InvalidOperationException($"Destination branch '{targetBranch}' already exists.");
+                var sha = await context.Platform.GetBranchHeadShaAsync(context.Repository, sourceBranch, token);
+                prepared = new(repository.RepositoryUrl, sourceBranch, targetBranch, sha, provenance.Count == 0 ? null : provenance);
                 run.CustomTaskExecutionJson = JsonSerializer.Serialize(prepared, CustomExecutionJsonOptions);
             }
             else
@@ -40,6 +50,7 @@ public sealed partial class WorkflowOrchestrator
                 context = await factory.CreateForRepositoryAsync(prepared.RepositoryUrl, token);
                 RequireGitHub(context);
             }
+            WorkflowVariableDefinitions.ValidatePinnedEvidence(prepared.Provenance?.Values ?? [], await ResolveDefinitionAsync(workflow, token), run.LoopIteration);
             // Persist the resolved source before mutation. A retry can recognize a completed creation
             // after the process stopped between GitHub's response and recording task success.
             await StartTaskRunAsync(workflow, run, token);

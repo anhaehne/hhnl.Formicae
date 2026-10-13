@@ -101,7 +101,7 @@ export function definitionToGraph(original: WorkflowDefinitionDocument, adaptSta
   for (const step of document.steps) {
     if (step.decision?.inputBinding) edges.push(dataEdge(step.decision.inputBinding.stepId, step.decision.inputBinding.outputName, step.id, "value"));
     if (step.wait?.issueNumberBinding) edges.push(dataEdge(step.wait.issueNumberBinding.stepId, step.wait.issueNumberBinding.outputName, step.id, "issueNumber"));
-    for (const [name, binding] of Object.entries(step.template?.bindings ?? step.issueComment?.bindings ?? step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
+    for (const [name, binding] of Object.entries(step.template?.bindings ?? step.createBranch?.bindings ?? step.issueComment?.bindings ?? step.customTask?.bindings ?? {})) edges.push(dataEdge(binding.stepId, binding.outputName, step.id, name));
     for (const target of [step.nextStepId, ...(step.nextStepIds ?? [])].filter((id): id is string => !!id)) edges.push({ id: `${step.id}:next:${target}`, source: step.id, target,
       markerEnd: { type: MarkerType.ArrowClosed }, style: step.nextStepPort === "join" ? { strokeDasharray: "3 3", stroke: "#62509b" } : step.nextStepPort === "return" ? { strokeDasharray: "6 4", stroke: "#986c26" } : undefined,
       sourceHandle: step.uses === loopUses ? "exit" : "next", targetHandle: step.nextStepPort || "input",
@@ -131,7 +131,7 @@ export function graphToDefinition(nodes: WorkflowStepNode[], edges: Edge[], _sch
       personaId: node.data.uses === scriptUses ? undefined : node.data.personaId || undefined, personaSnapshot: node.data.uses === scriptUses ? undefined : node.data.personaSnapshot, imageSelection: node.data.imageSelection, imageSnapshot: node.data.imageSnapshot, environmentId: node.data.environmentId, environmentSnapshot: node.data.environmentSnapshot, customTask: [customTaskUses, agentTaskUses].includes(node.data.uses) ? customTask : undefined,
       aiSettingsId: node.data.uses === scriptUses ? undefined : node.data.aiSettingsId || undefined, model: node.data.uses === scriptUses ? undefined : node.data.model || undefined,
       template: node.data.uses === templateUses && node.data.template ? { ...node.data.template, bindings } : undefined,
-      createBranch: node.data.uses === createBranchUses ? node.data.createBranch : undefined,
+      createBranch: node.data.uses === createBranchUses && node.data.createBranch ? { ...node.data.createBranch, ...(Object.keys(bindings).length || node.data.createBranch.bindings ? { bindings } : {}), ...(node.data.createBranch.inputs ? { inputs: Object.fromEntries(Object.entries(node.data.createBranch.inputs).filter(([name]) => !bindings[name])) } : {}) } : undefined,
       issueComment: node.data.uses === issueCommentUses ? { ...node.data.issueComment, bindings, inputs: Object.fromEntries(Object.entries(node.data.issueComment?.inputs ?? {}).filter(([name]) => !bindings[name])) } : undefined,
       wait: node.data.uses === waitUses ? { ...node.data.wait, issueNumber: bindings.issueNumber ? undefined : node.data.wait?.issueNumber, issueNumberBinding: bindings.issueNumber } : undefined,
       script: node.data.uses === scriptUses ? node.data.script : undefined, capabilities: node.data.capabilities, secretReferences: node.data.secretReferences,

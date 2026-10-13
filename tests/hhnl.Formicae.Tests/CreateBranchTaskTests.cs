@@ -12,6 +12,43 @@ public sealed class CreateBranchTaskTests
     private static WorkflowDefinitionStep Branch(Guid repositoryId, string id = "branch", string name = "feature/new", string? next = null)
         => new(id, CreateBranchDefinitions.Uses, next, CreateBranch: new(repositoryId, "release/stable", name));
 
+    [Fact]
+    public async Task Typed_literals_resolve_repository_and_branches_before_creation()
+    {
+        var inputs = new Dictionary<string, JsonElement> { ["repository"] = JsonSerializer.SerializeToElement(Repository),
+            ["sourceBranch"] = JsonSerializer.SerializeToElement("release/stable"), ["targetBranch"] = JsonSerializer.SerializeToElement("feature/input") };
+        var setup = await Setup(inputs: inputs);
+        await setup.Orchestrator.AdvanceAsync(setup.Workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, setup.Workflow.Status);
+        Assert.Equal(("feature/input", "source-sha"), Assert.Single(setup.Platform.Created));
+    }
+
+    [Fact]
+    public async Task Bound_repository_resolves_and_freezes_producer_evidence()
+    {
+        var setup = await Setup(boundRepository: true);
+        for (var i = 0; i < 5 && setup.Workflow.Status != WorkflowStatus.Completed; i++) await setup.Orchestrator.AdvanceAsync(setup.Workflow, default);
+        Assert.Equal(WorkflowStatus.Completed, setup.Workflow.Status);
+        Assert.Single(setup.Platform.Created);
+        var run = (await setup.Store.ListTaskRunsAsync(setup.Workflow.Id, default)).Single(run => run.Kind == TaskRunKind.CreateBranch);
+        var prepared = JsonSerializer.Deserialize<PreparedCreateBranchExecution>(run.CustomTaskExecutionJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(Repository, prepared.RepositoryUrl);
+        Assert.Equal("repo", prepared.Provenance!["repository"].StepId);
+        Assert.Equal(Repository, prepared.Provenance["repository"].Value!.Value.GetString());
+    }
+
+    [Fact]
+    public void Branch_bindings_are_typed_and_reject_conflicting_literals()
+    {
+        var step = new WorkflowDefinitionStep("branch", CreateBranchDefinitions.Uses, CreateBranch: new(Bindings:
+            CreateBranchDefinitions.Inputs.ToDictionary(input => input.Name, input => new CustomTaskInputBinding("event", input.Name))));
+        Assert.Empty(CreateBranchDefinitions.ValidateStep(step));
+        Assert.Equal(3, CustomTaskDefinitions.InputSchemaFor(step).Count);
+        Assert.Equal(3, CustomTaskDefinitions.BindingsFor(step).Count);
+        Assert.NotEmpty(CreateBranchDefinitions.ValidateStep(step with { CreateBranch = step.CreateBranch! with {
+            Inputs = new Dictionary<string, JsonElement> { ["repository"] = JsonSerializer.SerializeToElement(Repository) } } }));
+    }
+
     [Theory]
     [InlineData("feature/new", true)]
     [InlineData("release/1.0", true)]
@@ -128,14 +165,18 @@ public sealed class CreateBranchTaskTests
             Assert.False((await service.ValidateAsync(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "branch", [Branch(id)]), default)).IsValid);
     }
 
-    private static async Task<SetupResult> Setup(DevOpsProviderType provider = DevOpsProviderType.GitHub, bool graph = false)
+    private static async Task<SetupResult> Setup(DevOpsProviderType provider = DevOpsProviderType.GitHub, bool graph = false, IReadOnlyDictionary<string, JsonElement>? inputs = null, bool boundRepository = false)
     {
         var integrations = new InMemoryDevOpsIntegrationStore();
         var integration = await integrations.CreateAsync(new() { ProviderType = provider, DisplayName = "Test" }, default);
         var repository = await integrations.AddRepositoryAsync(new() { DevOpsIntegrationId = integration.Id, Owner = "acme", Name = "repo", RepositoryUrl = Repository, DefaultBranch = "main" }, default);
         var store = new InMemoryWorkflowStore();
-        IReadOnlyList<WorkflowDefinitionStep> steps = graph ? [Branch(repository.Id, next: "a") with { NextStepIds = ["b"] }, Branch(repository.Id, "a", "feature/a"), Branch(repository.Id, "b", "feature/b")] : [Branch(repository.Id)];
-        var document = new WorkflowDefinitionDocument(DefaultWorkflowDefinitions.V1Alpha3Schema, "branch", steps);
+        IReadOnlyList<WorkflowDefinitionStep> steps = graph ? [Branch(repository.Id, next: "a") with { NextStepIds = ["b"] }, Branch(repository.Id, "a", "feature/a"), Branch(repository.Id, "b", "feature/b")] : [Branch(repository.Id) with { CreateBranch = inputs is null ? new(repository.Id, "release/stable", "feature/new") : new(Inputs: inputs) }];
+        if (boundRepository) steps = [new("repo", WorkflowTemplateDefinitions.Uses, "source", Template: new(Repository, [])),
+            new("source", WorkflowTemplateDefinitions.Uses, "target", Template: new("release/stable", [])),
+            new("target", WorkflowTemplateDefinitions.Uses, "branch", Template: new("feature/new", [])),
+            Branch(repository.Id) with { CreateBranch = new(Bindings: new Dictionary<string, CustomTaskInputBinding> { ["repository"] = new("repo", "text"), ["sourceBranch"] = new("source", "text"), ["targetBranch"] = new("target", "text") }) }];
+        var document = new WorkflowDefinitionDocument(DefaultWorkflowDefinitions.V1Alpha3Schema, boundRepository ? "repo" : "branch", steps);
         Assert.True(new WorkflowDefinitionValidator().Validate(document).IsValid);
         var definition = await store.CreateWorkflowDefinitionAsync(new() { Name = "Branches" }, default);
         var version = await store.CreateWorkflowDefinitionVersionAsync(new() { WorkflowDefinitionId = definition.Id, Version = 1, DslSchemaVersion = document.Schema, DefinitionJson = WorkflowDefinitionJson.Serialize(document), IsEnabled = true }, default);
