@@ -1,14 +1,14 @@
 import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
 const api = "http://127.0.0.1:5000";
-async function seed(request: APIRequestContext) {
+async function seed(request: APIRequestContext, beforeProducers = false) {
   const producer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Variable producer ${Date.now()}`, promptTemplate: "Return ready", outputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
   const consumer = await (await request.post(`${api}/api/custom-tasks`, { data: { name: `Variable consumer ${Date.now()}`, promptTemplate: "Use {{input.summary}}", inputs: [{ name: "summary", valueType: "string", required: true }] } })).json();
   const item = await (await request.post(`${api}/api/workflow-definitions`, { data: { name: `Variables ${Date.now()}` } })).json();
   const response = await request.post(`${api}/api/workflow-definitions/${item.id}/versions`, { data: { isEnabled: true, isDefault: false, definition: {
-    schema: "formicae.workflow/v1alpha3", startStepId: "a", steps: [
+    schema: "formicae.workflow/v1alpha3", startStepId: beforeProducers ? "consumer" : "a", steps: [
       { id: "a", uses: "builtins.custom-task", displayName: "Producer A", nextStepId: "b", customTask: { taskId: producer.id } },
-      { id: "b", uses: "builtins.custom-task", displayName: "Producer B", nextStepId: "consumer", customTask: { taskId: producer.id } },
-      { id: "consumer", uses: "builtins.custom-task", displayName: "Consumer", customTask: { taskId: consumer.id, bindings: { summary: { stepId: "combined", outputName: "value" } } } }
+      { id: "b", uses: "builtins.custom-task", displayName: "Producer B", nextStepId: beforeProducers ? undefined : "consumer", customTask: { taskId: producer.id } },
+      { id: "consumer", uses: "builtins.custom-task", displayName: "Consumer", nextStepId: beforeProducers ? "a" : undefined, customTask: { taskId: consumer.id, bindings: { summary: { stepId: "combined", outputName: "value" } } } }
     ], variables: [{ id: "combined", name: "Combined", valueType: "string", mode: "aggregate", separator: " | ", booleanOperation: "any", sources: [{ stepId: "b", outputName: "summary" }, { stepId: "a", outputName: "summary" }] }],
     editor: { groups: [{ id: "data-group", name: "Data", color: "green", nodeIds: ["combined"] }], positions: { a: { x: 50, y: 50 }, b: { x: 400, y: 50 }, combined: { x: 400, y: 350 }, consumer: { x: 750, y: 50 } } }
   } } });
@@ -73,4 +73,25 @@ test("variables resolve in a real workflow and expose frozen evidence without ta
   await evidence.getByText("Frozen values and source provenance", { exact: true }).click(); await expect(evidence.locator("pre").last()).toContainText("ready | ready");
   await expect(page.locator('.react-flow__node[data-id="combined"] .execution-node-state')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("variable-execution.png"), fullPage: true });
+});
+
+
+test("unset variable connects before its producers and executes with empty text", async ({ page, request }, testInfo) => {
+  const { item, version } = await seed(request, true);
+  await open(page, item.name); await inspect(page, "consumer");
+  const input = page.getByLabel("Source for summary");
+  await expect(input.locator("option").filter({ hasText: "Combined · value" })).toHaveCount(1);
+  await expect(page.locator('.react-flow__edge[data-id="data:combined:value:consumer:summary"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(page.locator(".editor-save-status")).toHaveText("Saved");
+  await page.reload(); await open(page, item.name);
+  await expect(page.locator('.react-flow__edge[data-id="data:combined:value:consumer:summary"]')).toHaveCount(1);
+  const response = await request.post(`${api}/api/workflows/github-issue`, { data: { issueUrl: `https://github.com/example/repo/issues/${Date.now()}`, repositoryUrl: "https://github.com/example/repo", workflowDefinitionVersionId: version.id } });
+  expect(response.ok(), await response.text()).toBeTruthy(); const workflow = await response.json();
+  await expect.poll(async () => (await (await request.get(`${api}/api/workflows/${workflow.workflowId}/runs`)).json()).filter((run: { status: string | number }) => run.status === "Succeeded" || run.status === 2).length, { timeout: 30_000 }).toBe(3);
+  const runs = await (await request.get(`${api}/api/workflows/${workflow.workflowId}/runs`)).json();
+  const prepared = runs.find((run: { definitionStepId: string }) => run.definitionStepId === "consumer").customTaskExecution;
+  expect(prepared.inputs.summary).toBe("");
+  expect(prepared.provenance.summary.variable.sources.every((source: { unavailable: boolean }) => source.unavailable)).toBeTruthy();
+  await page.screenshot({ path: testInfo.outputPath("unset-variable.png"), fullPage: true });
 });

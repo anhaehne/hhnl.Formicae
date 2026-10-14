@@ -35,13 +35,18 @@ public sealed class WorkflowVariableTests
     }
 
     [Theory]
-    [InlineData("string")]
-    [InlineData("number")]
-    [InlineData("boolean")]
-    public void Empty_sources_remain_absent(string type)
+    [InlineData("string", "\"\"")]
+    [InlineData("number", "0")]
+    [InlineData("boolean", "false")]
+    public void Empty_sources_return_typed_defaults_in_every_mode(string type, string expected)
     {
-        Assert.Null(WorkflowVariableDefinitions.Combine(new("v", "Value", type), []));
-        Assert.Null(WorkflowVariableDefinitions.Combine(new("v", "Value", type), [null, null]));
+        foreach (var mode in new[] { "aggregate", "first", "override" })
+        foreach (var operation in new[] { "any", "all" })
+        {
+            var variable = new WorkflowDataVariable("v", "Value", type, mode, BooleanOperation: operation);
+            Assert.Equal(expected, WorkflowVariableDefinitions.Combine(variable, [])!.Value.GetRawText());
+            Assert.Equal(expected, WorkflowVariableDefinitions.Combine(variable, [null, null])!.Value.GetRawText());
+        }
     }
 
     [Fact]
@@ -109,7 +114,7 @@ public sealed class WorkflowVariableTests
     }
 
     [Fact]
-    public void Chains_validate_every_leaf_even_when_first_would_ignore_it()
+    public void Chains_validate_every_leaf_output_even_when_first_would_ignore_it()
     {
         var document = Document();
         document = document with { Variables = [document.Variables![0], new("outer", "Outer", "string", "first", [new("combined", "value")])],
@@ -129,22 +134,48 @@ public sealed class WorkflowVariableTests
         var document = Document() with { Steps = [Producer("a", "decision"), decision, Producer("b", "a"), Consumer(source: "outer")],
             Variables = [new("combined", "Issue text", "string", mode, [B("a"), B("b")]), new("outer", "Outer", "string", Sources: [new("combined", "value")])] };
         Assert.True(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
-        // An acyclic conditional source still cannot feed the exit.
-        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { Steps = document.Steps.Select(step => step.Id == "b" ? step with { NextStepId = "consumer" } : step).ToArray() }).IsValid);
-        // A separate entry that cannot visit the feedback producer remains invalid.
-        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { Steps = [.. document.Steps, new("manual", "builtins.start", "consumer", Event: V(new { enabled = true }))] }).IsValid);
+        // Conditional producers contribute only when they have executed.
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document with { Steps = document.Steps.Select(step => step.Id == "b" ? step with { NextStepId = "consumer" } : step).ToArray() }).IsValid);
+        // Another entry can read the variable before any producer has executed.
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document with { Steps = [.. document.Steps, new("manual", "builtins.start", "consumer", Event: V(new { enabled = true }))] }).IsValid);
     }
 
     [Fact]
-    public void Loop_exit_and_conditional_producers_remain_invalid_through_variables()
+    public void Variables_allow_conditional_sources_but_preserve_loop_boundaries()
     {
         var document = Document();
         var decision = new WorkflowDefinitionStep("decision", "builtins.decision", Decision: new(new("literal", "boolean", "exists", Value: V(true)), "a", "consumer"));
-        Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { StartStepId = "decision", Steps = [decision, document.Steps[0], document.Steps[1], document.Steps[2]] }).IsValid);
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document with { StartStepId = "decision", Steps = [decision, document.Steps[0], document.Steps[1], document.Steps[2]] }).IsValid);
         var loop = new WorkflowDefinitionStep("loop", "builtins.loop", "consumer", Loop: new("a", 2, 2));
         Assert.False(CustomTaskDefinitions.ValidateRuntime(document with { StartStepId = "loop", Steps = [loop, document.Steps[0], document.Steps[1] with { NextStepId = "loop", NextStepPort = "return" }, document.Steps[2]] }).IsValid);
         var inside = document with { StartStepId = "loop", Steps = [loop with { NextStepId = "finish" }, .. document.Steps.Take(2), document.Steps[2] with { NextStepId = "loop", NextStepPort = "return" }, new("finish", "builtins.plan")] };
         Assert.True(CustomTaskDefinitions.ValidateRuntime(inside).IsValid);
+    }
+
+    [Theory]
+    [InlineData("string", "\"\"")]
+    [InlineData("number", "0")]
+    [InlineData("boolean", "false")]
+    public async Task Unset_producer_evidence_is_frozen_and_satisfies_required_inputs(string type, string expected)
+    {
+        var document = Document(type) with { StartStepId = "consumer", Steps = [Consumer(type) with { NextStepId = "a" }, Producer("a", "b", type), Producer("b", null, type)] };
+        Assert.True(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
+        var evidence = await WorkflowVariableDefinitions.ResolveAsync(document, new("combined", "value"), binding =>
+            Task.FromResult(new CustomTaskInputProvenance(binding.StepId, binding.OutputName, Guid.Empty, Guid.Empty, null, null, Unavailable: true)));
+        WorkflowVariableDefinitions.ValidatePinnedEvidence([evidence], document, null);
+        var prepared = CustomTaskDefinitions.Prepare(Consumer(type).CustomTask!, new() { IssueUrl = "issue", RepositoryUrl = "repo" }, new Dictionary<string, CustomTaskInputProvenance> { ["result"] = evidence });
+        Assert.Equal(expected, prepared.Inputs["result"].GetRawText());
+        Assert.All(evidence.Variable!.Sources, source => Assert.True(source.Unavailable));
+        Assert.Throws<InvalidOperationException>(() => WorkflowVariableDefinitions.ValidatePinnedEvidence(evidence.Variable.Sources, document, null));
+    }
+
+    [Fact]
+    public void Legacy_empty_variable_evidence_remains_readable()
+    {
+        var variable = new WorkflowDataVariable("empty", "Empty", "string");
+        var evidence = new CustomTaskInputProvenance("empty", "value", Guid.Empty, Guid.Empty, null, null, new(variable, []));
+        WorkflowVariableDefinitions.ValidateEvidence(evidence);
+        Assert.Throws<InvalidOperationException>(() => WorkflowVariableDefinitions.ValidateEvidence(evidence with { Value = V("tampered") }));
     }
 
     [Fact]
@@ -166,14 +197,14 @@ public sealed class WorkflowVariableTests
     }
 
     [Fact]
-    public async Task Absent_variable_uses_consumer_default_and_unused_variable_is_valid()
+    public async Task Unset_variable_overrides_consumer_default_and_unused_variable_is_valid()
     {
         var document = Document() with { Variables = [new("combined", "Combined", "string")] };
         Assert.True(CustomTaskDefinitions.ValidateRuntime(document).IsValid);
         var evidence = await WorkflowVariableDefinitions.ResolveAsync(document, new("combined", "value"), _ => throw new Exception("No producer should load."));
         var settings = Consumer().CustomTask!;
         settings = settings with { Snapshot = settings.Snapshot! with { Inputs = [new("result", "string", true, V("fallback"))] } };
-        Assert.Equal("Use fallback", CustomTaskDefinitions.Prepare(settings, new() { IssueUrl = "issue", RepositoryUrl = "repo" }, new Dictionary<string, CustomTaskInputProvenance> { ["result"] = evidence }).Prompt);
+        Assert.Equal("Use ", CustomTaskDefinitions.Prepare(settings, new() { IssueUrl = "issue", RepositoryUrl = "repo" }, new Dictionary<string, CustomTaskInputProvenance> { ["result"] = evidence }).Prompt);
         Assert.True(new WorkflowDefinitionValidator().Validate(document with { Steps = [new("a", "builtins.plan")], Variables = [new("unused", "Unused", "boolean")] }).IsValid);
     }
 }

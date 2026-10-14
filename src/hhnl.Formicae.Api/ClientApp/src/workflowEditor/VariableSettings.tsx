@@ -50,7 +50,7 @@ export function VariableSettings({ node, nodes, edges, start, tasks, disabled, e
           <option value="">Choose a matching output</option>{candidates.map(candidate => <option key={candidate.value} value={candidate.value}>{candidate.label}</option>)}
         </select></label>
         <button type="button" disabled={disabled || !candidates.some(candidate => candidate.value === selected)} onClick={() => { const [stepId, outputName] = JSON.parse(selected); change({ sources: [...variable.sources, { stepId, outputName }] }); setSelected(""); }}>Add source</button>
-        <p className="muted">Connect the variable's output to a matching task input. Control connections must place every producer before that task.</p>
+        <p className="muted">Connect the variable's output to a matching task input. Before sources run, the variable returns empty text, false or zero for its type.</p>
       </section>
       <details className="optional-settings"><summary>Advanced</summary><label><span>Variable ID</span><input key={node.id} defaultValue={node.id} disabled={disabled} onBlur={event => rename(event.target.value.trim())} /></label>
         {(["x", "y"] as const).map(axis => <label key={axis}><span>Position {axis.toUpperCase()}</span><input type="number" value={Math.round(node.position[axis])} disabled={disabled} onChange={event => move(axis, Number(event.target.value))} /></label>)}

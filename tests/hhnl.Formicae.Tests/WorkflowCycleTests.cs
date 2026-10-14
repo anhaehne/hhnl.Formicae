@@ -124,7 +124,7 @@ public sealed class WorkflowCycleTests
         var (store, workflow, agent) = await Setup(new(DefaultWorkflowDefinitions.V1Alpha3Schema, "consumer", [consumer, Script("producer", "consumer")],
             Variables: [new("feedback", "Feedback", "string", Sources: [new("producer", "output")])]));
         await Restart(store, agent).AdvanceAsync(workflow, default);
-        Assert.Equal("Use initial", agent.Tasks[^1].Prompt);
+        Assert.Equal("Use ", agent.Tasks[^1].Prompt);
         var first = (await store.GetTaskRunExecutionAsync(workflow.Id, "consumer", 1, default))!;
         var initial = JsonSerializer.Deserialize<PreparedCustomTaskExecution>(first.CustomTaskExecutionJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.True(initial.Provenance!["text"].Variable!.Sources[0].Unavailable);

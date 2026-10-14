@@ -9,7 +9,7 @@ public sealed partial class WorkflowOrchestrator
         Workflow workflow, TaskRun run, WorkflowDefinitionStep step, WorkflowDefinitionDocument document, CancellationToken token)
     {
         var provenance = new Dictionary<string, CustomTaskInputProvenance>(StringComparer.Ordinal);
-        async Task<CustomTaskInputProvenance> Load(CustomTaskInputBinding binding)
+        async Task<CustomTaskInputProvenance> Load(CustomTaskInputBinding binding, bool variableSource)
         {
             var producer = document.Steps.FirstOrDefault(item => item.Id == binding.StepId)
                 ?? (document.Triggers?.Any(evt => evt.Id == binding.StepId && evt.Type == WorkflowTriggerType.DevOpsIssueCreated) == true
@@ -22,6 +22,8 @@ public sealed partial class WorkflowOrchestrator
             if (!eventSource && workflow.CycleExecutionJson is not null && (visit is null or 0))
                 return new(producer.Id, binding.OutputName, Guid.Empty, Guid.Empty, null, null, Unavailable: true);
             var source = await store.GetTaskRunExecutionAsync(workflow.Id, producer.Id, visit, token);
+            if (variableSource && source is not { Status: TaskRunStatus.Succeeded })
+                return new(producer.Id, binding.OutputName, Guid.Empty, Guid.Empty, null, null, Unavailable: true);
             if (source is not { Status: TaskRunStatus.Succeeded, StructuredOutputsJson: not null, ExecutionAttemptId: not null })
                 throw new InvalidOperationException($"Bound input requires successful validated outputs from '{producer.Id}'.");
             var outputs = CustomTaskDefinitions.ParseProducerOutputs(producer, source.StructuredOutputsJson);
@@ -29,7 +31,7 @@ public sealed partial class WorkflowOrchestrator
                 outputs.TryGetValue(binding.OutputName, out var value) ? value : null);
         }
         foreach (var (name, binding) in CustomTaskDefinitions.BindingsFor(step))
-            provenance[name] = await WorkflowVariableDefinitions.ResolveAsync(document, binding, Load);
+            provenance[name] = await WorkflowVariableDefinitions.ResolveAsync(document, binding, source => Load(source, document.Variables?.Any(variable => variable.Id == binding.StepId) == true));
         return provenance;
     }
 

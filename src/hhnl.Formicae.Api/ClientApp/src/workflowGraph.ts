@@ -211,10 +211,7 @@ export function eligibleProducer(nodes: WorkflowStepNode[], edges: Edge[], start
   };
   const entries = [start, ...nodes.filter(node => isStartUses(node.data.uses)).map(node => node.id)].filter(Boolean);
   if (nodes.find(node => node.id === producer)?.data.uses === "github.issue-created") return reach(producer) && !entries.some(entry => entry !== producer && reach(entry));
-  // Optional feedback remains available after leaving its upstream control cycle.
-  if (variableLeaf && path(producer, producer) && reach(producer) &&
-      (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) &&
-      !entries.some(entry => reach(entry) && !reach(entry, undefined, producer))) return true;
+  if (variableLeaf) return !loops.has(producer) || loops.get(producer) === loops.get(consumer);
   const graph = nodes.some(node => node.data.uses !== parallelUses && control.filter(edge => edge.source === node.id && edge.sourceHandle === "next").length > 1);
   return producer !== consumer && (!loops.has(producer) || loops.get(producer) === loops.get(consumer)) && reach(producer) && (graph ? !entries.some(entry => reach(entry) && !reach(entry, undefined, producer)) : !entries.some(entry => reach(entry, producer)));
 }

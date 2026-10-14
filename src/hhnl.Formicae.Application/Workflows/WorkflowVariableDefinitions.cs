@@ -63,7 +63,7 @@ public static class WorkflowVariableDefinitions
         return errors;
     }
 
-    // Keep control ancestry checks on all leaf producers, including values ignored by First/Override.
+    // Validate every leaf type and loop boundary, including values ignored by First/Override.
     public static IEnumerable<CustomTaskInputBinding> Expand(WorkflowDefinitionDocument document, CustomTaskInputBinding binding)
     {
         var variable = document.Variables?.FirstOrDefault(item => item.Id == binding?.StepId);
@@ -75,7 +75,13 @@ public static class WorkflowVariableDefinitions
     public static JsonElement? Combine(WorkflowDataVariable variable, IEnumerable<JsonElement?> sources)
     {
         var values = sources.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
-        if (values.Length == 0) return null;
+        if (values.Length == 0) return variable.ValueType switch
+        {
+            "string" => JsonSerializer.SerializeToElement(""),
+            "number" => JsonSerializer.SerializeToElement(0),
+            "boolean" => JsonSerializer.SerializeToElement(false),
+            _ => throw new InvalidOperationException("Invalid variable type.")
+        };
         if (values.Any(value => variable.ValueType switch
         {
             "string" => value.ValueKind != JsonValueKind.String,
@@ -146,12 +152,14 @@ public static class WorkflowVariableDefinitions
                 throw new InvalidOperationException("Frozen variable source order does not match its configuration.");
             ValidateEvidence(actual);
         }
+        // Older preparations recorded an absent value for empty variables. Preserve their frozen inputs on retry.
+        if (source.Value is null && variable.Sources.All(item => item.Value is null)) return;
         var result = Combine(variable.Configuration, variable.Sources.Select(item => item.Value));
         if (JsonSerializer.Serialize(result, Json) != JsonSerializer.Serialize(source.Value, Json))
             throw new InvalidOperationException("Frozen variable value does not match its source evidence.");
     }
 
-    public static void ValidatePinnedEvidence(IEnumerable<CustomTaskInputProvenance> sources, WorkflowDefinitionDocument document, int? iteration)
+    public static void ValidatePinnedEvidence(IEnumerable<CustomTaskInputProvenance> sources, WorkflowDefinitionDocument document, int? iteration, bool variableSource = false)
     {
         foreach (var source in sources)
         {
@@ -161,14 +169,18 @@ public static class WorkflowVariableDefinitions
                 var pinned = document.Variables?.FirstOrDefault(item => item.Id == source.StepId);
                 if (pinned is null || JsonSerializer.Serialize(pinned, Json) != JsonSerializer.Serialize(variable.Configuration, Json))
                     throw new InvalidOperationException("Prepared variable configuration does not match the pinned definition.");
-                ValidatePinnedEvidence(variable.Sources, document, iteration);
+                ValidatePinnedEvidence(variable.Sources, document, iteration, variableSource: true);
             }
             else
             {
                 if (document.Variables?.Any(item => item.Id == source.StepId) == true)
                     throw new InvalidOperationException("Variable binding is missing its frozen source evidence.");
-                if (source.Unavailable && !WorkflowCycleDefinitions.HasCycles(document))
-                    throw new InvalidOperationException("Unavailable producer evidence requires a cyclic execution.");
+                if (source.Unavailable)
+                {
+                    if (!variableSource && !WorkflowCycleDefinitions.HasCycles(document))
+                        throw new InvalidOperationException("Unavailable producer evidence requires a variable or cyclic execution.");
+                    continue;
+                }
                 if (WorkflowCycleDefinitions.HasCycles(document)) continue;
                 var loop = document.Loops?.FirstOrDefault(item => item.BodyStepIds.Contains(source.StepId));
                 if (source.LoopIteration != (loop is null ? null : iteration))
