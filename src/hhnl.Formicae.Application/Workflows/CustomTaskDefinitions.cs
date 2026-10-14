@@ -206,11 +206,11 @@ public static class CustomTaskDefinitions
             : step.Uses == WorkflowTemplateDefinitions.Uses ? WorkflowTemplateDefinitions.Outputs : WorkflowWaitRegistry.Default.TryGet(step.Uses, out var wait) ? wait.Outputs : step.Uses == WorkflowExecutionExtensions.ScriptUses ? [new("output", "string", true)] : step.CustomTask?.Snapshot?.Outputs ?? [];
 
     public static IReadOnlyList<CustomTaskInputDefinition> InputSchemaFor(WorkflowDefinitionStep step) =>
-        step.Uses == WorkflowTemplateDefinitions.Uses ? step.Template?.Inputs ?? [] : step.Decision?.InputType is { } type ? [new("value", type, true)] : step.Wait is not null ? [new("issueNumber", "number", true)] : step.Uses == CreateBranchDefinitions.Uses ? CreateBranchDefinitions.Inputs : step.Uses == IssueCommentDefinitions.Uses ? IssueCommentDefinitions.Inputs : step.CustomTask?.Snapshot?.Inputs ?? [];
+        step.Uses == WorkflowTemplateDefinitions.Uses ? step.Template?.Inputs ?? [] : step.Decision?.InputType is { } type ? [new("value", type, true)] : step.Wait is not null ? [new("issueNumber", "number", true)] : step.Uses == CreateBranchDefinitions.Uses ? CreateBranchDefinitions.Inputs : step.Uses == IssueLabelsDefinitions.Uses ? IssueLabelsDefinitions.Inputs : step.Uses == IssueCommentDefinitions.Uses ? IssueCommentDefinitions.Inputs : step.CustomTask?.Snapshot?.Inputs ?? [];
     public static IReadOnlyDictionary<string, CustomTaskInputBinding> BindingsFor(WorkflowDefinitionStep step) =>
         step.Decision?.InputBinding is { } decisionBinding ? new Dictionary<string, CustomTaskInputBinding> { ["value"] = decisionBinding } :
         step.Wait?.IssueNumberBinding is { } waitBinding ? new Dictionary<string, CustomTaskInputBinding> { ["issueNumber"] = waitBinding } :
-        (step.Uses == WorkflowTemplateDefinitions.Uses ? step.Template?.Bindings : step.Uses == CreateBranchDefinitions.Uses ? step.CreateBranch?.Bindings : step.Uses == IssueCommentDefinitions.Uses ? step.IssueComment?.Bindings : step.CustomTask?.Bindings) ?? new Dictionary<string, CustomTaskInputBinding>();
+        (step.Uses == WorkflowTemplateDefinitions.Uses ? step.Template?.Bindings : step.Uses == CreateBranchDefinitions.Uses ? step.CreateBranch?.Bindings : step.Uses == IssueLabelsDefinitions.Uses ? step.IssueLabels?.Bindings : step.Uses == IssueCommentDefinitions.Uses ? step.IssueComment?.Bindings : step.CustomTask?.Bindings) ?? new Dictionary<string, CustomTaskInputBinding>();
 
     public static IReadOnlyDictionary<string, JsonElement> ParseProducerOutputs(WorkflowDefinitionStep step, string json)
     {

@@ -7,6 +7,8 @@ internal interface IGitHubApi
     Task<Issue> GetIssueAsync(string owner, string repository, int number);
     Task<IReadOnlyList<Issue>> ListIssuesWithLabelAsync(string owner, string repository, string label);
     Task<IReadOnlyList<IssueComment>> GetIssueCommentsAsync(string owner, string repository, int number);
+    Task AddIssueLabelsAsync(string owner, string repository, int number, string[] labels)
+        => throw new NotSupportedException("Adding issue labels is unavailable.");
     Task CreateIssueCommentAsync(string owner, string repository, int number, string body);
     Task UpdateIssueCommentAsync(string owner, string repository, long commentId, string body);
     Task ReactToIssueAsync(string owner, string repository, int number, string reaction);
@@ -40,6 +42,9 @@ internal sealed class OctokitGitHubApi(GitHubClient client) : IGitHubApi
 
     public Task<IReadOnlyList<IssueComment>> GetIssueCommentsAsync(string owner, string repository, int number)
         => client.Issue.Comment.GetAllForIssue(owner, repository, number);
+
+    public async Task AddIssueLabelsAsync(string owner, string repository, int number, string[] labels)
+        => await client.Issue.Labels.AddToIssue(owner, repository, number, labels);
 
     public async Task CreateIssueCommentAsync(string owner, string repository, int number, string body)
         => await client.Issue.Comment.Create(owner, repository, number, body);

@@ -1,4 +1,4 @@
-import { variableUses, issueCommentUses, templateUses } from "../workflowData";
+import { variableUses, issueLabelsUses, issueCommentUses, templateUses } from "../workflowData";
 import { eventDefinitions } from "../workflowEvents";
 import { createBranchUses, scriptUses, agentTaskUses, customTaskUses, endUses, loopUses, parallelUses, decisionUses } from "../workflowGraph";
 export const taskCatalog = [
@@ -6,6 +6,7 @@ export const taskCatalog = [
   { uses: templateUses, title: "Template", icon: "{ }", description: "Render text with Scriban using any number of connected data inputs." },
   { uses: endUses, title: "End", icon: "◉", description: "Complete the workflow and stop all parallel work and event waits." },
   { uses: variableUses, title: "Variable", icon: "⊕", description: "Combine typed data with Aggregate, First or Override." },
+  { uses: issueLabelsUses, title: "GitHub: Add issue labels", icon: "⌑", description: "Add labels to an issue, preserving existing labels." },
   { uses: issueCommentUses, title: "Add issue comment", icon: "☰", description: "Post text to an issue in the connected GitHub repository." },
   { uses: scriptUses, title: "Script", icon: ">_", description: "Run a bounded shell script and retain output and exit code." },
   { uses: agentTaskUses, title: "Agent task", icon: "✧", description: "Run an agent prompt with a persona, typed inputs and outputs." },

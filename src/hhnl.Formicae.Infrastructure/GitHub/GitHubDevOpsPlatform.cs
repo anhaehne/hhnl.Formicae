@@ -27,6 +27,12 @@ public sealed class GitHubDevOpsPlatform(IGitHubClientFactory clientFactory) : I
         return (await api.GetIssueCommentsAsync(issue.Owner, issue.Repository, issue.Number)).Select(ToComment).ToArray();
     }
 
+    public async Task AddIssueLabelsAsync(DevOpsIssueReference issue, IReadOnlyList<string> labels, CancellationToken cancellationToken)
+    {
+        var api = await CreateApiAsync(issue.RepositoryUrl, cancellationToken);
+        await api.AddIssueLabelsAsync(issue.Owner, issue.Repository, issue.Number, labels.ToArray());
+    }
+
     public async Task CreateIssueCommentAsync(DevOpsIssueReference issue, string body, CancellationToken cancellationToken)
     {
         var api = await CreateApiAsync(issue.RepositoryUrl, cancellationToken);

@@ -13,6 +13,7 @@ public sealed class WorkflowDefinitionValidator
         [CustomTaskDefinitions.AgentUses] = TaskRunKind.Custom,
         [WorkflowExecutionExtensions.ScriptUses] = TaskRunKind.Script,
         [IssueCommentDefinitions.Uses] = TaskRunKind.AddIssueComment,
+        [IssueLabelsDefinitions.Uses] = TaskRunKind.AddIssueLabels,
         [CreateBranchDefinitions.Uses] = TaskRunKind.CreateBranch,
         [WorkflowTemplateDefinitions.Uses] = TaskRunKind.Template
     };
@@ -56,6 +57,7 @@ public sealed class WorkflowDefinitionValidator
         {
             errors.AddRange(WorkflowExecutionExtensions.ValidateStep(step).Errors);
             errors.AddRange(IssueCommentDefinitions.ValidateStep(step));
+            errors.AddRange(IssueLabelsDefinitions.ValidateStep(step));
             errors.AddRange(CreateBranchDefinitions.ValidateStep(step));
             errors.AddRange(WorkflowTemplateDefinitions.ValidateStep(step));
             errors.AddRange(WorkflowEndDefinitions.ValidateStep(step));
@@ -314,6 +316,7 @@ public sealed class WorkflowDefinitionValidator
             TaskRunKind.Custom => CustomTaskDefinitions.Uses,
             TaskRunKind.Script => WorkflowExecutionExtensions.ScriptUses,
             TaskRunKind.AddIssueComment => IssueCommentDefinitions.Uses,
+            TaskRunKind.AddIssueLabels => IssueLabelsDefinitions.Uses,
             TaskRunKind.CreateBranch => CreateBranchDefinitions.Uses,
             TaskRunKind.Template => WorkflowTemplateDefinitions.Uses,
             TaskRunKind.Wait => hhnl.Formicae.Application.Integrations.GitHubIssueCommentWaitDefinition.Uses,

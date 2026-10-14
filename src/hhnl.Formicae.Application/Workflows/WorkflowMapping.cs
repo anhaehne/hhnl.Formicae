@@ -37,6 +37,8 @@ public static class WorkflowMapping
             run.StructuredOutputsJson is null ? null : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(run.StructuredOutputsJson),
             run.ExecutionAttemptId, ExitCode: run.ExitCode, IssueCommentExecution: run.Kind == TaskRunKind.AddIssueComment && run.CustomTaskExecutionJson is not null
                 ? JsonSerializer.Deserialize<PreparedIssueCommentExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
+            IssueLabelsExecution: run.Kind == TaskRunKind.AddIssueLabels && run.CustomTaskExecutionJson is not null
+                ? JsonSerializer.Deserialize<PreparedIssueLabelsExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
             CreateBranchExecution: run.Kind == TaskRunKind.CreateBranch && run.CustomTaskExecutionJson is not null
                 ? JsonSerializer.Deserialize<PreparedCreateBranchExecution>(run.CustomTaskExecutionJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
             TemplateExecution: run.Kind == TaskRunKind.Template && run.CustomTaskExecutionJson is not null

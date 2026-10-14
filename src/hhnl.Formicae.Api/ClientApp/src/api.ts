@@ -54,6 +54,8 @@ export type WorkflowEventSettings = { enabled: boolean; repositoryIds?: string[]
 export type WorkflowTemplateSettings = { template: string; inputs: CustomTaskInputDefinition[]; bindings?: Record<string, CustomTaskInputBinding> };
 export type WorkflowCreateBranchSettings = { repositoryId: string; sourceBranch: string; branchName: string; inputs?: Record<string, unknown>; bindings?: Record<string, CustomTaskInputBinding> };
 export type PreparedCreateBranchExecution = { repositoryUrl: string; sourceBranch: string; branchName: string; sourceSha: string };
+export type WorkflowIssueLabelsSettings = WorkflowIssueCommentSettings;
+export type PreparedIssueLabelsExecution = PreparedIssueCommentExecution;
 export type WorkflowIssueCommentSettings = { inputs?: Record<string, string | number | boolean>; bindings?: Record<string, CustomTaskInputBinding> };
 export type WorkflowEventDescriptor = { outputs?: CustomTaskOutputDefinition[] | null; uses: string; title: string; description: string; provider?: string | null; manual: boolean; webhook: boolean; legacy: boolean; callable?: boolean; fields: { name: string; label: string; kind: string; required: boolean }[] };
 export const listWorkflowEventDefinitions = () => send<WorkflowEventDescriptor[]>("/api/workflow-events");
@@ -100,7 +102,7 @@ export type WorkflowDefinitionStep = {
   environmentId?: string | null;
   environmentSnapshot?: EnvironmentSnapshot | null;
   customTask?: WorkflowCustomTaskSettings | null;
-  template?: WorkflowTemplateSettings | null; script?: WorkflowScriptSettings | null; issueComment?: WorkflowIssueCommentSettings | null; createBranch?: WorkflowCreateBranchSettings | null;
+  template?: WorkflowTemplateSettings | null; script?: WorkflowScriptSettings | null; issueLabels?: WorkflowIssueLabelsSettings | null; issueComment?: WorkflowIssueCommentSettings | null; createBranch?: WorkflowCreateBranchSettings | null;
   capabilities?: string[] | null;
   secretReferences?: StepSecretReference[] | null;
   trigger?: WorkflowTriggerNodeSettings | null;
@@ -181,7 +183,7 @@ export class ApiError extends Error {
 
 export type PreparedIssueCommentExecution = { inputs: Record<string, string | number | boolean>; provenance: Record<string, CustomTaskInputProvenance> };
 export type TaskRun = {
-  issueCommentExecution?: PreparedIssueCommentExecution | null; createBranchExecution?: PreparedCreateBranchExecution | null;
+  issueLabelsExecution?: PreparedIssueLabelsExecution | null; issueCommentExecution?: PreparedIssueCommentExecution | null; createBranchExecution?: PreparedCreateBranchExecution | null;
   templateExecution?: PreparedIssueCommentExecution | null;
   id: string;
   workflowId: string;

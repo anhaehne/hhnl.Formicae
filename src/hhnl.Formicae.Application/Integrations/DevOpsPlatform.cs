@@ -15,6 +15,9 @@ public interface IDevOpsPlatform
 
     Task<IReadOnlyList<DevOpsComment>> ListIssueCommentsAsync(DevOpsIssueReference issue, CancellationToken cancellationToken);
 
+    Task AddIssueLabelsAsync(DevOpsIssueReference issue, IReadOnlyList<string> labels, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Adding issue labels is unavailable for this provider.");
+
     Task CreateIssueCommentAsync(DevOpsIssueReference issue, string body, CancellationToken cancellationToken);
 
     Task UpdateIssueCommentAsync(DevOpsRepositoryReference repository, string commentId, string body, CancellationToken cancellationToken);

@@ -96,6 +96,7 @@ public sealed partial class WorkflowOrchestrator
                 TaskRunKind.CreateBranch => await RunCreateBranchTaskAsync(workflow, step, token),
                 TaskRunKind.Template => await RunTemplateTaskAsync(workflow, step, token),
                 TaskRunKind.AddIssueComment => await RunIssueCommentTaskAsync(workflow, step, token),
+                TaskRunKind.AddIssueLabels => await RunIssueLabelsTaskAsync(workflow, step, token),
                 _ => false
             };
             if (workflow.Status is WorkflowStatus.Failed or WorkflowStatus.Canceled or WorkflowStatus.Completed) return true;

@@ -30,7 +30,8 @@ public enum WorkflowStep
     Wait,
     AddIssueComment,
     CreateBranch,
-    Template
+    Template,
+    AddIssueLabels
 }
 
 public enum TaskRunKind
@@ -46,7 +47,8 @@ public enum TaskRunKind
     Event,
     End,
     CreateBranch,
-    Template
+    Template,
+    AddIssueLabels
 }
 
 public enum TaskRunStatus
@@ -178,7 +180,8 @@ public sealed record WorkflowDefinitionStep(
     [property: JsonPropertyName("issueComment")] WorkflowIssueCommentSettings? IssueComment = null,
     [property: JsonPropertyName("wait")] WorkflowWaitSettings? Wait = null,
     [property: JsonPropertyName("createBranch")] WorkflowCreateBranchSettings? CreateBranch = null,
-    [property: JsonPropertyName("template")] WorkflowTemplateSettings? Template = null);
+    [property: JsonPropertyName("template")] WorkflowTemplateSettings? Template = null,
+    [property: JsonPropertyName("issueLabels")] WorkflowIssueLabelsSettings? IssueLabels = null);
 
 public sealed record WorkflowTriggerNodeSettings(
     WorkflowTriggerType Type, bool Enabled, IReadOnlyList<Guid> RepositoryIds,
@@ -506,7 +509,7 @@ public sealed record TaskRunResponse(
     string DefinitionStepId,
     int? LoopIteration,
     PreparedCustomTaskExecution? CustomTaskExecution = null, IReadOnlyDictionary<string, JsonElement>? StructuredOutputs = null,
-    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null, PreparedIssueCommentExecution? IssueCommentExecution = null, PreparedCreateBranchExecution? CreateBranchExecution = null, PreparedTemplateExecution? TemplateExecution = null);
+    Guid? ExecutionAttemptId = null, int AttemptCount = 1, int? ExitCode = null, PreparedIssueCommentExecution? IssueCommentExecution = null, PreparedCreateBranchExecution? CreateBranchExecution = null, PreparedTemplateExecution? TemplateExecution = null, PreparedIssueLabelsExecution? IssueLabelsExecution = null);
 
 public sealed record WorkflowLoopIterationResponse(
     Guid Id,
